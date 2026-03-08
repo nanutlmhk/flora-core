@@ -1,0 +1,57 @@
+node_modules/
+
+# Local/editor
+.claude/
+.vscode/settings.json
+.idea/
+*.suo
+*.swp
+*.user
+
+# Build output / installers
+dist/
+dist-electron/
+dist-hidro/
+deploy-artifacts/
+*.zip
+*.blockmap
+builder-debug.yml
+builder-effective-config.yaml
+
+# Runtime databases
+*.db
+*.db-shm
+*.db-wal
+data/
+backend/flora.db*
+ivy/ivy.db*
+
+# Logs / temp
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+result.json
+
+# Python / .NET generated
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+obj/
+bin/
+
+# Local config and captures
+*.local
+ivy/config.local.json
+ivy/DataExportVSC.json
+ivy/drgmonudp/sessions/
+
+# OS / stray local files
+.DS_Store
+Thumbs.db
+nul
+Intake

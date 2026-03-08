@@ -1,0 +1,61 @@
+{
+  "appId": "com.aidas.hidro",
+  "productName": "Hidro",
+  "toolsets": {
+    "winCodeSign": "1.1.0"
+  },
+  "asar": true,
+  "asarUnpack": [
+    "ivy-tray/assets/**/*"
+  ],
+  "extraMetadata": {
+    "name": "hidro",
+    "main": "ivy-tray/main.cjs",
+    "description": "Hidro"
+  },
+  "files": [
+    "ivy-tray/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "ivy",
+      "to": "ivy",
+      "filter": [
+        "**/*",
+        "!reference/**",
+        "!service/**",
+        "!ges5/**",
+        "!flora.db*",
+        "!result.json",
+        "!DataExportVSC*",
+        "!*.md",
+        "!*.pdf",
+        "!logs/**"
+      ]
+    }
+  ],
+  "directories": {
+    "output": "dist-hidro"
+  },
+  "win": {
+    "icon": "ivy-tray/assets/hidro-app.ico",
+    "signAndEditExecutable": true,
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "Hidro-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "ivy-tray/assets/hidro-app.ico",
+    "uninstallerIcon": "ivy-tray/assets/hidro-app.ico"
+  }
+}

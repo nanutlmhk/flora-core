@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hidro</title>
+    <style>
+      :root {
+        --bg: #071526;
+        --card: #0f2742;
+        --line: #2b4e74;
+        --text: #dcecff;
+        --muted: #8eb2d7;
+        --ok: #22c55e;
+        --bad: #ef4444;
+        --warn: #f59e0b;
+        --btn: #123352;
+        --btnActive: #1f4f80;
+        --aqua: #4ed4ff;
+        --teal: #2ec7b3;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background:
+          radial-gradient(90% 80% at 8% 0%, #1d4872a6 0%, #1d487200 60%),
+          radial-gradient(80% 70% at 92% 0%, #1f6c75a6 0%, #1f6c7500 58%),
+          linear-gradient(160deg, #081b32 0%, var(--bg) 45%, #061221 100%);
+        color: var(--text);
+      }
+
+      .wrap {
+        height: 100%;
+        padding: 12px;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+      }
+
+      .card {
+        background: linear-gradient(180deg, #14395f 0%, var(--card) 100%);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        box-shadow: 0 8px 20px #03112266;
+      }
+
+      .status-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        text-shadow: 0 0 16px #40ccff33;
+      }
+
+      .status-line {
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--warn);
+      }
+
+      .ok { background: var(--ok); }
+      .bad { background: var(--bad); }
+      .warn { background: var(--warn); }
+
+      .sub {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .svc-pill {
+        width: 100%;
+        text-align: right;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .svc-pill strong {
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid #2f638f;
+        color: var(--text);
+        background: var(--btn);
+        border-radius: 8px;
+        padding: 7px 12px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: border-color 120ms ease, background-color 120ms ease;
+      }
+
+      button:hover {
+        border-color: #69b6eb;
+        background: #184063;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .main {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+      }
+
+      .tabs { display: flex; gap: 8px; }
+      .tab-btn { min-width: 126px; }
+
+      .tab-btn.active {
+        background: var(--btnActive);
+        border-color: var(--aqua);
+        box-shadow: inset 0 0 0 1px #8edcff4a;
+      }
+
+      .pane {
+        display: none;
+        min-height: 0;
+      }
+
+      .pane.active {
+        display: block;
+        height: 100%;
+      }
+
+      .summary-grid {
+        height: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .tile {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #0a2139 0%, #0a1f34 100%);
+        border-radius: 9px;
+        padding: 10px;
+      }
+
+      .title {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .device-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .dev-icon {
+        width: 24px;
+        height: 24px;
+        opacity: 0.98;
+        flex: 0 0 auto;
+      }
+
+      .state {
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .state-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--bad);
+      }
+
+      .state-dot.online { background: var(--ok); }
+
+      .state-text {
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .meta {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .last-main {
+        font-size: 28px;
+        font-weight: 700;
+        margin-top: 10px;
+        color: #c9f1ff;
+      }
+
+      .mono {
+        margin-top: 8px;
+        border: 1px dashed #2e658f;
+        border-radius: 8px;
+        padding: 8px;
+        color: #d7f2ff;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        background: #0a2138;
+      }
+
+      .serial-controls {
+        margin-top: 8px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+      }
+
+      .serial-select {
+        border: 1px solid #2f638f;
+        color: var(--text);
+        background: #102b45;
+        border-radius: 8px;
+        padding: 7px 10px;
+        font-size: 12px;
+        outline: none;
+      }
+
+      .serial-select:focus { border-color: #69b6eb; }
+
+      .feed-list {
+        height: 100%;
+        display: grid;
+        gap: 10px;
+      }
+
+      .feed-row {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #0b223b 0%, #0a1f34 100%);
+        border-radius: 9px;
+        padding: 10px;
+      }
+
+      .feed-row strong {
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .feed-meta {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .feed-latest {
+        margin-top: 4px;
+        color: #d8f4ff;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
+      }
+
+
+      .runtime-grid {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+      }
+
+      .runtime-btns {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .runtime-log-tile {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        gap: 8px;
+      }
+
+      .runtime-log-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .runtime-log-tools {
+        display: flex;
+        gap: 8px;
+      }
+
+      .runtime-log-box {
+        margin: 0;
+        border: 1px solid var(--line);
+        background: #081a2d;
+        color: #cde9ff;
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.35;
+        overflow: auto;
+        min-height: 180px;
+        white-space: pre-wrap;
+      }      .brand-mark {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        margin-right: 8px;
+        border-radius: 50% 50% 60% 60%;
+        background: linear-gradient(180deg, var(--aqua), var(--teal));
+        box-shadow: 0 0 10px #40d2ff80;
+        transform: rotate(8deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="status-head">
+          <div>
+            <h1 id="appTitle"><span class="brand-mark"></span>Hidro</h1>
+            <div class="status-line">
+              <span id="dot" class="dot"></span>
+              <span id="statusText">Checking...</span>
+            </div>
+            <div id="statusSub" class="sub"></div>
+          </div>
+          <div class="btns">
+            <div id="svcState" class="svc-pill">Feed Service: <strong>checking...</strong></div>
+            <button id="svcStartBtn" disabled>Start</button>
+            <button id="svcStopBtn" disabled>Stop</button>
+            <button id="svcRestartBtn" disabled>Restart</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card main">
+        <div class="tabs">
+          <button id="tabSummary" class="tab-btn active">Summary</button>
+          <button id="tabFeed" class="tab-btn">Feed Details</button>
+        </div>
+
+        <div id="paneSummary" class="pane active">
+          <div class="summary-grid">
+            <div class="tile">
+              <div class="title device-title"><img class="dev-icon" src="assets/icon-patient-monitor.svg" alt="" />Patient Monitor</div>
+              <div class="state"><span id="pmDot" class="state-dot"></span><span id="pmStatus" class="state-text">Offline</span></div>
+              <div id="pmMeta" class="meta">HL7: n/a</div>
+              <div id="pmFeed" class="meta">Ping: n/a</div>
+            </div>
+
+            <div class="tile">
+              <div class="title device-title"><img class="dev-icon" src="assets/icon-anesthesia-machine.svg" alt="" />Anesthesia Machine</div>
+              <div class="state"><span id="amDot" class="state-dot"></span><span id="amStatus" class="state-text">Offline</span></div>
+              <div id="amMeta" class="meta">GE750: n/a</div>
+              <div class="serial-controls">
+                <select id="comSelect" class="serial-select" disabled>
+                  <option value="AUTO">Auto</option>
+                </select>
+                <button id="comApplyBtn" disabled>Apply</button>
+              </div>
+            </div>
+
+            <div class="tile">
+              <div class="title device-title"><img class="dev-icon" src="assets/icon-infusion-pump.svg" alt="" />Infusion Pump</div>
+              <div class="state"><span id="pumpDot" class="state-dot"></span><span id="pumpStatus" class="state-text">Offline</span></div>
+              <div id="pumpMeta" class="meta">Last Seen: n/a</div>
+            </div>
+
+            <div class="tile">
+              <div class="title">Last Data</div>
+              <div id="lastDataAge" class="last-main">n/a</div>
+              <div id="lastDataLine" class="mono">No observation yet</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="paneFeed" class="pane">
+          <div id="feedList" class="feed-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const base = (params.get("base") || "http://127.0.0.1:3000").replace(/\/+$/, "");
+      const appName = params.get("app") || "Hidro";
+      const testMode = params.get("test") === "1";
+
+      document.title = appName;
+      document.getElementById("appTitle").innerHTML = `<span class="brand-mark"></span>${appName}`;
+
+      const el = {
+        dot: document.getElementById("dot"),
+        statusText: document.getElementById("statusText"),
+        statusSub: document.getElementById("statusSub"),
+
+        pmStatus: document.getElementById("pmStatus"),
+        amStatus: document.getElementById("amStatus"),
+        pumpStatus: document.getElementById("pumpStatus"),
+
+        pmDot: document.getElementById("pmDot"),
+        amDot: document.getElementById("amDot"),
+        pumpDot: document.getElementById("pumpDot"),
+
+        pmMeta: document.getElementById("pmMeta"),
+        pmFeed: document.getElementById("pmFeed"),
+        amMeta: document.getElementById("amMeta"),
+        pumpMeta: document.getElementById("pumpMeta"),
+
+        lastDataAge: document.getElementById("lastDataAge"),
+        lastDataLine: document.getElementById("lastDataLine"),
+
+        comSelect: document.getElementById("comSelect"),
+        comApplyBtn: document.getElementById("comApplyBtn"),
+        svcState: document.getElementById("svcState"),
+        svcStartBtn: document.getElementById("svcStartBtn"),
+        svcStopBtn: document.getElementById("svcStopBtn"),
+        svcRestartBtn: document.getElementById("svcRestartBtn"),
+
+        feedList: document.getElementById("feedList"),
+      };
+
+      const ICON_BY_DEVICE = {
+        patient_monitor: "assets/icon-patient-monitor.svg",
+        anesthesia_machine: "assets/icon-anesthesia-machine.svg",
+        infusion_pump: "assets/icon-infusion-pump.svg",
+      };
+
+      function age(ts) {
+        if (!ts) return "n/a";
+        const sec = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
+        if (sec < 60) return `${sec}s`;
+        const min = Math.floor(sec / 60);
+        if (min < 60) return `${min}m`;
+        return `${Math.floor(min / 60)}h`;
+      }
+
+      function setStateIndicator(dotEl, statusEl, online) {
+        dotEl.className = `state-dot ${online ? "online" : ""}`;
+        statusEl.textContent = online ? "Online" : "Offline";
+      }
+
+      function setStatus(mode, text, sub) {
+        el.dot.className = `dot ${mode}`;
+        el.statusText.textContent = text;
+        el.statusSub.textContent = sub || "";
+      }
+
+      function buildLogicalMap(data) {
+        const map = {
+          patient_monitor: { online: false, last_seen_ts: null, latest: null, label: "Patient Monitor" },
+          anesthesia_machine: { online: false, last_seen_ts: null, latest: null, label: "Anesthesia Machine" },
+          infusion_pump: { online: false, last_seen_ts: null, latest: null, label: "Infusion Pump" },
+        };
+
+        const rows = Array.isArray(data?.logical_devices) ? data.logical_devices : [];
+        for (const row of rows) {
+          const id = String(row?.id || "");
+          if (!Object.prototype.hasOwnProperty.call(map, id)) continue;
+          map[id] = {
+            ...map[id],
+            online: Boolean(row?.is_online),
+            last_seen_ts: row?.last_seen_ts || null,
+            latest: row?.latest_observation || null,
+          };
+        }
+
+        if (testMode && data?.liveagent?.online) {
+          map.patient_monitor.online = true;
+          map.anesthesia_machine.online = true;
+        }
+
+        return map;
+      }
+
+      function renderFeedDetails(map) {
+        const order = ["patient_monitor", "anesthesia_machine", "infusion_pump"];
+        el.feedList.innerHTML = order.map((k) => {
+          const d = map[k];
+          const icon = ICON_BY_DEVICE[k] || "";
+          const latest = d.latest
+            ? `${d.latest.ivy_param || d.latest.raw_code}: ${d.latest.value ?? "-"} ${d.latest.unit || ""}`.trim()
+            : "No value";
+
+          return `
+            <div class="feed-row">
+              <strong class="device-title"><img class="dev-icon" src="${icon}" alt="" />${d.label}</strong>
+              <div class="feed-meta">Status: ${d.online ? "Online" : "Offline"} | Last Seen: ${age(d.last_seen_ts)}</div>
+              <div class="feed-latest">${latest}</div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function setServiceControlsDisabled(disabled) {
+        el.svcStartBtn.disabled = disabled;
+        el.svcStopBtn.disabled = disabled;
+        el.svcRestartBtn.disabled = disabled;
+      }
+
+      async function refreshFeedServiceState() {
+        if (!window.hidroNode || typeof window.hidroNode.getStatus !== "function") {
+          el.svcState.innerHTML = `Feed Service: <strong>unavailable</strong>`;
+          setServiceControlsDisabled(true);
+          return;
+        }
+
+        try {
+          const info = await window.hidroNode.getStatus();
+          const node = info?.node || {};
+          const configured = Boolean(node.configured);
+          const scriptExists = Boolean(node.scriptExists);
+          const running = Boolean(node.running);
+
+          let text = "unavailable";
+          if (!configured) text = "not configured";
+          else if (!scriptExists) text = "script missing";
+          else if (running) text = `running${node.pid ? ` (PID ${node.pid})` : ""}`;
+          else text = "stopped";
+
+          el.svcState.innerHTML = `Feed Service: <strong>${text}</strong>`;
+
+          el.svcStartBtn.disabled = !configured || !scriptExists || running;
+          el.svcStopBtn.disabled = !configured || !running;
+          el.svcRestartBtn.disabled = !configured || !scriptExists;
+        } catch (err) {
+          el.svcState.innerHTML = `Feed Service: <strong>error</strong>`;
+          setServiceControlsDisabled(true);
+        }
+      }
+
+      async function controlFeedService(action) {
+        if (!window.hidroNode || typeof window.hidroNode.control !== "function") return;
+        setServiceControlsDisabled(true);
+        try {
+          await window.hidroNode.control(action);
+          await refreshFeedServiceState();
+          await refresh();
+        } catch (err) {
+          setStatus("bad", "Service action failed", err.message || String(err));
+          await refreshFeedServiceState();
+        }
+      }
+
+      function buildComLabel(port) {
+        if (!port) return "";
+        const vendor = port.vendorId ? `VID:${port.vendorId}` : "";
+        const product = port.productId ? `PID:${port.productId}` : "";
+        const pair = [vendor, product].filter(Boolean).join("/");
+        return pair ? `${port.path} (${pair})` : port.path;
+      }
+
+      function renderComOptions(ge) {
+        const select = el.comSelect;
+        const current = select.value || "AUTO";
+        const manual = ge?.manualPreferredPort || "AUTO";
+        const ports = Array.isArray(ge?.detectedPortInfo) && ge.detectedPortInfo.length
+          ? ge.detectedPortInfo
+          : (Array.isArray(ge?.detectedPorts) ? ge.detectedPorts.map((p) => ({ path: p })) : []);
+
+        select.innerHTML = "";
+        const autoOpt = document.createElement("option");
+        autoOpt.value = "AUTO";
+        autoOpt.textContent = "Auto";
+        select.appendChild(autoOpt);
+
+        for (const p of ports) {
+          if (!p?.path) continue;
+          const opt = document.createElement("option");
+          opt.value = p.path;
+          opt.textContent = buildComLabel(p);
+          select.appendChild(opt);
+        }
+
+        let next = current;
+        const exists = Array.from(select.options).some((o) => o.value === next);
+        if (!exists) next = manual;
+        const existsAfter = Array.from(select.options).some((o) => o.value === next);
+        if (!existsAfter) next = "AUTO";
+
+        select.value = next;
+        select.disabled = false;
+        el.comApplyBtn.disabled = false;
+      }
+
+      function disableComOptions() {
+        el.comSelect.disabled = true;
+        el.comApplyBtn.disabled = true;
+      }
+
+      function activateTab(kind) {
+        const sBtn = document.getElementById("tabSummary");
+        const fBtn = document.getElementById("tabFeed");
+        const sPane = document.getElementById("paneSummary");
+        const fPane = document.getElementById("paneFeed");
+        const isSummary = kind === "summary";
+
+        sBtn.classList.toggle("active", isSummary);
+        fBtn.classList.toggle("active", !isSummary);
+        sPane.classList.toggle("active", isSummary);
+        fPane.classList.toggle("active", !isSummary);
+      }
+
+      async function refresh() {
+        try {
+          const [healthRes, statusRes, adminRes] = await Promise.all([
+            fetch(`${base}/health`, { cache: "no-store" }),
+            fetch(`${base}/api/devices/status`, { cache: "no-store" }),
+            fetch(`${base}/api/admin/services`, { cache: "no-store" }).catch(() => null),
+          ]);
+
+          if (!healthRes.ok) throw new Error(`health ${healthRes.status}`);
+          if (!statusRes.ok) throw new Error(`status ${statusRes.status}`);
+
+          const data = await statusRes.json();
+          const map = buildLogicalMap(data);
+          const lastTs = data?.summary?.last_observation_ts || null;
+
+          const admin = adminRes && adminRes.ok ? await adminRes.json() : null;
+          const ge = admin?.ge750 || null;
+          const hl7 = admin?.hl7 || null;
+
+          let pmOnline = map.patient_monitor.online;
+          let amOnline = map.anesthesia_machine.online;
+          let pumpOnline = map.infusion_pump.online;
+
+          if (hl7) {
+            const hl7Connected = Number(hl7.connected_count || 0) > 0;
+            const hl7Fresh = Boolean(hl7.last_message_ts && Date.now() - Number(hl7.last_message_ts) <= 30000);
+            const pingEnabled = Boolean(hl7.ping?.enabled);
+            const pingOnline = hl7.ping?.online === true;
+            pmOnline = hl7Connected || hl7Fresh || pingOnline;
+
+            const hl7Part = hl7Connected
+              ? `HL7: connected (${hl7.connected_count})`
+              : hl7Fresh
+                ? `HL7: recent msg (${age(hl7.last_message_ts)})`
+                : "HL7: no recent data";
+            const pingPart = pingEnabled
+              ? (pingOnline
+                ? `Ping: online${Number.isFinite(hl7.ping?.rtt_ms) ? ` (${hl7.ping.rtt_ms}ms)` : ""}`
+                : "Ping: offline")
+              : "Ping: not configured";
+
+            el.pmMeta.textContent = hl7Part;
+            el.pmFeed.textContent = pingPart;
+          } else {
+            el.pmMeta.textContent = `Last Seen: ${age(map.patient_monitor.last_seen_ts)}`;
+            el.pmFeed.textContent = "HL7 service: unavailable";
+          }
+
+          if (ge) {
+            amOnline = Boolean(ge.connected);
+            const mode = ge.connected ? "online" : ge.connecting ? "connecting" : "offline";
+            const port = ge.currentPort || ge.lastBoundPort || "n/a";
+            const detected = Array.isArray(ge.detectedPorts) ? ge.detectedPorts.length : 0;
+            el.amMeta.textContent = `GE750: ${mode} | Port: ${port} | Detected: ${detected}`;
+            renderComOptions(ge);
+          } else {
+            el.amMeta.textContent = `Last Seen: ${age(map.anesthesia_machine.last_seen_ts)}`;
+            disableComOptions();
+          }
+
+          el.pumpMeta.textContent = `Last Seen: ${age(map.infusion_pump.last_seen_ts)}`;
+
+          setStateIndicator(el.pmDot, el.pmStatus, pmOnline);
+          setStateIndicator(el.amDot, el.amStatus, amOnline);
+          setStateIndicator(el.pumpDot, el.pumpStatus, pumpOnline);
+
+          el.lastDataAge.textContent = age(lastTs);
+
+          const hasOnline = pmOnline || amOnline || pumpOnline;
+          if (hasOnline) {
+            setStatus("ok", `${appName} Online`, "Device feed is active");
+          } else {
+            setStatus("warn", `${appName} Running`, "No expected device is online");
+          }
+
+          const latestAny = [
+            map.patient_monitor.latest,
+            map.anesthesia_machine.latest,
+            map.infusion_pump.latest,
+          ].find(Boolean);
+
+          el.lastDataLine.textContent = latestAny
+            ? `${latestAny.ivy_param || latestAny.raw_code}: ${latestAny.value ?? "-"} ${latestAny.unit || ""}`.trim()
+            : "No observation yet";
+
+          renderFeedDetails(map);
+        } catch (err) {
+          setStatus("bad", `${appName} Offline`, err.message);
+          setStateIndicator(el.pmDot, el.pmStatus, false);
+          setStateIndicator(el.amDot, el.amStatus, false);
+          setStateIndicator(el.pumpDot, el.pumpStatus, false);
+
+          el.pmMeta.textContent = "HL7: unavailable";
+          el.pmFeed.textContent = "Ping: unavailable";
+          el.amMeta.textContent = "GE750: unavailable";
+          el.pumpMeta.textContent = "Last Seen: n/a";
+
+          el.lastDataAge.textContent = "n/a";
+          el.lastDataLine.textContent = "No observation yet";
+          el.feedList.innerHTML = `<div class=\"feed-row\">Connection failed</div>`;
+          disableComOptions();
+        }
+      }
+
+      document.getElementById("svcStartBtn").addEventListener("click", () => {
+        void controlFeedService("start");
+      });
+      document.getElementById("svcStopBtn").addEventListener("click", () => {
+        void controlFeedService("stop");
+      });
+      document.getElementById("svcRestartBtn").addEventListener("click", () => {
+        void controlFeedService("restart");
+      });
+
+      document.getElementById("comApplyBtn").addEventListener("click", async () => {
+        try {
+          const selected = el.comSelect.value || "AUTO";
+          const ge750Port = selected === "AUTO" ? "auto" : selected;
+          const res = await fetch(`${base}/api/admin/reconnect`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: "ge750", ge750_port: ge750Port }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          await refresh();
+        } catch (err) {
+          setStatus("bad", "COM apply failed", err.message);
+        }
+      });
+
+      document.getElementById("tabSummary").addEventListener("click", () => activateTab("summary"));
+      document.getElementById("tabFeed").addEventListener("click", () => activateTab("feed"));
+
+      refresh();
+      void refreshFeedServiceState();
+      setInterval(refresh, 5000);
+      setInterval(() => {
+        void refreshFeedServiceState();
+      }, 5000);
+    </script>
+  </body>
+</html>
+
+
+

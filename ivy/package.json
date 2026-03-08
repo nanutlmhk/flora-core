@@ -1,0 +1,28 @@
+{
+  "name": "ivy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "preflight": "node preflight.js",
+    "server": "node server.js",
+    "live": "node server.js",
+    "live:test": "node liveagent.js",
+    "hl7:listen": "node gehl7.js",
+    "dev": "concurrently \"npm run server\" \"npm run live:test\"",
+    "ge750:regression": "node ge750/protocol.regression.js",
+    "legacy:seed": "node reference/tools/generateHistory.js 0800 1200",
+    "legacy:ge750:test": "node reference/tools/ge-carestation-test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "nanoid": "^5.0.7",
+    "net": "^1.0.2",
+    "serialport": "^13.0.0",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

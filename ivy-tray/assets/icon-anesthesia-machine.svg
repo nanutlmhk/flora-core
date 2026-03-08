@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Anesthesia Machine - Light stroke for dark backgrounds -->
+  <!-- Main body -->
+  <rect x="22" y="14" width="44" height="68" rx="5" fill="#B3E5FC" opacity="0.1"/>
+  <rect x="22" y="14" width="44" height="68" rx="5" fill="none" stroke="#B3E5FC" stroke-width="2.5"/>
+  <!-- Top bar -->
+  <rect x="22" y="14" width="44" height="8" rx="5" fill="#B3E5FC" opacity="0.2"/>
+  <!-- Screen -->
+  <rect x="27" y="20" width="24" height="16" rx="2" fill="#071A2E" stroke="#4FC3F7" stroke-width="1.2"/>
+  <polyline points="29,30 31,30 33,25 35,33 37,28 39,30 43,30 45,27 47,32 49,30" fill="none" stroke="#4FC3F7" stroke-width="1" stroke-linecap="round"/>
+  <circle cx="29" cy="23" r="1.2" fill="#00E5FF"/>
+  <!-- Flow meter -->
+  <rect x="53" y="20" width="7" height="16" rx="2" fill="#B3E5FC" opacity="0.1" stroke="#B3E5FC" stroke-width="1"/>
+  <circle cx="56" cy="28" r="2" fill="#4FC3F7" opacity="0.8"/>
+  <!-- Status indicators -->
+  <circle cx="55" cy="36" r="1.5" fill="#00E5FF"/>
+  <circle cx="60" cy="36" r="1.5" fill="#B3E5FC" opacity="0.3"/>
+  <!-- Knobs panel -->
+  <rect x="26" y="42" width="36" height="14" rx="3" fill="#B3E5FC" opacity="0.08" stroke="#B3E5FC" stroke-width="1"/>
+  <circle cx="34" cy="49" r="4" fill="none" stroke="#B3E5FC" stroke-width="1.5"/>
+  <line x1="34" y1="45" x2="34" y2="47" stroke="#4FC3F7" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="46" cy="49" r="4" fill="none" stroke="#B3E5FC" stroke-width="1.5"/>
+  <line x1="46" y1="45" x2="46" y2="47" stroke="#4FC3F7" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="57" cy="47" r="3" fill="none" stroke="#B3E5FC" stroke-width="1"/>
+  <!-- Vaporizer canister (right side) -->
+  <rect x="67" y="20" width="9" height="22" rx="3" fill="#B3E5FC" opacity="0.1" stroke="#B3E5FC" stroke-width="1.5"/>
+  <rect x="69" y="22" width="5" height="2.5" rx="1" fill="#4FC3F7" opacity="0.7"/>
+  <rect x="69" y="27" width="5" height="11" rx="1" fill="#4FC3F7" opacity="0.08"/>
+  <line x1="69" y1="34" x2="74" y2="34" stroke="#4FC3F7" stroke-width="0.8" opacity="0.6"/>
+  <!-- Breathing circuit tube -->
+  <path d="M 36 82 Q 36 92 24 92 Q 16 90 16 82" fill="none" stroke="#81D4FA" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Bellows bag -->
+  <ellipse cx="16" cy="77" rx="5" ry="7" fill="none" stroke="#B3E5FC" stroke-width="1.8"/>
+  <line x1="11" y1="74" x2="21" y2="74" stroke="#B3E5FC" stroke-width="0.8" opacity="0.5"/>
+  <line x1="11" y1="77" x2="21" y2="77" stroke="#B3E5FC" stroke-width="0.8" opacity="0.5"/>
+  <line x1="11" y1="80" x2="21" y2="80" stroke="#B3E5FC" stroke-width="0.8" opacity="0.5"/>
+  <!-- Face mask -->
+  <ellipse cx="36" cy="87" rx="7" ry="4" fill="none" stroke="#B3E5FC" stroke-width="1.5"/>
+  <!-- Base + wheels -->
+  <rect x="24" y="78" width="40" height="6" rx="3" fill="#B3E5FC" opacity="0.15" stroke="#B3E5FC" stroke-width="1"/>
+  <circle cx="30" cy="84" r="3" fill="none" stroke="#B3E5FC" stroke-width="1.5"/>
+  <circle cx="58" cy="84" r="3" fill="none" stroke="#B3E5FC" stroke-width="1.5"/>
+</svg>

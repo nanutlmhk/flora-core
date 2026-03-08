@@ -1,0 +1,12 @@
+{
+  "name": "drgmonudp",
+  "version": "1.0.0",
+  "description": "Draeger IACS monitor UDP multicast capture and parameter mapping",
+  "main": "capture.js",
+  "scripts": {
+    "start": "node capture.js",
+    "capture": "node capture.js",
+    "annotate": "node annotate.js",
+    "report": "node report.js"
+  }
+}

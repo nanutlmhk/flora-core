@@ -1,0 +1,172 @@
+@backend = http://localhost:3001
+@his = http://10.35.202.6:8590
+@hn = 1013861
+@caseId = 1
+@labgrp = 28
+
+### ==================================
+### AIDAS Backend - Health / Case
+### ==================================
+GET {{backend}}/health
+
+###
+GET {{backend}}/api/case/status
+
+
+### ==================================
+### HIS Gateway (direct)
+### Use this block to inspect raw SOAP result payloads.
+### ==================================
+GET {{his}}/health
+
+###
+POST {{his}}/api/patient-info
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}"
+}
+
+###
+POST {{his}}/api/inpatient-an
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}"
+}
+
+###
+POST {{his}}/api/patient-allergy
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}"
+}
+
+###
+POST {{his}}/api/lab-result
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}",
+  "labgrp": "{{labgrp}}"
+}
+
+###
+POST {{his}}/api/patient-vital
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}"
+}
+
+###
+POST {{his}}/api/patient-full
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}",
+  "labgrp": "{{labgrp}}"
+}
+
+
+### ==================================
+### AIDAS Backend Proxy - No Active Case
+### HIS lookup by HN only (no case required)
+### ==================================
+POST {{backend}}/api/case/his/lookup
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}",
+  "labgrp": "{{labgrp}}"
+}
+
+###
+POST {{backend}}/api/case/his/preload
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}",
+  "labgrp": "{{labgrp}}",
+  "pre_admit_note": "Preload before OR",
+  "allow_buffer_fallback": true
+}
+
+###
+POST {{backend}}/api/case/his/allergy
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}",
+  "allow_buffer_fallback": true
+}
+
+###
+POST {{backend}}/api/case/his/lab
+Content-Type: application/json
+
+{
+  "hn": "{{hn}}",
+  "labgrp": "{{labgrp}}",
+  "allow_buffer_fallback": true
+}
+
+###
+GET {{backend}}/api/case/his/buffer?limit=100
+
+###
+GET {{backend}}/api/case/his/buffer/{{hn}}
+
+###
+DELETE {{backend}}/api/case/his/buffer/{{hn}}
+
+###
+POST {{backend}}/api/case/his/buffer/{{hn}}/pre-admit
+Content-Type: application/json
+
+{
+  "pre_admit_at": 1772079600000,
+  "pre_admit_note": "OR schedule preload"
+}
+
+
+### ==================================
+### AIDAS Backend Proxy - Active Case Sync
+### 1) Replace @caseId with current case id
+### 2) Sync HIS into case cache
+### 3) Read mapped patient/allergy/lab
+### ==================================
+POST {{backend}}/api/case/{{caseId}}/his/sync
+Content-Type: application/json
+
+{
+  "labgrp": "{{labgrp}}",
+  "allow_buffer_fallback": true
+}
+
+###
+POST {{backend}}/api/case/{{caseId}}/his/allergy/sync
+Content-Type: application/json
+
+{
+  "allow_buffer_fallback": true
+}
+
+###
+POST {{backend}}/api/case/{{caseId}}/his/lab/sync
+Content-Type: application/json
+
+{
+  "labgrp": "{{labgrp}}",
+  "allow_buffer_fallback": true
+}
+
+###
+GET {{backend}}/api/case/{{caseId}}/patient
+
+###
+GET {{backend}}/api/case/{{caseId}}/allergies
+
+###
+GET {{backend}}/api/case/{{caseId}}/labs?limit=200
