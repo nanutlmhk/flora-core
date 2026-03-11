@@ -5,6 +5,7 @@ import {
   dischargeCase,
   getCaseList,
   startCase,
+  updateCaseDischargeTime,
   updateCaseStartTime,
   type CaseListRow,
 } from "../api/caseApi";
@@ -679,6 +680,7 @@ interface LeftRailProps {
   historyMode?: boolean;
   onCurrentCaseStarted?: () => void;
   onCaseStartTimeUpdated?: (caseId: number, startTime: number) => void;
+  onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
 }
 
 export default function LeftRail({
@@ -688,6 +690,7 @@ export default function LeftRail({
   historyMode = false,
   onCurrentCaseStarted,
   onCaseStartTimeUpdated,
+  onCaseDischargeTimeUpdated,
 }: LeftRailProps) {
   const [initialUiState] = useState<Partial<LeftRailUiState>>(() => readLeftRailUiState());
   const [hn, setHn] = useState("");
@@ -723,6 +726,11 @@ export default function LeftRail({
   const [startEditTime, setStartEditTime] = useState("");
   const [startEditBusy, setStartEditBusy] = useState(false);
   const [startEditNote, setStartEditNote] = useState("");
+  const [dischargeEditOpen, setDischargeEditOpen] = useState(false);
+  const [dischargeEditDate, setDischargeEditDate] = useState("");
+  const [dischargeEditTime, setDischargeEditTime] = useState("");
+  const [dischargeEditBusy, setDischargeEditBusy] = useState(false);
+  const [dischargeEditNote, setDischargeEditNote] = useState("");
   const [nkaBusy, setNkaBusy] = useState(false);
   const [nkaNote, setNkaNote] = useState("");
   const [isAllergyModalOpen, setIsAllergyModalOpen] = useState(false);
@@ -763,11 +771,17 @@ export default function LeftRail({
       setStartEditDate("");
       setStartEditTime("");
       setStartEditNote("");
+      setDischargeEditOpen(false);
+      setDischargeEditDate("");
+      setDischargeEditTime("");
+      setDischargeEditNote("");
       setNkaNote("");
       return;
     }
     setStartEditDate(toDateInput(caseStatus.start_time));
     setStartEditTime(toTimeInput(caseStatus.start_time));
+    setDischargeEditDate(toDateInput(caseStatus.discharge_time ?? caseStatus.start_time));
+    setDischargeEditTime(toTimeInput(caseStatus.discharge_time ?? caseStatus.start_time));
   }, [caseStatus]);
 
   useEffect(() => {
@@ -1225,6 +1239,53 @@ export default function LeftRail({
     }
   }
 
+  async function onSaveDischargeTime() {
+    if (caseStatus.status !== "DISCHARGED" && caseStatus.status !== "ARCHIVED") {
+      return;
+    }
+    if (!dischargeEditDate || !dischargeEditTime) {
+      setDischargeEditNote("Please select date and time.");
+      return;
+    }
+    const normalizedTime = normalizeTimeInputHHMM(dischargeEditTime);
+    if (!normalizedTime) {
+      setDischargeEditNote("Time must be HH:mm (24-hour).");
+      return;
+    }
+    const [y, m, d] = dischargeEditDate.split("-").map(Number);
+    const [hhPart, mmPart] = normalizedTime.split(":").map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+      setDischargeEditNote("Invalid date.");
+      return;
+    }
+    if (!Number.isFinite(hhPart) || !Number.isFinite(mmPart)) {
+      setDischargeEditNote("Invalid time.");
+      return;
+    }
+
+    const nextTs = new Date(y, m - 1, d, hhPart, mmPart, 0, 0).getTime();
+    if (!Number.isFinite(nextTs)) {
+      setDischargeEditNote("Invalid discharge time.");
+      return;
+    }
+
+    setDischargeEditBusy(true);
+    setDischargeEditNote("");
+    try {
+      await updateCaseDischargeTime(caseStatus.case_id, nextTs);
+      onCaseDischargeTimeUpdated?.(caseStatus.case_id, nextTs);
+      await onCaseChange();
+      setDischargeEditOpen(false);
+      setDischargeEditNote("Discharge time updated.");
+    } catch (err) {
+      setDischargeEditNote(
+        err instanceof Error ? err.message : "Failed to update discharge time.",
+      );
+    } finally {
+      setDischargeEditBusy(false);
+    }
+  }
+
   async function onToggleNka(checked: boolean) {
     if (caseStatus.status === "IDLE") return;
     if (!canEditNka) return;
@@ -1550,17 +1611,76 @@ export default function LeftRail({
                     Start: {formatDateTime(caseStatus.start_time)} (
                     {formatElapsedShort(
                       caseStatus.start_time,
-                      caseStatus.status === "DISCHARGED" && caseStatus.discharge_time
+                      (caseStatus.status === "DISCHARGED" ||
+                        caseStatus.status === "ARCHIVED") &&
+                      caseStatus.discharge_time
                         ? caseStatus.discharge_time
                         : Date.now(),
                     )}
                     )
                   </div>
 
-                  {caseStatus.status === "DISCHARGED" &&
+                  {(caseStatus.status === "DISCHARGED" ||
+                    caseStatus.status === "ARCHIVED") &&
                     caseStatus.discharge_time && (
-                      <div className="text-gray-900 dark:text-white">
-                        End: {formatDateTime(caseStatus.discharge_time)}
+                      <div className="space-y-1">
+                        <div className="text-gray-900 dark:text-white">
+                          Discharged: {formatDateTime(caseStatus.discharge_time)}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDischargeEditOpen(prev => !prev);
+                            setDischargeEditNote("");
+                          }}
+                          className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                        >
+                          {dischargeEditOpen
+                            ? "Cancel Discharge Edit"
+                            : "Adjust Discharge Date/Time"}
+                        </button>
+                        {dischargeEditOpen ? (
+                          <div className="space-y-1.5">
+                            <div className="flex gap-1.5">
+                              <input
+                                type="date"
+                                className="flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1 text-[11px]"
+                                value={dischargeEditDate}
+                                onChange={e => setDischargeEditDate(e.target.value)}
+                              />
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                autoComplete="off"
+                                className="w-24 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1 text-[11px]"
+                                value={dischargeEditTime}
+                                onChange={e =>
+                                  setDischargeEditTime(formatTimeInputHHMM(e.target.value))
+                                }
+                                onBlur={e => {
+                                  const normalized = normalizeTimeInputHHMM(e.target.value);
+                                  if (normalized) setDischargeEditTime(normalized);
+                                }}
+                                placeholder="HH:mm"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void onSaveDischargeTime();
+                              }}
+                              disabled={dischargeEditBusy}
+                              className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-60"
+                            >
+                              {dischargeEditBusy ? "Saving..." : "Save Discharge Time"}
+                            </button>
+                          </div>
+                        ) : null}
+                        {dischargeEditNote ? (
+                          <div className="text-[11px] text-gray-700 dark:text-gray-300">
+                            {dischargeEditNote}
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   {!historyMode &&
@@ -1679,7 +1799,9 @@ export default function LeftRail({
                     </option>
                     {previousCases.map(row => (
                       <option key={row.case_id} value={row.case_id}>
-                        {row.hn} | {formatDateTime(row.start_time)} | {row.status}
+                        {row.hn} | Admit {formatDateTime(row.start_time)}
+                        {row.discharge_time ? ` | Discharged ${formatDateTime(row.discharge_time)}` : ""}
+                        {` | ${row.status}`}
                       </option>
                     ))}
                   </select>

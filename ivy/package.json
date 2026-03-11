@@ -8,8 +8,8 @@
     "server": "node server.js",
     "live": "node server.js",
     "live:test": "node liveagent.js",
-    "hl7:listen": "node gehl7.js",
-    "dev": "concurrently \"npm run server\" \"npm run live:test\"",
+    "hl7:listen": "node gehl7/index.js",
+    "dev": "node server.js",
     "ge750:regression": "node ge750/protocol.regression.js",
     "legacy:seed": "node reference/tools/generateHistory.js 0800 1200",
     "legacy:ge750:test": "node reference/tools/ge-carestation-test.js"

@@ -19,6 +19,11 @@ if (!fs.existsSync(DB_PATH)) {
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
+db.pragma("busy_timeout = 15000");     // 15 s — matches ivy; prevents lock errors under load
+db.pragma("foreign_keys = ON");
+db.pragma("synchronous = NORMAL");
+db.pragma("wal_autocheckpoint = 1000");
+db.pragma("cache_size = -32000");      // 32 MB page cache for flora's larger dataset
 
 /* ===========================
    CASES (UNCHANGED)
@@ -172,6 +177,11 @@ CREATE TABLE IF NOT EXISTS case_event_note (
 
 CREATE INDEX IF NOT EXISTS idx_case_event_note_case
   ON case_event_note(case_id, event_ts, id);
+
+-- Compound index for lifecycle queries that filter event_type + is_deleted.
+-- Used by getLifecycleOpenCount, hasLifecycleStartInCase, hasCaseEventTitle.
+CREATE INDEX IF NOT EXISTS idx_case_event_note_lifecycle
+  ON case_event_note(case_id, event_type, is_deleted, event_ts, id);
 `);
 
 /* ===========================
@@ -1360,4 +1370,44 @@ for (const row of allCaseRoles) {
   updateCaseRole.run(canonical.roleId, canonical.roleLabel, Date.now(), row.id);
 }
 
-module.exports = { db, DB_PATH };
+// ── Vital-minutes retention / pruning ─────────────────────────────────────────
+// FLORA_RETENTION_DAYS: how many days of vital_minutes to keep (default 360).
+// Set to 0 to disable pruning entirely.
+const FLORA_RETENTION_DAYS = Number(process.env.FLORA_RETENTION_DAYS ?? 360);
+
+function pruneOldVitalMinutes() {
+  if (!FLORA_RETENTION_DAYS || FLORA_RETENTION_DAYS <= 0) return 0;
+  const cutoff = Date.now() - FLORA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  try {
+    const result = db.prepare(
+      `DELETE FROM vital_minutes WHERE ts_minute < ?`
+    ).run(cutoff);
+    if (result.changes > 0) {
+      console.log(
+        `[FLORA] pruned ${result.changes} vital_minute rows older than ${FLORA_RETENTION_DAYS} days`
+      );
+      // Reclaim freed pages without a full VACUUM lock
+      try { db.pragma("incremental_vacuum(500)"); } catch { /* non-fatal */ }
+    }
+    return result.changes;
+  } catch (err) {
+    console.error("[FLORA] pruneOldVitalMinutes error:", err.message);
+    return 0;
+  }
+}
+
+function closeDb() {
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  } catch {
+    // ignore checkpoint errors during shutdown
+  }
+
+  try {
+    db.close();
+  } catch {
+    // ignore close errors during shutdown
+  }
+}
+
+module.exports = { db, DB_PATH, closeDb, pruneOldVitalMinutes };

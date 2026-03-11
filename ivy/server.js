@@ -51,6 +51,8 @@ const { auditUnknown } = require("./unknownAudit");
 const app = express();
 app.use(cors());
 app.use(express.json());
+let httpServer = null;
+let shuttingDown = false;
 
 // Simple request logger
 app.use((req, res, next) => {
@@ -269,7 +271,9 @@ app.post("/mock/device", async (req, res) => {
     } = req.body;
 
     const source = "liveagent";
-    const protocol = "mock";
+    // Allow caller to specify the real protocol so alias lookup works against
+    // the actual ge750_serial / hl7 alias tables instead of the empty "mock" table.
+    const protocol = String(req.body.protocol || "mock");
     const now = Date.now();
 
     const rawKey = String(raw_code).trim().toUpperCase();
@@ -564,110 +568,97 @@ app.get("/api/devices/status", (req, res) => {
                 return ts > max ? ts : max;
               }, 0);
 
-              db.all(
-                `
-                SELECT
-                  device_id,
-                  source,
-                  protocol,
-                  raw_code,
-                  ivy_param,
-                  value,
-                  unit,
-                  system_ts
-                FROM ivy_observations
-                ORDER BY system_ts DESC
-                LIMIT 5000
-                `,
-                (logicalErr, recentRows) => {
-                  if (logicalErr) return res.status(500).json({ error: logicalErr.message });
-
-                  const logicalMap = {
-                    patient_monitor: {
-                      id: "patient_monitor",
-                      label: "Patient Monitor",
-                      last_seen_ts: null,
-                      total_samples: 0,
-                      samples_in_window: 0,
-                      latest_observation: null,
-                      device_ids: new Set(),
-                    },
-                    anesthesia_machine: {
-                      id: "anesthesia_machine",
-                      label: "Anesthesia Machine",
-                      last_seen_ts: null,
-                      total_samples: 0,
-                      samples_in_window: 0,
-                      latest_observation: null,
-                      device_ids: new Set(),
-                    },
-                  };
-
-                  for (const row of recentRows || []) {
-                    const category = classifyLogicalDevice(row);
-                    if (!category) continue;
-                    const bucket = logicalMap[category];
-                    if (!bucket) continue;
-
-                    const rowTs = Number(row.system_ts) || 0;
-                    bucket.total_samples += 1;
-                    if (rowTs >= windowStartTs) bucket.samples_in_window += 1;
-                    if (row.device_id) bucket.device_ids.add(String(row.device_id));
-
-                    if (!bucket.last_seen_ts || rowTs > bucket.last_seen_ts) {
-                      bucket.last_seen_ts = rowTs;
-                      bucket.latest_observation = {
-                        raw_code: row.raw_code || null,
-                        ivy_param: row.ivy_param || null,
-                        value: row.value ?? null,
-                        unit: row.unit || null,
-                        source: row.source || null,
-                        protocol: row.protocol || null,
-                        system_ts: rowTs || null,
-                        device_id: row.device_id || null,
-                      };
-                    }
-                  }
-
-                  const logicalDevices = Object.values(logicalMap).map(item => {
-                    const lastSeenTs = Number(item.last_seen_ts) || 0;
-                    const isOnline = Boolean(lastSeenTs > 0 && now - lastSeenTs <= windowMs);
-                    return {
-                      id: item.id,
-                      label: item.label,
-                      is_online: isOnline,
-                      status: isOnline ? "online" : "offline",
-                      last_seen_ts: lastSeenTs || null,
-                      seconds_since_last:
-                        lastSeenTs > 0 ? Math.max(0, Math.floor((now - lastSeenTs) / 1000)) : null,
-                      total_samples: item.total_samples,
-                      samples_in_window: item.samples_in_window,
-                      device_count: item.device_ids.size,
-                      device_ids: Array.from(item.device_ids.values()),
-                      latest_observation: item.latest_observation,
-                    };
-                  });
-
-                  res.json({
-                    server_ts: now,
-                    server_uptime_sec: Math.floor((now - SERVER_STARTED_AT) / 1000),
-                    online_window_sec: windowSec,
-                    summary: {
-                      total_observations: Number(metaRow?.total_observations) || 0,
-                      last_observation_ts: Number(metaRow?.last_observation_ts) || null,
-                      total_devices: devices.length,
-                      online_devices: onlineDevices.length,
-                    },
-                    liveagent: {
-                      online: liveagentDevices.some(d => d.is_online),
-                      device_count: liveagentDevices.length,
-                      last_seen_ts: liveagentLastSeenTs || null,
-                    },
-                    logical_devices: logicalDevices,
-                    devices,
-                  });
+              // Build logical_devices from data already fetched in Queries 2 & 3.
+              // No extra DB query needed — groupedRows has source/protocol for
+              // classification and latestByDevice has the latest observation detail.
+              const logicalMap = {
+                patient_monitor: {
+                  id: "patient_monitor",
+                  label: "Patient Monitor",
+                  last_seen_ts: null,
+                  total_samples: 0,
+                  samples_in_window: 0,
+                  latest_observation: null,
+                  device_ids: new Set(),
                 },
-              );
+                anesthesia_machine: {
+                  id: "anesthesia_machine",
+                  label: "Anesthesia Machine",
+                  last_seen_ts: null,
+                  total_samples: 0,
+                  samples_in_window: 0,
+                  latest_observation: null,
+                  device_ids: new Set(),
+                },
+              };
+
+              for (const row of groupedRows || []) {
+                // Prefer the latest row (has raw_code/ivy_param for fallback patterns)
+                const latest = latestByDevice.get(row.device_key);
+                const category = classifyLogicalDevice(latest || row);
+                if (!category) continue;
+                const bucket = logicalMap[category];
+                if (!bucket) continue;
+
+                const rowTs = Number(row.last_seen_ts) || 0;
+                bucket.total_samples  += Number(row.total_samples) || 0;
+                bucket.samples_in_window += Number(row.samples_in_window) || 0;
+                if (row.device_id) bucket.device_ids.add(String(row.device_id));
+
+                if (!bucket.last_seen_ts || rowTs > bucket.last_seen_ts) {
+                  bucket.last_seen_ts = rowTs;
+                  bucket.latest_observation = latest
+                    ? {
+                        raw_code:   latest.raw_code   || null,
+                        ivy_param:  latest.ivy_param  || null,
+                        value:      latest.value      ?? null,
+                        unit:       latest.unit       || null,
+                        source:     row.source        || null,
+                        protocol:   row.protocol      || null,
+                        system_ts:  rowTs             || null,
+                        device_id:  row.device_id     || null,
+                      }
+                    : null;
+                }
+              }
+
+              const logicalDevices = Object.values(logicalMap).map(item => {
+                const lastSeenTs = Number(item.last_seen_ts) || 0;
+                const isOnline = Boolean(lastSeenTs > 0 && now - lastSeenTs <= windowMs);
+                return {
+                  id: item.id,
+                  label: item.label,
+                  is_online: isOnline,
+                  status: isOnline ? "online" : "offline",
+                  last_seen_ts: lastSeenTs || null,
+                  seconds_since_last:
+                    lastSeenTs > 0 ? Math.max(0, Math.floor((now - lastSeenTs) / 1000)) : null,
+                  total_samples: item.total_samples,
+                  samples_in_window: item.samples_in_window,
+                  device_count: item.device_ids.size,
+                  device_ids: Array.from(item.device_ids.values()),
+                  latest_observation: item.latest_observation,
+                };
+              });
+
+              res.json({
+                server_ts: now,
+                server_uptime_sec: Math.floor((now - SERVER_STARTED_AT) / 1000),
+                online_window_sec: windowSec,
+                summary: {
+                  total_observations: Number(metaRow?.total_observations) || 0,
+                  last_observation_ts: Number(metaRow?.last_observation_ts) || null,
+                  total_devices: devices.length,
+                  online_devices: onlineDevices.length,
+                },
+                liveagent: {
+                  online: liveagentDevices.some(d => d.is_online),
+                  device_count: liveagentDevices.length,
+                  last_seen_ts: liveagentLastSeenTs || null,
+                },
+                logical_devices: logicalDevices,
+                devices,
+              });
             },
           );
         },
@@ -681,7 +672,7 @@ app.get("/api/devices/status", (req, res) => {
 ========================= */
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+httpServer = app.listen(PORT, () => {
   console.log("==========================================");
   console.log(`🚀 Ivy Server started on http://localhost:${PORT}`);
   console.log(`📅 Started at: ${new Date(SERVER_STARTED_AT).toLocaleString()}`);
@@ -706,4 +697,104 @@ app.listen(PORT, () => {
   }
 
   console.log("==========================================");
+});
+
+// ── Observation pruning schedule ──────────────────────────────────────────────
+// Run once on startup (after a short delay so DB init finishes), then every 24 h.
+// Controlled by IVY_RETENTION_DAYS env var (default 90, 0 = disabled).
+setTimeout(() => {
+  if (typeof db.pruneOldObservations === "function") {
+    db.pruneOldObservations();
+  }
+}, 10_000).unref(); // 10 s after boot — let services settle first
+
+setInterval(() => {
+  if (!shuttingDown && typeof db.pruneOldObservations === "function") {
+    db.pruneOldObservations();
+  }
+}, 24 * 60 * 60 * 1000).unref(); // every 24 h
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[IVY] shutdown requested (${signal})`);
+
+  try {
+    if (ge750Service && typeof ge750Service.stopGE750Manager === "function") {
+      ge750Service.stopGE750Manager();
+    }
+  } catch {
+    // ignore stop errors on shutdown
+  }
+
+  try {
+    if (gehl7Service && typeof gehl7Service.stopGEHL7Server === "function") {
+      void gehl7Service.stopGEHL7Server();
+    }
+  } catch {
+    // ignore stop errors on shutdown
+  }
+
+  try {
+    if (
+      vscaptureFileService &&
+      typeof vscaptureFileService.stopVSCaptureFileService === "function"
+    ) {
+      vscaptureFileService.stopVSCaptureFileService();
+    }
+  } catch {
+    // ignore stop errors on shutdown
+  }
+
+  let finishCalled = false;
+  const finish = () => {
+    if (finishCalled) return;   // guard against double-close from timeout race
+    finishCalled = true;
+    if (typeof db.closeDatabase === "function") {
+      db.closeDatabase(() => process.exit(0));
+      return;
+    }
+    process.exit(0);
+  };
+
+  if (!httpServer) {
+    finish();
+    return;
+  }
+
+  httpServer.close(() => {
+    finish();
+  });
+
+  // Hard-kill safety net — 8 s to give WAL checkpoint time to complete.
+  // Uses the same finishCalled guard so db.closeDatabase is never called twice.
+  setTimeout(() => {
+    console.warn("[IVY] shutdown timeout — forcing exit");
+    finish();
+  }, 8000).unref();
+}
+
+["SIGINT", "SIGTERM", "SIGHUP"].forEach(signal => {
+  process.on(signal, () => shutdown(signal));
+});
+
+// ── Crash / force-kill hardening ──────────────────────────────────────────────
+
+// Catch any unhandled exception (bad serial frame, HL7 parse error, etc.) and
+// attempt a clean WAL checkpoint before dying instead of crashing dirty.
+process.on("uncaughtException", (err) => {
+  console.error("[IVY] uncaughtException — attempting clean shutdown:", err);
+  shutdown("uncaughtException");
+});
+
+// Log unhandled promise rejections without crashing (Node default is to crash
+// since v15). Non-fatal: the reject could be a transient serial/DB timeout.
+process.on("unhandledRejection", (reason) => {
+  console.error("[IVY] unhandledRejection (non-fatal):", reason);
+});
+
+// Last-resort: fires synchronously even on SIGKILL / force-close from Electron.
+// sqlite3 close is async so we can't checkpoint here, but we log so we know.
+process.on("exit", (code) => {
+  console.log(`[IVY] process exit (code=${code})`);
 });

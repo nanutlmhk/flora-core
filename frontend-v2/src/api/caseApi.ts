@@ -69,6 +69,23 @@ export async function updateCaseStartTime(case_id: number, start_time: number) {
   return data;
 }
 
+export async function updateCaseDischargeTime(case_id: number, discharge_time: number) {
+  const res = await fetch(`${BASE}/${case_id}/discharge-time`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ discharge_time }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      data && typeof data.error === "string"
+        ? data.error
+        : `update discharge time failed (${res.status})`;
+    throw new Error(message);
+  }
+  return data;
+}
+
 export async function getCaseList(
   limit = 30,
   includeArchived = true,

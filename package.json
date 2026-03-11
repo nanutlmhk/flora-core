@@ -21,11 +21,7 @@
     "hidro:package:win": "powershell -Command \"$env:CSC_IDENTITY_AUTO_DISCOVERY='false'; npm run hidro:icon:build; Remove-Item dist-hidro -Recurse -Force -ErrorAction SilentlyContinue; electron-builder --config electron-builder.hidro.json --win nsis --x64\"",
     "desktop:package:all:win": "powershell -Command \"npm run desktop:package:win; npm run hidro:package:win\"",
     "ivy:tray:start": "electron ivy-tray/main.cjs",
-    "hidro:tray:start": "electron ivy-tray/main.cjs",
-    "ivy:service:build-host": "powershell -ExecutionPolicy Bypass -File .\\ivy\\service\\build-hidro-service-host.ps1",
-    "ivy:service:prepare-runtime": "powershell -ExecutionPolicy Bypass -File .\\ivy\\service\\prepare-ivy-runtime.ps1",
-    "ivy:service:install": "powershell -ExecutionPolicy Bypass -File .\\ivy\\service\\install-ivy-service.ps1",
-    "ivy:service:uninstall": "powershell -ExecutionPolicy Bypass -File .\\ivy\\service\\uninstall-ivy-service.ps1"
+    "hidro:tray:start": "electron ivy-tray/main.cjs"
   },
   "devDependencies": {
     "electron": "^40.6.1",

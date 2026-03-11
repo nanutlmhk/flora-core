@@ -11,6 +11,9 @@ const DEBUG_VTQ_RAW = String(process.env.GE750_DEBUG_VTQ_RAW || "0") === "1";
 // Set GE750_DEBUG_FGF_RAW=1 to dump raw ASCII+hex around the fgf_total region
 // (d[150:175] = line bytes 153-177) — use this when fgf_total returns null
 const DEBUG_FGF_RAW = String(process.env.GE750_DEBUG_FGF_RAW || "0") === "1";
+// Set GE750_DEBUG_FIO2_RAW=1 to dump raw bytes around the set_fio2 region
+// vent_mode d[42]=line[45], not_used d[43:46], fio2_set d[46:49]=line[49:52]
+const DEBUG_FIO2_RAW = String(process.env.GE750_DEBUG_FIO2_RAW || "0") === "1";
 // How often to emit VTD/VTQ data to callbacks (ms). Device pushes every ~5 s
 // (one breath cycle). Default 20 s. Set GE750_EMIT_MS=5000 to get every breath.
 const EMIT_INTERVAL_MS = Math.max(1000, Number(process.env.GE750_EMIT_MS || 20000));
@@ -125,6 +128,29 @@ function startGE750Service(options = {}) {
             `  d[157..174]="${region.toString("ascii")}"` +
             `  hex=${region.toString("hex")}` +
             `  fgf_bytes="${line.slice(170, 174).toString("ascii")}"`
+          );
+        }
+        if (DEBUG_FIO2_RAW) {
+          // d[n] = line[n+3]  →  scan d[35:55] = line[38:58]
+          // vent_mode in COM1.2: d[42]=line[45], in COM1.0: d[41]=line[44]
+          // fio2_set in COM1.2: d[46:49]=line[49:52]
+          const region = line.slice(38, 58);
+          const regionAscii = region.toString("ascii");
+          const regionHex = region.toString("hex");
+          // Find all valid vent mode chars in d[35..54]
+          const VALID_MODES = new Set(['v','@','p','b','g','G','s','i','S','B','c','a','n','o','m','M']);
+          const found = [];
+          for (let i = 35; i <= 54; i++) {
+            if (i + 3 >= line.length) break;
+            const ch = String.fromCharCode(line[i + 3]);
+            if (VALID_MODES.has(ch)) found.push(`d[${i}]='${ch}'`);
+          }
+          console.log(
+            `[GE750] VTQ fio2 debug  len=${line.length}` +
+            `  d[35..54]="${regionAscii}"  hex=${regionHex}` +
+            `  d[42]='${String.fromCharCode(line[45])}' d[41]='${String.fromCharCode(line[44])}' d[43]='${String.fromCharCode(line[46])}'` +
+            `  mode_chars_found:[${found.join(',')}]` +
+            `  fio2_bytes="${line.slice(49, 52).toString("ascii")}"`
           );
         }
         // Emit VTQ whenever it arrives

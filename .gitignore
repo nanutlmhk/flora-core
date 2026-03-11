@@ -55,3 +55,10 @@ ivy/drgmonudp/sessions/
 Thumbs.db
 nul
 Intake
+.aidas-profile/
+.hidro-profile/
+.aidas-profile-test/
+.hidro-profile-test/
+start-aidas-test.cmd
+start-hidro-test.cmd
+toprod/

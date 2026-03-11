@@ -13,16 +13,17 @@ const VENT_MODE_CHAR = {
   b: "VCV-BU",     // Backup Volume Control
   g: "PCV-VG",     // PCV with Volume Guarantee
   G: "BiLevel-VG",
-  s: "SIMV",       // SIMV-VC
+  s: "SIMV-VC",    // SIMV Volume Control
   i: "SIMV-PC",    // SIMV-PC  (NOTE: in COM 1.2 'i' ≠ VCV)
   S: "SIMV-PCVG",
   B: "BiLevel",
-  c: "CPAP",       // CPAP / CPAP-PSV
+  c: "CPAP/PSV",   // CPAP with optional Pressure Support
   a: "CPAP-Apnea",
   n: "NIV",
   o: "PSV-Pro",
   m: "MAN",
   M: "MAN",
+  "-": "BAG",      // Bag / manual ventilation mode (device not mechanically ventilating)
 };
 
 // Anesthetic agent identification — VTd byte 108 → d[104] (1-byte field)
@@ -159,12 +160,18 @@ function parseVTD(line) {
   // ── Extended ventilator fields (long VTd only) ───────────────────────────
   if (d.length > 70) {
     const mvSpontRaw = field(d.slice(26, 30));
-    result.mv_spont      = mvSpontRaw != null ? mvSpontRaw / 100 : null; // L/min
-    result.rr_spont      = field(d.slice(30, 33));          // /min
-    result.peep_intrinsic = field(d.slice(33, 36), 10);     // cmH2O  PEEPi
-    result.compliance    = field(d.slice(36, 38));           // mL/cmH2O  (2 chars)
-    result.peep_extrinsic = field(d.slice(64, 67), 10);     // cmH2O  PEEPe
-    result.peep_total    = field(d.slice(67, 70), 10);      // cmH2O  PEEPe+i  ← GE "Total PEEP"
+    result.mv_spont           = mvSpontRaw != null ? mvSpontRaw / 100 : null; // L/min
+    result.rr_spont           = field(d.slice(30, 33));          // /min
+    result.peep_intrinsic     = field(d.slice(33, 36), 10);      // cmH2O  PEEPi
+    result.compliance         = field(d.slice(36, 38));           // mL/cmH2O  (2 chars)
+    result.airway_resistance  = field(d.slice(38, 41), 10);      // cm H2O/L/s  (spec bytes 42-44, ×10)
+    // d[41] = Punits char, d[42] = Funits char — skipped (not numeric)
+    result.tidal_volume_exp_spont = field(d.slice(43, 47));      // mL  TVexp spont (spec bytes 47-50)
+    result.tidal_volume_insp      = field(d.slice(47, 51));      // mL  TVinsp (spec bytes 51-54)
+    const mvInspRaw = field(d.slice(51, 55));
+    result.minute_volume_insp = mvInspRaw != null ? mvInspRaw / 100 : null; // L/min (L×100, spec bytes 55-58)
+    result.peep_extrinsic     = field(d.slice(64, 67), 10);      // cmH2O  PEEPe
+    result.peep_total         = field(d.slice(67, 70), 10);      // cmH2O  PEEPe+i  ← GE "Total PEEP"
   }
 
   // ── MGAS gas analysis fields (requires MGAS module) ─────────────────────
@@ -173,8 +180,9 @@ function parseVTD(line) {
     result.fio2_meas  = field(d.slice(79, 82));              // % MGAS FiO2
     result.et_o2      = field(d.slice(82, 85));              // % EtO2
     // CO2 (bytes 93-98)
-    result.fi_co2     = field(d.slice(89, 92), 10);          // % FiCO2
-    result.et_co2     = field(d.slice(92, 95), 10);          // % EtCO2
+    result.fi_co2     = field(d.slice(89, 92), 10);          // % FiCO2  (spec bytes 93-95)
+    result.et_co2     = field(d.slice(92, 95), 10);          // % EtCO2  (spec bytes 96-98)
+    result.rr_co2     = field(d.slice(95, 98));              // /min  RRCO2 (spec bytes 99-101)
     // Primary anesthetic agent (bytes 102-108)
     result.fi_agent   = field(d.slice(98, 101), 10);         // % FiAA
     result.et_agent   = field(d.slice(101, 104), 10);        // % EtAA
@@ -190,11 +198,24 @@ function parseVTD(line) {
     result.mac        = field(d.slice(118, 120), 10);        // MAC
   }
 
-  // ── Gas flow rates from flowmeters (bytes 184-195) ───────────────────────
+  // ── Gas supply / pipeline pressures (spec bytes 148-156 = d[144:153]) ─────
+  if (d.length > 153) {
+    result.pressure_o2_supply  = field(d.slice(144, 147));   // kPa  O2 pipeline
+    result.pressure_n2o_supply = field(d.slice(147, 150));   // kPa  N2O pipeline
+    result.pressure_air_supply = field(d.slice(150, 153));   // kPa  Air pipeline
+  }
+
+  // ── Gas flow rates from flowmeters (spec bytes 184-195 = d[180:192]) ─────
   if (d.length > 192) {
     result.flow_o2  = field(d.slice(180, 184), 100);         // L/min
     result.flow_n2o = field(d.slice(184, 188), 100);         // L/min  (null = not installed)
     result.flow_air = field(d.slice(188, 192), 100);         // L/min
+  }
+
+  // ── Measured breath timing (spec bytes 199-204 = d[195:201]) ─────────────
+  if (d.length > 201) {
+    result.t_insp_meas = field(d.slice(195, 198), 10);       // s  measured inspiratory time
+    result.t_exp_meas  = field(d.slice(198, 201), 10);       // s  measured expiratory time
   }
 
   return result;
@@ -243,6 +264,8 @@ function parseVTQ(line) {
 
   // I:E denominator: 4-byte field (COM 1.2), e.g. "0020" ÷10 → 2.0 → "1:2.0"
   const ieRaw = field(d.slice(7, 11));
+  // Set Inspiratory Pause: 2-byte field at d[11:13] = spec bytes 15-16, % insp time
+  const tpauseSet = field(d.slice(11, 13));
 
   let modeCh  = null;
   let fio2Set = null;
@@ -264,6 +287,7 @@ function parseVTQ(line) {
     tv_set:         field(d.slice(0, 4)),                             // mL
     rr_set:         field(d.slice(4, 7)),                             // /min
     ie_ratio:       formatIERatio(ieRaw),                             // "1:2" or "1:2.5"
+    tpause_set:     tpauseSet,                                        // % inspiratory pause (spec bytes 15-16)
     peep_set:       field(d.slice(13, 15)),                           // cmH2O
     peak_limit:     field(d.slice(15, 18)),                           // cmH2O
     // ── Pressure-mode settings ──────────────────────────────────────────────

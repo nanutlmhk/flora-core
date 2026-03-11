@@ -63,6 +63,14 @@ export default function App() {
     });
   }, []);
 
+  const applyDischargeTimeUpdate = useCallback((caseId: number, dischargeTime: number) => {
+    setCaseStatus(prev => {
+      if (prev.status === "IDLE") return prev;
+      if (prev.case_id !== caseId) return prev;
+      return { ...prev, discharge_time: dischargeTime };
+    });
+  }, []);
+
   useEffect(() => {
     refreshCase();
   }, [refreshCase]);
@@ -182,6 +190,7 @@ export default function App() {
               historyMode={isHistoryMode}
               onCurrentCaseStarted={() => setActiveView("case")}
               onCaseStartTimeUpdated={applyStartTimeUpdate}
+              onCaseDischargeTimeUpdated={applyDischargeTimeUpdate}
             />
           </div>
         )}
@@ -247,6 +256,7 @@ export default function App() {
                 historyMode={isHistoryMode}
                 onCurrentCaseStarted={() => setActiveView("case")}
                 onCaseStartTimeUpdated={applyStartTimeUpdate}
+                onCaseDischargeTimeUpdated={applyDischargeTimeUpdate}
               />
             </div>
           </div>

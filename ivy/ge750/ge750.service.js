@@ -71,37 +71,55 @@ const GE750_MEASURED_MAP = {
     unit: "cmH2O",
   },
   // Extended ventilator fields
-  mv_spont: { ivy_param: "mv_spont", raw_code: "GE750_MV_SPONT", unit: "L/min" },
-  rr_spont: { ivy_param: "rr_spont", raw_code: "GE750_RR_SPONT", unit: "rpm" },
-  peep_intrinsic: { ivy_param: "peep_intrinsic", raw_code: "GE750_PEEPI", unit: "cmH2O" },
-  compliance: { ivy_param: "compliance", raw_code: "GE750_COMPLIANCE", unit: "mL/cmH2O" },
-  peep_extrinsic: { ivy_param: "peep_extrinsic", raw_code: "GE750_PEEPE", unit: "cmH2O" },
-  peep_total: { ivy_param: "peep_total", raw_code: "GE750_PEEPEI", unit: "cmH2O" },
+  mv_spont:               { ivy_param: "mv_spont",               raw_code: "GE750_MV_SPONT",       unit: "L/min" },
+  rr_spont:               { ivy_param: "rr_spont",               raw_code: "GE750_RR_SPONT",       unit: "rpm" },
+  peep_intrinsic:         { ivy_param: "peep_intrinsic",         raw_code: "GE750_PEEPI",          unit: "cmH2O" },
+  compliance:             { ivy_param: "compliance",             raw_code: "GE750_COMPLIANCE",     unit: "mL/cmH2O" },
+  airway_resistance:      { ivy_param: "airway_resistance",      raw_code: "GE750_RAW",            unit: "cmH2O/L/s" },
+  tidal_volume_exp_spont: { ivy_param: "tidal_volume_exp_spont", raw_code: "GE750_TVEXP_SPONT",    unit: "mL" },
+  tidal_volume_insp:      { ivy_param: "tidal_volume_insp",      raw_code: "GE750_TVINSP",         unit: "mL" },
+  minute_volume_insp:     { ivy_param: "minute_volume_insp",     raw_code: "GE750_MVINSP",         unit: "L/min" },
+  peep_extrinsic:         { ivy_param: "peep_extrinsic",         raw_code: "GE750_PEEPE",          unit: "cmH2O" },
+  peep_total:             { ivy_param: "peep_total",             raw_code: "GE750_PEEPEI",         unit: "cmH2O" },
 
   // MGAS fields
   fio2_meas: { ivy_param: "fio2_meas", raw_code: "GE750_MGAS_FIO2", unit: "%" },
   et_o2: { ivy_param: "et_o2", raw_code: "GE750_ETO2", unit: "%" },
-  fi_co2: { ivy_param: "fi_co2", raw_code: "GE750_FICO2", unit: "mmHg" },
-  et_co2: { ivy_param: "et_co2", raw_code: "GE750_ETCO2", unit: "mmHg" },
+  fi_co2: { ivy_param: "fi_co2", raw_code: "GE750_FICO2", unit: "%" },   // protocol ÷10 → %
+  et_co2: { ivy_param: "et_co2", raw_code: "GE750_ETCO2", unit: "%" },   // protocol ÷10 → %
   fi_agent: { ivy_param: "fi_agent", raw_code: "GE750_FIAA", unit: "%" },
   et_agent: { ivy_param: "et_agent", raw_code: "GE750_ETAA", unit: "%" },
-  agent_id: { ivy_param: "agent_id", raw_code: "GE750_AGENT_ID", unit: null },
+  agent_id:     { ivy_param: "agent_id",     raw_code: "GE750_AGENT_ID",     unit: null },
+  fi_agent_2nd: { ivy_param: "fi_agent_2nd", raw_code: "GE750_FIAA_2ND",    unit: "%" },
+  et_agent_2nd: { ivy_param: "et_agent_2nd", raw_code: "GE750_ETAA_2ND",    unit: "%" },
+  agent_id_2nd: { ivy_param: "agent_id_2nd", raw_code: "GE750_AGENT_ID_2ND", unit: null },
   fi_n2o: { ivy_param: "fi_n2o", raw_code: "GE750_FIN2O", unit: "%" },
   et_n2o: { ivy_param: "et_n2o", raw_code: "GE750_ETN2O", unit: "%" },
-  mac: { ivy_param: "mac", raw_code: "GE750_MAC", unit: "MAC" },
+  mac:                  { ivy_param: "mac",                  raw_code: "GE750_MAC",              unit: "MAC" },
+  rr_co2:               { ivy_param: "rr_co2",               raw_code: "GE750_RRCO2",            unit: "rpm" },
+
+  // Gas supply / pipeline pressures
+  pressure_o2_supply:   { ivy_param: "pressure_o2_supply",   raw_code: "GE750_PRES_O2_SUPPLY",   unit: "kPa" },
+  pressure_n2o_supply:  { ivy_param: "pressure_n2o_supply",  raw_code: "GE750_PRES_N2O_SUPPLY",  unit: "kPa" },
+  pressure_air_supply:  { ivy_param: "pressure_air_supply",  raw_code: "GE750_PRES_AIR_SUPPLY",  unit: "kPa" },
 
   // Gas flow fields
-  flow_o2: { ivy_param: "flow_o2", raw_code: "GE750_FLOW_O2", unit: "L/min" },
-  flow_n2o: { ivy_param: "flow_n2o", raw_code: "GE750_FLOW_N2O", unit: "L/min" },
-  flow_air: { ivy_param: "flow_air", raw_code: "GE750_FLOW_AIR", unit: "L/min" },
+  flow_o2:              { ivy_param: "flow_o2",              raw_code: "GE750_FLOW_O2",          unit: "L/min" },
+  flow_n2o:             { ivy_param: "flow_n2o",             raw_code: "GE750_FLOW_N2O",         unit: "L/min" },
+  flow_air:             { ivy_param: "flow_air",             raw_code: "GE750_FLOW_AIR",         unit: "L/min" },
+
+  // Measured breath timing
+  t_insp_meas:          { ivy_param: "t_insp_meas",          raw_code: "GE750_TINSP_MEAS",       unit: "s" },
+  t_exp_meas:           { ivy_param: "t_exp_meas",           raw_code: "GE750_TEXP_MEAS",        unit: "s" },
 };
 
 const GE750_SETTINGS_MAP = {
-  vent_mode: { ivy_param: "set_vent_mode", raw_code: "GE750_VENT_MODE", unit: null },
-  tv_set: { ivy_param: "set_tidal_volume", raw_code: "GE750_SET_TV", unit: "mL" },
-  rr_set: { ivy_param: "set_rr", raw_code: "GE750_SET_RR", unit: "rpm" },
-  ie_ratio: { ivy_param: "set_ie_ratio", raw_code: "GE750_SET_IE_RATIO", unit: "ratio" },
-  peep_set: { ivy_param: "set_peep", raw_code: "GE750_SET_PEEP", unit: "cmH2O" },
+  vent_mode:   { ivy_param: "set_vent_mode",    raw_code: "GE750_VENT_MODE",     unit: null },
+  tv_set:      { ivy_param: "set_tidal_volume", raw_code: "GE750_SET_TV",        unit: "mL" },
+  rr_set:      { ivy_param: "set_rr",           raw_code: "GE750_SET_RR",        unit: "rpm" },
+  ie_ratio:    { ivy_param: "set_ie_ratio",     raw_code: "GE750_SET_IE_RATIO",  unit: "ratio" },
+  tpause_set:  { ivy_param: "set_tpause",       raw_code: "GE750_SET_TPAUSE",    unit: "%" },
+  peep_set:    { ivy_param: "set_peep",         raw_code: "GE750_SET_PEEP",      unit: "cmH2O" },
   peak_limit: {
     ivy_param: "set_peak_limit",
     raw_code: "GE750_SET_PEAK_LIMIT",
@@ -247,13 +265,15 @@ function ingestGE750Frame(frame, map, frameType = "DATA") {
     const mv = frame.minute_volume ?? "-";
     const rr = frame.resp_rate ?? "-";
     const etco2 = frame.et_co2 ?? "-";
-    console.log(`[${ts}] [GE750-DATA] TV:${tv}mL MV:${mv}L/min RR:${rr} EtCO2:${etco2}`);
+    const mac = frame.mac != null ? frame.mac : "----";
+    console.log(`[${ts}] [GE750-DATA] TV:${tv}mL MV:${mv}L/min RR:${rr} EtCO2:${etco2} MAC:${mac}`);
   } else if (frameType === "SETTINGS") {
     const mode = effectiveFrame.vent_mode ?? "UNKNOWN";
     const tvSet = effectiveFrame.tv_set ?? "-";
     const rrSet = effectiveFrame.rr_set ?? "-";
+    const fio2s = effectiveFrame.fio2_set != null ? `${effectiveFrame.fio2_set}%` : "----";
     const fgf  = effectiveFrame.fgf_total != null ? `${effectiveFrame.fgf_total}L/min` : "----";
-    console.log(`[${ts}] [GE750-SETTINGS] Mode:${mode} SetTV:${tvSet}mL SetRR:${rrSet} FGF:${fgf}`);
+    console.log(`[${ts}] [GE750-SETTINGS] Mode:${mode} SetTV:${tvSet}mL SetRR:${rrSet} SetFiO2:${fio2s} FGF:${fgf}`);
   }
 }
 

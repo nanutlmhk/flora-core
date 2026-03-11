@@ -190,6 +190,7 @@ function startMinuteWriter(caseId) {
   }, POLL_INTERVAL_MS);
 
   writers.set(caseId, state);
+  void tickWriter(state);
 }
 
 function stopMinuteWriter(caseId) {

@@ -1,69 +1,74 @@
 const { framePacket } = require("./framing");
 const CFG = require("./config");
 
-// S/5 Computer Interface Protocol — Little-Endian binary protocol
+// S/5 DRI header layout (datex_hdr_type, Pack=1, 40 bytes total):
+//   0-1   r_len (Int16 LE)       = 49 for phdb request
+//   2     r_nbr (byte)           = 0
+//   3     r_dri_level (byte)     ← MUST match device firmware level
+//   4-5   plug_id (UInt16)       = 0
+//   6-9   r_time (UInt32)        = 0
+//   10-13 reserved               = 0
+//   14-15 r_maintype (Int16 LE)  = 0 (DRI_MT_PHDB)
+//   16-18 sr_desc[0]: offset(Int16)=0, type(byte)=0  (phdb data request)
+//   19-21 sr_desc[1]: offset(Int16)=0, type(byte)=0xFF (EOL)
+//   22-39 padding zeros
+//   40    phdb_rcrd_type (byte)  = 1 (DRI_PH_DISPL)
+//   41-42 tx_interval (Int16 LE) = interval seconds
+//   43-46 phdb_class_bf (UInt32 LE)
+//   47-48 reserved               = 0
 //
-// A "Datex Record" request is exactly 49 bytes, laid out as follows:
-//
-//  Offset  Size  Field              Notes
-//  ------  ----  -----------------  -------------------------------------------
-//   0-1     2    r_len (LE)         = 49 (0x31 0x00)
-//   2       1    r_maintype         = 0 (per spec example)
-//   3-21   19    reserved / zeros   sr_desc array (no subrecords used in request)
-//   22-23   2    EOL marker (LE)    = 0x00FF  (DRI_EOL_SUBR_LIST = 255)
-//   24-39  16    padding zeros
-//   40      1    phdb_rcrd_type     = 1 (DRI_PH_DISPL)
-//   41-42   2    tx_ival (LE)       auto-transmission interval in seconds (min 5)
-//   43-46   4    phdb_class_bf (LE) bitmask of data classes to request
-//   47-48   2    reserved           = 0
-//
-// Verified against spec example (M1017617 Appendix A):
-//   7e 31 00 00...00 ff 00 00...00 01 0a 00 0e 00 00 00 00 00 49 7e
-//   checksum: 49+255+1+10+14 = 329 & 0xFF = 0x49 ✓
+// Verified against spec Appendix A hex example:
+//   7e 31 00 [level] 00 00...00 ff 00...00 01 0a 00 0e 00 00 00 00 00 [chk] 7e
 
 const RECORD_LEN        = 49;
-const DRI_EOL_SUBR_LIST = 0xFF; // end-of-subrecord-list marker at bytes 22-23
+const DRI_EOL_SUBR_LIST = 0xFF;
 
-// phdb_class_bf bitmask (from VSCaptureWave DataConstants.cs):
-//   bit 0 = 0 → INCLUDE basic (default, REQ_BASIC_MASK = 0)
-//   bit 0 = 1 → DENY basic   (DENY_BASIC_MASK = 1)
-//   bit 1 = 1 → EXT1  (REQ_EXT1_MASK = 2)
-//   bit 2 = 1 → EXT2  (REQ_EXT2_MASK = 4)
-//   bit 3 = 1 → EXT3  (REQ_EXT3_MASK = 8)
-//
-// Spec example (Appendix A) shows 0x0E = BASIC+EXT1+EXT2+EXT3.
-// However the B650 unit under test ONLY responded when sent 0x0F (all four bits set).
-// 0x0E = BASIC + EXT1 + EXT2 + EXT3 (bit 0 clear = include basic, matches spec Appendix A)
-// 0x0F = EXT1+EXT2+EXT3 only (bit 0=1 = DENY_BASIC_MASK — HR/SpO2/NIBP not sent!)
-const PHDB_CLASS_ALL = 0x0E; // include BASIC so HR, SpO2, NIBP are streamed
+// DRI firmware level codes (from DataConstants.cs):
+const DRI_LEVEL_2001 = 7;
+const DRI_LEVEL_2003 = 8;
+const DRI_LEVEL_2005 = 9;
+
+// phdb_class_bf (from DataConstants.cs):
+//   DRI_PHDBCL_REQ_BASIC_MASK = 0  (bit0=0 → include BASIC, this is the default)
+//   DRI_PHDBCL_REQ_EXT1_MASK  = 2
+//   DRI_PHDBCL_REQ_EXT2_MASK  = 4
+//   DRI_PHDBCL_REQ_EXT3_MASK  = 8
+// 0x0E = 0|2|4|8 = BASIC + EXT1 + EXT2 + EXT3
+const PHDB_CLASS_ALL = 0x0E;
 
 /**
- * Build a DRI_PH_DISPL auto-transmission request packet.
- *
- * intervalSeconds — how often the device should send PHDB data (seconds).
- *   Spec minimum for DRI_PH_DISPL is 5 seconds; values below 5 are clamped.
- *
- * Returns a framed, escaped, checksummed Buffer ready to write to serial.
+ * Build one DRI_PH_DISPL request packet for a specific DRI firmware level.
+ * Returns a framed, escaped, checksummed Buffer.
  */
-function buildDisplayRequest(intervalSeconds = 5) {
-  const ival = Math.max(5, Math.round(intervalSeconds));
+function buildDisplayRequest(intervalSeconds = 5, driLevel = DRI_LEVEL_2005) {
+  const ival   = Math.max(5, Math.round(intervalSeconds));
   const record = Buffer.alloc(RECORD_LEN, 0);
 
-  // ── Datex record header ────────────────────────────────────────────────────
-  record.writeUInt16LE(RECORD_LEN, 0);         // r_len (LE) = 49
-  // record[2] = 0  →  r_maintype (zero per spec example; NOT DRI_MT_PHDB=4)
-
-  // ── Sub-record descriptor list ─────────────────────────────────────────────
-  // No explicit sub-records in a phdb request. Terminate with EOL marker.
-  record.writeUInt16LE(DRI_EOL_SUBR_LIST, 22); // 0xFF 0x00 at bytes 22-23
-
-  // ── phdb_req body (starts at byte 40) ─────────────────────────────────────
-  record[40] = CFG.DRI_PH_DISPL;              // phdb_rcrd_type = 1
-  record.writeInt16LE(ival, 41);              // tx_ival (LE), seconds
-  record.writeUInt32LE(PHDB_CLASS_ALL, 43);   // phdb_class_bf (LE)
-  record.writeUInt16LE(0, 47);               // reserved
+  record.writeUInt16LE(RECORD_LEN, 0);       // r_len
+  record[3] = driLevel;                       // r_dri_level ← key field
+  record.writeUInt16LE(DRI_EOL_SUBR_LIST, 19); // sr_desc[1].sr_offset low byte = 0xFF = EOL
+  record[40] = CFG.DRI_PH_DISPL;             // phdb_rcrd_type = 1
+  record.writeInt16LE(ival, 41);             // tx_interval
+  record.writeUInt32LE(PHDB_CLASS_ALL, 43);  // phdb_class_bf
 
   return framePacket(record);
 }
 
-module.exports = { buildDisplayRequest };
+/**
+ * Build three DRI_PH_DISPL requests — one per firmware level (2001/2003/2005).
+ *
+ * VSCaptureWave (Main.cs) sends all three back-to-back on startup because the
+ * B650 / Aisys monitor only responds to the request that matches its own
+ * r_dri_level. Sending all three guarantees a response regardless of firmware.
+ *
+ * Returns a single Buffer with all three framed packets concatenated.
+ */
+function buildAllLevelRequests(intervalSeconds = 5) {
+  return Buffer.concat([
+    buildDisplayRequest(intervalSeconds, DRI_LEVEL_2005), // level 9
+    buildDisplayRequest(intervalSeconds, DRI_LEVEL_2003), // level 8
+    buildDisplayRequest(intervalSeconds, DRI_LEVEL_2001), // level 7
+  ]);
+}
+
+module.exports = { buildDisplayRequest, buildAllLevelRequests };

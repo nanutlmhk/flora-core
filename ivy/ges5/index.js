@@ -1,6 +1,6 @@
 const GES5Serial = require("./serial");
 const CFG = require("./config");
-const { buildDisplayRequest } = require("./protocol");
+const { buildAllLevelRequests } = require("./protocol");
 
 // ─── Datex S/5 constants ────────────────────────────────────────────────────
 const DATA_INVALID     = -32767; // value not available
@@ -46,72 +46,104 @@ function readVal(buf, offset) {
 // sub: Buffer slice starting at the first byte of basic_phdb_type
 //      (caller already skips the PHDB_SUBR_HDR bytes)
 //
-// Each parameter group starts with group_hdr_type (6 bytes):
+// Each group starts with group_hdr_type (6 bytes):
 //   [0-3] status_bits (UInt32)  [4-5] label_info (UInt16)
-// then the actual measurement value(s) at offset +6 within the group.
+// then fields at offset +6 within the group.
 //
-// Group start offsets within basic_phdb_type:
+// Group start offsets within basic_phdb_type (270 bytes, Pack=1):
 //   ecg=0(16B), p1=16(14B), p2=30(14B), p3=44(14B), p4=58(14B),
 //   nibp=72(14B), t1=86(8B), t2=94(8B), t3=102(8B), t4=110(8B),
-//   spo2=118(14B), co2=132(14B), o2=146(10B), n2o=156(10B), aa=166(12B), ...
+//   spo2=118(14B), co2=132(14B), o2=146(10B), n2o=156(10B),
+//   aa=166(12B), flow_vol=178(22B), co_wedge=200(14B), ...
 //
-// Scaling (Datex-Ohmeda S/5 convention, verified against AS3 capture):
-//   HR             → direct (bpm)
-//   NIBP           → raw ÷ 100 (mmHg)   ← raw stores e.g. 12100 for 121 mmHg
-//   SpO2 %         → raw ÷ 100 (%)      ← raw stores e.g. 9900 for 99 %
-//   SpO2_PR        → direct (bpm pulse rate)
-//   Temperature    → raw ÷ 10  (°C)
-//   EtCO2 / FiCO2 → raw ÷ 100 (kPa)
-//   CO2 RR         → direct (breaths/min)
-//   O2 / N2O / AA  → raw ÷ 10  (%)
-//   AA MAC sum     → raw ÷ 100
+// Scaling (from VSCaptureWave Class1.cs ShowBasicSubRecord ValidateAddData calls):
+//   HR             → ×1  direct bpm
+//   NIBP / P1 / P2 → ×0.01 → mmHg   (raw 12100 = 121 mmHg)
+//   SpO2 %         → ×0.01 → %       (raw 9900  = 99 %)
+//   SpO2_PR        → ×1  direct bpm
+//   Temperature    → ×0.01 → °C      (raw 3700  = 37.00 °C)
+//   EtCO2/FiCO2   → (raw_et × amb_press) × 0.00001 → kPa
+//   CO2 RR         → ×1  direct
+//   O2 / N2O / AA  → ×0.01 → %      (raw 5000  = 50.0 %)
+//   AA MAC sum     → ×0.01
+//   flow_vol: RR→×1, PPeak/PPlat/PEEP→×0.01 cmH2O, TV→×0.1 L, MV→×0.01 L/min
+//             Compliance → ×0.01 mL/cmH2O
+const AA_AGENT = ["Unknown","None","HAL","ENF","ISO","DES","SEV"];
+
 function parseBasicPhdb(sub) {
   const v = {};
 
-  // ECG group (offset 0)
-  const hr = readVal(sub, 6);   if (hr  !== null) v.HR     = hr;   // bpm
-  const rr = readVal(sub, 14);  if (rr  !== null) v.RR_IMP = rr;   // breaths/min (impedance)
+  // ── ECG group (offset 0, 16B) ──────────────────────────────────────────────
+  const hr = readVal(sub, 6);   if (hr  !== null) v.HR     = hr;          // bpm
+  const rr = readVal(sub, 14);  if (rr  !== null) v.RR_IMP = rr;          // br/min
 
-  // P1–P4 invasive pressures (offsets 16, 30, 44, 58) — mmHg
-  const p1s = readVal(sub, 22); if (p1s !== null) v.P1_SYS  = p1s;
-  const p1d = readVal(sub, 24); if (p1d !== null) v.P1_DIA  = p1d;
-  const p1m = readVal(sub, 26); if (p1m !== null) v.P1_MEAN = p1m;
-  const p2s = readVal(sub, 36); if (p2s !== null) v.P2_SYS  = p2s;
-  const p2d = readVal(sub, 38); if (p2d !== null) v.P2_DIA  = p2d;
-  const p2m = readVal(sub, 40); if (p2m !== null) v.P2_MEAN = p2m;
+  // ── Invasive pressures P1/P2 (offsets 16, 30 — 14B each) — ×0.01 = mmHg ──
+  // p_group: hdr(6B) sys(2B) dia(2B) mean(2B) hr(2B)
+  const p1s = readVal(sub, 22); if (p1s !== null) v.P1_SYS  = +(p1s * 0.01).toFixed(1);
+  const p1d = readVal(sub, 24); if (p1d !== null) v.P1_DIA  = +(p1d * 0.01).toFixed(1);
+  const p1m = readVal(sub, 26); if (p1m !== null) v.P1_MEAN = +(p1m * 0.01).toFixed(1);
+  const p1h = readVal(sub, 28); if (p1h !== null) v.P1_HR   = p1h;        // bpm
+  const p2s = readVal(sub, 36); if (p2s !== null) v.P2_SYS  = +(p2s * 0.01).toFixed(1);
+  const p2d = readVal(sub, 38); if (p2d !== null) v.P2_DIA  = +(p2d * 0.01).toFixed(1);
+  const p2m = readVal(sub, 40); if (p2m !== null) v.P2_MEAN = +(p2m * 0.01).toFixed(1);
+  const p2h = readVal(sub, 42); if (p2h !== null) v.P2_HR   = p2h;        // bpm
 
-  // NIBP (offset 72) — raw ÷ 100 = mmHg
-  const ns = readVal(sub, 78);  if (ns  !== null) v.NIBP_SYS  = Math.round(ns / 100);
-  const nd = readVal(sub, 80);  if (nd  !== null) v.NIBP_DIA  = Math.round(nd / 100);
-  const nm = readVal(sub, 82);  if (nm  !== null) v.NIBP_MEAN = Math.round(nm / 100);
+  // ── NIBP (offset 72, 14B) — ×0.01 = mmHg ────────────────────────────────
+  const ns = readVal(sub, 78);  if (ns  !== null) v.NIBP_SYS  = Math.round(ns  * 0.01);
+  const nd = readVal(sub, 80);  if (nd  !== null) v.NIBP_DIA  = Math.round(nd  * 0.01);
+  const nm = readVal(sub, 82);  if (nm  !== null) v.NIBP_MEAN = Math.round(nm  * 0.01);
 
-  // Temperatures (offsets 86, 94, 102, 110) — raw ÷ 10 = °C
-  const t1 = readVal(sub, 92);  if (t1  !== null) v.T1 = (t1 / 10).toFixed(1);
-  const t2 = readVal(sub, 100); if (t2  !== null) v.T2 = (t2 / 10).toFixed(1);
-  const t3 = readVal(sub, 108); if (t3  !== null) v.T3 = (t3 / 10).toFixed(1);
-  const t4 = readVal(sub, 116); if (t4  !== null) v.T4 = (t4 / 10).toFixed(1);
+  // ── Temperatures T1–T4 (offsets 86/94/102/110, 8B each) — ×0.01 = °C ───
+  const t1 = readVal(sub, 92);  if (t1  !== null) v.T1 = (t1  * 0.01).toFixed(2);
+  const t2 = readVal(sub, 100); if (t2  !== null) v.T2 = (t2  * 0.01).toFixed(2);
+  const t3 = readVal(sub, 108); if (t3  !== null) v.T3 = (t3  * 0.01).toFixed(2);
+  const t4 = readVal(sub, 116); if (t4  !== null) v.T4 = (t4  * 0.01).toFixed(2);
 
-  // SpO2 (offset 118) — raw ÷ 100 = %; SpO2_PR is pulse rate, direct bpm
-  const sp  = readVal(sub, 124); if (sp  !== null) v.SpO2    = Math.round(sp  / 100);
+  // ── SpO2 (offset 118, 14B) — ×0.01 = %; PR direct ───────────────────────
+  // SpO2_group: hdr(6B) SpO2(2B) pr(2B) ir_amp(2B) svo2(2B)
+  const sp  = readVal(sub, 124); if (sp  !== null) v.SpO2    = Math.round(sp  * 0.01);
   const spr = readVal(sub, 126); if (spr !== null) v.SpO2_PR = spr;
 
-  // CO2 (offset 132) — EtCO2/FiCO2 in kPa×100, RR direct
-  const ce = readVal(sub, 138); if (ce  !== null) v.CO2_ET = (ce  / 100).toFixed(2); // kPa
-  const cf = readVal(sub, 140); if (cf  !== null) v.CO2_FI = (cf  / 100).toFixed(2); // kPa
-  const cr = readVal(sub, 142); if (cr  !== null) v.CO2_RR = cr;                     // br/min
+  // ── CO2 (offset 132, 14B) — EtCO2 = (et × amb_press) × 0.00001 kPa ─────
+  // co2_group: hdr(6B) et(2B) fi(2B) rr(2B) amb_press(2B)
+  const amb = sub.length >= 146 ? sub.readInt16LE(144) : 0;
+  const ce  = readVal(sub, 138);
+  const cf  = readVal(sub, 140);
+  const cr  = readVal(sub, 142);
+  if (ce  !== null && amb > 0) v.CO2_ET = +((ce * amb) * 0.00001).toFixed(2); // kPa
+  if (cf  !== null && amb > 0) v.CO2_FI = +((cf * amb) * 0.00001).toFixed(2); // kPa
+  if (cr  !== null)            v.CO2_RR = cr;                                  // br/min
 
-  // O2 (offset 146) — raw ÷ 10 = %
-  const oe = readVal(sub, 152); if (oe  !== null) v.O2_ET = (oe / 10).toFixed(1);
-  const of_ = readVal(sub, 154); if (of_ !== null) v.O2_FI = (of_ / 10).toFixed(1);
+  // ── O2 (offset 146, 10B) — ×0.01 = % ────────────────────────────────────
+  // o2_group: hdr(6B) et(2B) fi(2B)
+  const oe  = readVal(sub, 152); if (oe  !== null) v.O2_ET = +(oe  * 0.01).toFixed(1);
+  const of_ = readVal(sub, 154); if (of_ !== null) v.O2_FI = +(of_ * 0.01).toFixed(1);
 
-  // N2O (offset 156) — raw ÷ 10 = %
-  const ne = readVal(sub, 162); if (ne  !== null) v.N2O_ET = (ne / 10).toFixed(1);
-  const nf = readVal(sub, 164); if (nf  !== null) v.N2O_FI = (nf / 10).toFixed(1);
+  // ── N2O (offset 156, 10B) — ×0.01 = % ───────────────────────────────────
+  const ne = readVal(sub, 162); if (ne  !== null) v.N2O_ET = +(ne  * 0.01).toFixed(1);
+  const nf = readVal(sub, 164); if (nf  !== null) v.N2O_FI = +(nf  * 0.01).toFixed(1);
 
-  // AA volatile agent (offset 166) — raw ÷ 10 = %, MAC ÷ 100
-  const ae  = readVal(sub, 172); if (ae  !== null) v.AA_ET  = (ae  / 10).toFixed(1);
-  const af  = readVal(sub, 174); if (af  !== null) v.AA_FI  = (af  / 10).toFixed(1);
-  const am  = readVal(sub, 176); if (am  !== null) v.AA_MAC = (am  / 100).toFixed(2);
+  // ── AA volatile agent (offset 166, 12B) — ×0.01 = %, MAC ×0.01 ──────────
+  // aa_group: hdr(6B) et(2B) fi(2B) mac_sum(2B); label_info(at +4) = agent type
+  const ae  = readVal(sub, 172); if (ae  !== null) v.AA_ET  = +(ae  * 0.01).toFixed(2);
+  const af  = readVal(sub, 174); if (af  !== null) v.AA_FI  = +(af  * 0.01).toFixed(2);
+  const am  = readVal(sub, 176); if (am  !== null) v.AA_MAC = +(am  * 0.01).toFixed(2);
+  if (sub.length >= 172) {
+    const agentCode = sub.readUInt16LE(170);                // label_info (at hdr+4 = 166+4)
+    if (agentCode >= 0 && agentCode < AA_AGENT.length) v.AA_AGENT = AA_AGENT[agentCode];
+  }
+
+  // ── flow_vol (offset 178, 22B) — Aisys CS2 ventilator data ───────────────
+  // flow_vol_group: hdr(6B) rr(2B) ppeak(2B) peep(2B) pplat(2B)
+  //                 tv_insp(2B) tv_exp(2B) compliance(2B) mv_exp(2B)
+  const fv_rr   = readVal(sub, 184); if (fv_rr   !== null) v.FV_RR         = fv_rr;                         // br/min ×1
+  const fv_pp   = readVal(sub, 186); if (fv_pp   !== null) v.FV_PPEAK      = +(fv_pp   * 0.01).toFixed(1);  // cmH2O
+  const fv_peep = readVal(sub, 188); if (fv_peep !== null) v.FV_PEEP       = +(fv_peep * 0.01).toFixed(1);  // cmH2O
+  const fv_pl   = readVal(sub, 190); if (fv_pl   !== null) v.FV_PPLAT      = +(fv_pl   * 0.01).toFixed(1);  // cmH2O
+  const fv_ti   = readVal(sub, 192); if (fv_ti   !== null) v.FV_TV_INSP    = +(fv_ti   * 0.1).toFixed(2);   // L
+  const fv_te   = readVal(sub, 194); if (fv_te   !== null) v.FV_TV_EXP     = +(fv_te   * 0.1).toFixed(2);   // L
+  const fv_comp = readVal(sub, 196); if (fv_comp !== null) v.FV_COMPLIANCE  = +(fv_comp * 0.01).toFixed(1);  // mL/cmH2O
+  const fv_mv   = readVal(sub, 198); if (fv_mv   !== null) v.FV_MV_EXP     = +(fv_mv   * 0.01).toFixed(2);  // L/min
 
   return v;
 }
@@ -122,10 +154,11 @@ let _hexDumpCount = 0; // dump first 3 packets for offset verification
 function parsePhdbPacket(payload) {
   const rLen      = payload.readUInt16LE(0);
   const rNbr      = payload[2];                 // sequence counter
+  const rTime     = payload.readUInt32LE(6);    // Unix timestamp (seconds) from device
   const rMaintype = payload.readInt16LE(14);    // 0=DRI_MT_PHDB, 1=DRI_MT_WAVE
 
   if (rMaintype !== 0) {
-    return { rNbr, rLen, rMaintype, skipped: true };
+    return { rNbr, rLen, rTime, rMaintype, skipped: true };
   }
 
   // ── Debug: dump first 2 packets + vital-sign scanner ────────────────────
@@ -192,7 +225,7 @@ function parsePhdbPacket(payload) {
     results.push({ kind, sr_offset, vals });
   }
 
-  return { rNbr, rLen, rMaintype, results };
+  return { rNbr, rLen, rTime, rMaintype, results };
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -201,6 +234,7 @@ function startGES5Service(options = {}) {
   const onPacket = typeof options.onPacket === "function" ? options.onPacket : null;
   const onOpen   = typeof options.onOpen   === "function" ? options.onOpen   : null;
   const onError  = typeof options.onError  === "function" ? options.onError  : null;
+  const onClose  = typeof options.onClose  === "function" ? options.onClose  : null;
 
   if (!port) {
     console.error("[GES5] No port configured. Set GES5_PORT env var.");
@@ -222,11 +256,14 @@ function startGES5Service(options = {}) {
     if (onOpen) onOpen({ port });
 
     const ival = CFG.TRANSMISSION_INTERVAL;
-    const req  = buildDisplayRequest(ival);
+    const req  = buildAllLevelRequests(ival);
 
+    // Send requests for all DRI firmware levels (2005/2003/2001 = levels 9/8/7).
+    // The B650 ignores requests whose r_dri_level doesn't match its firmware.
+    // VSCaptureWave Main.cs sends all three — we do the same.
     console.log(
-      `[GES5] Sending DRI_PH_DISPL request (tx_ival=${ival}s)` +
-      `  hex=${req.toString("hex")}`
+      `[GES5] Sending DRI_PH_DISPL × 3 levels (tx_ival=${ival}s)` +
+      `  hex=${req.toString("hex").slice(0, 80)}...`
     );
     s5.write(req);
 
@@ -291,6 +328,7 @@ function startGES5Service(options = {}) {
   s5.on("close", () => {
     console.log("[GES5] serial closed");
     if (requestTimer) clearTimeout(requestTimer);
+    if (onClose) onClose();
   });
 
   s5.open();

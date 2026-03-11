@@ -313,18 +313,21 @@ function parseLifecycleEventTitle(title) {
 
 function getLifecycleOpenCount(caseId, scope, eventTs, excludeEventId) {
   const hasExclude = Number.isFinite(excludeEventId);
+  // Filter event_type = 'event' in SQL — avoids fetching 'note' rows into JS
   const query = hasExclude
-    ? `SELECT id, event_type, title
+    ? `SELECT id, title
        FROM case_event_note
        WHERE case_id = ?
          AND is_deleted = 0
+         AND event_type = 'event'
          AND event_ts <= ?
          AND id <> ?
        ORDER BY event_ts ASC, id ASC`
-    : `SELECT id, event_type, title
+    : `SELECT id, title
        FROM case_event_note
        WHERE case_id = ?
          AND is_deleted = 0
+         AND event_type = 'event'
          AND event_ts <= ?
        ORDER BY event_ts ASC, id ASC`;
 
@@ -334,7 +337,6 @@ function getLifecycleOpenCount(caseId, scope, eventTs, excludeEventId) {
 
   let openCount = 0;
   for (const row of rows) {
-    if (row.event_type !== "event") continue;
     const parsed = parseLifecycleEventTitle(row.title);
     if (!parsed || parsed.scope !== scope) continue;
 
@@ -350,23 +352,25 @@ function getLifecycleOpenCount(caseId, scope, eventTs, excludeEventId) {
 
 function hasLifecycleStartInCase(caseId, scope, excludeEventId) {
   const hasExclude = Number.isFinite(excludeEventId);
+  // Filter event_type = 'event' in SQL — avoids fetching 'note' rows into JS
   const query = hasExclude
-    ? `SELECT event_type, title
+    ? `SELECT title
        FROM case_event_note
        WHERE case_id = ?
          AND is_deleted = 0
+         AND event_type = 'event'
          AND id <> ?`
-    : `SELECT event_type, title
+    : `SELECT title
        FROM case_event_note
        WHERE case_id = ?
-         AND is_deleted = 0`;
+         AND is_deleted = 0
+         AND event_type = 'event'`;
 
   const rows = hasExclude
     ? db.prepare(query).all(caseId, excludeEventId)
     : db.prepare(query).all(caseId);
 
   for (const row of rows) {
-    if (row.event_type !== "event") continue;
     const parsed = parseLifecycleEventTitle(row.title);
     if (!parsed) continue;
     if (parsed.scope === scope && parsed.phase === "start") {
@@ -424,17 +428,22 @@ function resolveAutoEventTitleByCategory(category) {
 }
 
 function hasCaseEventTitle(caseId, title) {
-  const target = normalizeLifecycleTitle(title);
-  const rows = db
+  // normalizeLifecycleTitle = lower + collapse whitespace + trim.
+  // TRIM(LOWER(?)) is equivalent for the simple titles used here ("Induction" etc.).
+  // EXISTS stops at the first match — no need to fetch all rows.
+  const normalized = normalizeLifecycleTitle(title);
+  const row = db
     .prepare(
-      `SELECT title
+      `SELECT 1
          FROM case_event_note
         WHERE case_id = ?
           AND is_deleted = 0
-          AND event_type = 'event'`
+          AND event_type = 'event'
+          AND TRIM(LOWER(title)) = ?
+        LIMIT 1`
     )
-    .all(caseId);
-  return rows.some(row => normalizeLifecycleTitle(row.title) === target);
+    .get(caseId, normalized);
+  return row != null;
 }
 
 function createAutoCaseEventIfNeeded({ caseId, eventTs, itemCategory, actor, reason }) {
@@ -1110,6 +1119,64 @@ router.put("/:id/start-time", (req, res) => {
     ok: true,
     case_id: caseId,
     start_time: startTs,
+  });
+});
+
+/* =======================
+   UPDATE DISCHARGE TIME
+======================= */
+router.put("/:id/discharge-time", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const caseRow = db
+    .prepare(`SELECT id, status, start_time, discharge_time FROM cases WHERE id = ?`)
+    .get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "not found" });
+
+  const status = String(caseRow.status || "").toLowerCase();
+  if (status !== "discharged" && status !== "archived") {
+    return res.status(400).json({ error: "case must be discharged or archived" });
+  }
+
+  const rawDischargeTs = Number(req.body?.discharge_time);
+  if (!Number.isFinite(rawDischargeTs)) {
+    return res.status(400).json({ error: "discharge_time required" });
+  }
+  const dischargeTs = floorMinute(rawDischargeTs);
+
+  const startTs = Number(caseRow.start_time);
+  if (Number.isFinite(startTs) && dischargeTs < startTs) {
+    return res.status(400).json({ error: "discharge_time must be >= start_time" });
+  }
+
+  const lastMinuteRow = db
+    .prepare(
+      `SELECT MAX(ts_minute) AS last_ts_minute
+       FROM vital_minutes
+       WHERE case_id = ?`,
+    )
+    .get(caseId);
+  const lastMinuteTs = Number(lastMinuteRow?.last_ts_minute);
+  if (Number.isFinite(lastMinuteTs) && dischargeTs <= lastMinuteTs) {
+    return res.status(400).json({
+      error: "discharge_time must be later than last minute-writer data",
+    });
+  }
+
+  const now = Date.now();
+  db.prepare(`UPDATE cases SET discharge_time = ?, updated_at = ? WHERE id = ?`).run(
+    dischargeTs,
+    now,
+    caseId,
+  );
+
+  res.json({
+    ok: true,
+    case_id: caseId,
+    discharge_time: dischargeTs,
   });
 });
 

@@ -387,23 +387,10 @@ async function createMainWindow() {
   });
   mainWindow = win;
 
-  // Ensure the window always becomes visible regardless of how the process was
-  // spawned or whether the page load succeeds.  Multiple triggers cover the
-  // normal path (ready-to-show), load-error path (did-fail-load / dom-ready)
-  // and a hard timeout fallback.
-  const showWindowOnce = (() => {
-    let shown = false;
-    return () => {
-      if (shown || win.isDestroyed()) return;
-      shown = true;
-      win.show();
-      win.focus();
-    };
-  })();
-  win.once("ready-to-show", showWindowOnce);
-  win.webContents.once("dom-ready", showWindowOnce);
-  win.webContents.once("did-fail-load", showWindowOnce);
-  setTimeout(showWindowOnce, 8000);
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+  });
 
   const devUrl = process.env.AIDAS_FRONTEND_URL || process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
