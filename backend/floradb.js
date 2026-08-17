@@ -1,4 +1,5 @@
 const Database = require("better-sqlite3");
+const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS cases (
   hn              TEXT NOT NULL,
 
   start_time      INTEGER NOT NULL,
+  device_capture_start_time INTEGER,
   discharge_time  INTEGER,
   archive_time    INTEGER,
 
@@ -53,6 +55,73 @@ CREATE INDEX IF NOT EXISTS idx_cases_status
 
 CREATE INDEX IF NOT EXISTS idx_cases_hn_start
   ON cases(hn, start_time);
+`);
+
+/* ===========================
+   AUTH USERS
+=========================== */
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS auth_user (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  username          TEXT NOT NULL UNIQUE,
+  hospital_id       TEXT,
+  auth_source       TEXT NOT NULL DEFAULT 'local',
+  password_salt     TEXT NOT NULL,
+  password_hash     TEXT NOT NULL,
+  name              TEXT NOT NULL,
+  role              TEXT,
+  theme_mode        TEXT,
+  theme_color       TEXT,
+  is_active         INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
+  last_login_at     INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_user_username
+  ON auth_user(username);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_user_hospital_id
+  ON auth_user(hospital_id);
+`);
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS auth_session (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id           INTEGER NOT NULL,
+  token_hash        TEXT NOT NULL UNIQUE,
+  client_label      TEXT,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
+  last_seen_at      INTEGER NOT NULL,
+  expires_at        INTEGER NOT NULL,
+  revoked_at        INTEGER,
+
+  FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_session_user
+  ON auth_session(user_id, revoked_at, expires_at);
+
+CREATE TABLE IF NOT EXISTS auth_audit (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  action            TEXT NOT NULL,
+  actor_user_id     INTEGER,
+  actor_username    TEXT,
+  actor_role        TEXT,
+  target_user_id    INTEGER,
+  target_username   TEXT,
+  status            TEXT NOT NULL DEFAULT 'ok',
+  detail_json       TEXT,
+  created_at        INTEGER NOT NULL,
+
+  FOREIGN KEY (actor_user_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+  FOREIGN KEY (target_user_id) REFERENCES auth_user(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_audit_created
+  ON auth_audit(created_at DESC, id DESC);
 `);
 
 /* ===========================
@@ -74,6 +143,40 @@ CREATE TABLE IF NOT EXISTS vital_minutes (
 
 CREATE INDEX IF NOT EXISTS idx_vital_minutes_case
   ON vital_minutes(case_id, ts_minute);
+`);
+
+/* ===========================
+   CASE DEVICE INGEST AUDIT
+=========================== */
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS case_device_ingest_audit (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id           INTEGER NOT NULL,
+  hn                TEXT,
+  source_service    TEXT NOT NULL,
+  source_endpoint   TEXT,
+  fetch_mode        TEXT NOT NULL CHECK (
+    fetch_mode IN ('minute','bulk')
+  ),
+  minute_ts         INTEGER,
+  from_ts           INTEGER,
+  to_ts             INTEGER,
+  raw_row_count     INTEGER NOT NULL DEFAULT 0,
+  written_row_count INTEGER NOT NULL DEFAULT 0,
+  status            TEXT NOT NULL CHECK (
+    status IN ('ok','empty','failed')
+  ),
+  actor_username    TEXT NOT NULL,
+  actor_role        TEXT,
+  detail_json       TEXT,
+  created_at        INTEGER NOT NULL,
+
+  FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_device_ingest_audit_case
+  ON case_device_ingest_audit(case_id, created_at DESC, id DESC);
 `);
 
 /* ===========================
@@ -264,6 +367,7 @@ CREATE TABLE IF NOT EXISTS case_detail (
   or_room       TEXT,
   case_type     TEXT CHECK (case_type IN ('elective','emergency')),
   note          TEXT,
+  form_draft_json TEXT,
 
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL,
@@ -274,6 +378,12 @@ CREATE TABLE IF NOT EXISTS case_detail (
 CREATE INDEX IF NOT EXISTS idx_case_detail_case
   ON case_detail(case_id);
 `);
+
+try {
+  db.exec(`ALTER TABLE case_detail ADD COLUMN form_draft_json TEXT`);
+} catch {
+  // ignore existing-column migration
+}
 
 /* ===========================
    CASE DIAGNOSIS (1–N)
@@ -349,6 +459,80 @@ CREATE INDEX IF NOT EXISTS idx_icd10_master_name_en
 
 CREATE INDEX IF NOT EXISTS idx_icd10_master_name_th
   ON icd10_master(name_th);
+`);
+
+/* ===========================
+   ICD9-CM PROCEDURE MASTER
+=========================== */
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS icd9cm_master (
+  icd9cm         TEXT PRIMARY KEY,
+  short_name_en  TEXT,
+  name_en        TEXT,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_icd9cm_master_short_name_en
+  ON icd9cm_master(short_name_en);
+
+CREATE INDEX IF NOT EXISTS idx_icd9cm_master_name_en
+  ON icd9cm_master(name_en);
+`);
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS legacy_med_drip_preset_analysis (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_system         TEXT NOT NULL,
+  source_scope          TEXT NOT NULL,
+  source_year_from      INTEGER,
+  source_year_to        INTEGER,
+  drug_name             TEXT NOT NULL,
+  preset_rank           INTEGER,
+  route                 TEXT,
+  weight_based          INTEGER NOT NULL DEFAULT 0 CHECK (weight_based IN (0,1)),
+  med_amount_value      REAL,
+  med_amount_unit       TEXT,
+  carrier_name          TEXT,
+  carrier_volume_ml     REAL,
+  concentration_value   REAL,
+  concentration_unit    TEXT,
+  source_count          INTEGER NOT NULL DEFAULT 0,
+  avg_minutes           REAL,
+  first_seen            TEXT,
+  last_seen             TEXT,
+  aidas_kind            TEXT,
+  aidas_entry_mode      TEXT,
+  display_label         TEXT,
+  selection_note        TEXT,
+  is_curated            INTEGER NOT NULL DEFAULT 0 CHECK (is_curated IN (0,1)),
+  imported_at           INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_legacy_med_drip_preset_analysis_key
+  ON legacy_med_drip_preset_analysis(
+    source_system,
+    source_scope,
+    COALESCE(source_year_from, 0),
+    COALESCE(source_year_to, 0),
+    drug_name,
+    COALESCE(route, ''),
+    weight_based,
+    COALESCE(med_amount_value, 0),
+    COALESCE(med_amount_unit, ''),
+    COALESCE(carrier_name, ''),
+    COALESCE(carrier_volume_ml, 0),
+    COALESCE(concentration_value, 0),
+    COALESCE(concentration_unit, '')
+  );
+
+CREATE INDEX IF NOT EXISTS idx_legacy_med_drip_preset_analysis_drug
+  ON legacy_med_drip_preset_analysis(drug_name, source_count DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_legacy_med_drip_preset_analysis_scope
+  ON legacy_med_drip_preset_analysis(source_system, source_scope, source_year_from, source_year_to, is_curated);
 `);
 
 /* ===========================
@@ -510,6 +694,28 @@ CREATE TABLE IF NOT EXISTS case_his_lab (
 
 CREATE INDEX IF NOT EXISTS idx_case_his_lab_case
   ON case_his_lab(case_id, collected_at DESC, id DESC);
+`);
+
+/* ===========================
+   EPHIS DAILY CASE IMPORT
+=========================== */
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS ephis_daily_case (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  hn                TEXT NOT NULL,
+  admit_date        TEXT NOT NULL,
+  admit_datetime    TEXT,
+  raw_admit_value   TEXT,
+  source_payload    TEXT,
+  imported_at       INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ephis_daily_case_admit_date
+  ON ephis_daily_case(admit_date, hn);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ephis_daily_case_unique
+  ON ephis_daily_case(hn, admit_date, IFNULL(admit_datetime, ''));
 `);
 
 /* ===========================
@@ -712,6 +918,9 @@ CREATE INDEX IF NOT EXISTS idx_io_item_master_kind
   ON io_item_master(kind, is_active, name);
 `);
 
+ensureColumn("io_item_master", "usage_score", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("io_item_master", "usage_rank", "INTEGER");
+
 /* ===========================
    CASE IO RUN (CONTINUOUS)
 =========================== */
@@ -738,6 +947,11 @@ CREATE TABLE IF NOT EXISTS case_io_run (
 CREATE INDEX IF NOT EXISTS idx_case_io_run_case
   ON case_io_run(case_id, started_at, id);
 `);
+
+/* entry_mode migration — added per-run bolus/drip separation */
+try {
+  db.exec(`ALTER TABLE case_io_run ADD COLUMN entry_mode TEXT CHECK(entry_mode IN ('bolus','drip')) DEFAULT NULL`);
+} catch (_) { /* column already exists */ }
 
 /* ===========================
    CASE IO SEGMENT (RATE CHANGES)
@@ -855,8 +1069,18 @@ ensureColumn("staff_directory", "innovian_id", "TEXT");
 ensureColumn("staff_directory", "staff_role_id", "TEXT");
 ensureColumn("staff_directory", "entry_year", "INTEGER");
 ensureColumn("staff_directory", "is_active", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("auth_user", "hospital_id", "TEXT");
+ensureColumn("auth_user", "auth_source", "TEXT NOT NULL DEFAULT 'local'");
+ensureColumn("auth_user", "theme_mode", "TEXT");
+ensureColumn("auth_user", "theme_color", "TEXT");
 ensureColumn("case_diagnosis", "icd_text", "TEXT");
 ensureColumn("case_procedure", "icd_text", "TEXT");
+ensureColumn("cases", "device_capture_start_time", "INTEGER");
+
+db.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_user_hospital_id
+  ON auth_user(hospital_id);
+`);
 
 const STAFF_ROLE_SEED = [
   { id: "anesthetist", displayName: "Anesthetist", sortOrder: 1 },
@@ -877,6 +1101,23 @@ const STAFF_ROLE_SEED = [
   },
 ];
 
+function isSqliteReadonlyError(err) {
+  const text = String(err?.message || err || "").toLowerCase();
+  return text.includes("readonly") || String(err?.code || "").toUpperCase() === "SQLITE_READONLY";
+}
+
+function runBootstrapWrite(label, fn) {
+  try {
+    return fn();
+  } catch (err) {
+    if (isSqliteReadonlyError(err)) {
+      console.warn(`[FLORA] skipped bootstrap write (${label}) because database is read-only`);
+      return null;
+    }
+    throw err;
+  }
+}
+
 const upsertRole = db.prepare(
   `INSERT INTO staff_role (id, display_name, sort_order)
    VALUES (?, ?, ?)
@@ -886,9 +1127,11 @@ const upsertRole = db.prepare(
      sort_order = excluded.sort_order`
 );
 
-for (const role of STAFF_ROLE_SEED) {
-  upsertRole.run(role.id, role.displayName, role.sortOrder);
-}
+runBootstrapWrite("staff_role seed", () => {
+  for (const role of STAFF_ROLE_SEED) {
+    upsertRole.run(role.id, role.displayName, role.sortOrder);
+  }
+});
 
 const IO_ITEM_SEED = [
   // Fluids (intake) - Fluid Type
@@ -912,8 +1155,9 @@ const IO_ITEM_SEED = [
   { kind: "fluid", code: "nacl3", name: "3% NaCl", unit: "ml", category: "fluids" },
   { kind: "fluid", code: "gelofusine", name: "Gelofusine", unit: "ml", category: "fluids" },
   { kind: "fluid", code: "haemaccel", name: "Haemaccel", unit: "ml", category: "fluids" },
-  { kind: "fluid", code: "lrs", name: "LRS", unit: "ml", category: "fluids" },
+  { kind: "fluid", code: "lrs", name: "Ringer's lactate (LRS)", unit: "ml", category: "fluids" },
   { kind: "fluid", code: "sterofundin", name: "Sterofundin", unit: "ml", category: "fluids" },
+  { kind: "fluid", code: "topBalance", name: "Top balance", unit: "ml", category: "fluids" },
   { kind: "fluid", code: "tetraspan", name: "Tetraspan", unit: "ml", category: "fluids" },
 
   // Fluids (intake) - Blood Product
@@ -1123,141 +1367,373 @@ const upsertIoItem = db.prepare(
      updated_at = excluded.updated_at`
 );
 
-for (const item of IO_ITEM_SEED) {
-  const now = Date.now();
-  upsertIoItem.run(
-    item.kind,
-    item.code,
-    item.name,
-    item.unit,
-    item.category,
-    now,
-    now,
-  );
+runBootstrapWrite("io_item_master seed", () => {
+  for (const item of IO_ITEM_SEED) {
+    const now = Date.now();
+    upsertIoItem.run(
+      item.kind,
+      item.code,
+      item.name,
+      item.unit,
+      item.category,
+      now,
+      now,
+    );
+  }
+});
+
+const MED_NAME_OVERRIDES_BY_CODE = new Map([
+  ["beradual", "Berodual"],
+  ["cefoperazoneSulbactam", "Cefoperazone/Sulbactam"],
+  ["chlopheniramine", "Chlorpheniramine"],
+  ["deksketoprofen", "Dexketoprofen"],
+  ["lidocaineAdrenaline", "Lidocaine + Adrenaline"],
+  ["paracetamolSupp", "Paracetamol suppository"],
+  ["penicillinGNa", "Penicillin G"],
+  ["simulectR", "Simulect"],
+]);
+
+const MED_UNIT_OVERRIDES_BY_CODE = new Map([["penicillinGNa", "MUnits"]]);
+
+const MED_CATEGORY_OVERRIDES_BY_CODE = new Map(
+  Object.entries({
+    ivAnesthetic: [
+      "dexmedetomidine",
+      "diazepam",
+      "etomidate",
+      "ketamine",
+      "midazolam",
+      "propofol",
+      "thiopental",
+    ],
+    nmbd: [
+      "rocuronium",
+      "cisatracurium",
+      "atracurium",
+      "vecuronium",
+      "succinylcholine",
+      "pancuronium",
+    ],
+    opioid: [
+      "morphine",
+      "fentanyl",
+      "pethidine",
+      "nalbuphine",
+      "tramadol",
+      "remifentanil",
+    ],
+    localAnesthetic: [
+      "bupivacaine",
+      "bupivacaineHyperbaric",
+      "bupivacaineIsobaric",
+      "levobupivacaine",
+      "lidocaine",
+      "lidocaineAdrenaline",
+      "ropivacaine",
+      "cocaine10Airway",
+      "emla5",
+      "kamillosanSpray",
+      "lidocaine0025Spray",
+      "lidocaine005Spray",
+      "lidocaine10SprayAirway",
+      "lidocaine1Airway",
+      "lidocaine2Airway",
+      "lidocaine4Airway",
+    ],
+    reversal: ["flumazenil", "naloxone", "neostigmine", "protamine", "sugammadex"],
+    anticholinergic: [
+      "atropine",
+      "atropineAntiArrhythmia",
+      "glycopyrrolate",
+      "hyoscineNButylbromide",
+    ],
+    antiEmetic: ["dexamethasone", "dimenhydrinate", "metoclopramide", "ondansetron"],
+    antimicrobial: [
+      "amikacin",
+      "ampicillin",
+      "amoxicillinClavulanate",
+      "cefazolin",
+      "cefoperazoneSulbactam",
+      "ceftazidime",
+      "ceftriaxone",
+      "cefuroxime",
+      "ciprofloxacin",
+      "clindamycin",
+      "cloxacillin",
+      "colistin",
+      "ertapenemNa",
+      "fosfomycin",
+      "gentamicin",
+      "imipenem",
+      "levofloxacin",
+      "meropenem",
+      "metronidazole",
+      "moxifloxacin",
+      "penicillinGNa",
+      "piperacillinTazobactam",
+      "sulbactamAmpicillin",
+      "teicoplanin",
+      "vancomycin",
+    ],
+    cvDrug: [
+      "adenosine",
+      "amiodarone",
+      "digoxin",
+      "diltiazem",
+      "ephedrine",
+      "epinephrine",
+      "esmolol",
+      "labetalol",
+      "lidocaineAntiArrhythmia",
+      "nicardipine",
+      "norepinephrine",
+      "verapamil",
+    ],
+    analgesic: [
+      "deksketoprofen",
+      "ketorolacAnalgesic",
+      "ketorolacNsaid",
+      "nefopam",
+      "nefopamOthers",
+      "paracetamol",
+      "paracetamolOthers",
+      "paracetamolOral",
+      "paracetamolSupp",
+      "parecoxibAnalgesic",
+      "parecoxibNsaid",
+    ],
+  }).flatMap(([category, codes]) => codes.map(code => [code, category])),
+);
+
+const MED_USAGE_PENALTY_BY_CODE = new Map([
+  ["atropineAntiArrhythmia", 0.15],
+  ["dexamethasoneSteroid", 0.15],
+  ["ketorolacNsaid", 0.2],
+  ["lidocaineAntiArrhythmia", 0.15],
+  ["midazolamOral", 0.1],
+  ["nefopamOthers", 0.15],
+  ["paracetamolOral", 0.1],
+  ["paracetamolOthers", 0.15],
+  ["paracetamolSupp", 0.1],
+  ["parecoxibNsaid", 0.2],
+]);
+
+const LEGACY_MED_CATEGORY_UPDATES = [
+  {
+    target: "ivAnesthetic",
+    legacy: ["anesthetic", "anaesthetic", "ivanesthdrip", "ivanesth"],
+  },
+  {
+    target: "nmbd",
+    legacy: ["musclerelaxant", "relaxantdrip", "relaxant", "nmba", "neuromuscular"],
+  },
+  { target: "opioid", legacy: ["opioiddrip", "opioid"] },
+  { target: "localAnesthetic", legacy: ["localanesthdrip", "localanesth", "localplusopioid", "airwayanesth", "airway anesth", "airwayanes"] },
+  { target: "reversal", legacy: ["reversaldrip", "reversal"] },
+  { target: "antiEmetic", legacy: ["antiemetic", "anti-emetic"] },
+  { target: "antimicrobial", legacy: ["antibioticsdrip", "antibiotics", "antimicrobial"] },
+  { target: "cvDrug", legacy: ["vasopressor", "inotrope", "inotropedrip", "antiht", "antiarrhythmia", "antiarrhyth", "cvdrug"] },
+  { target: "analgesic", legacy: ["analgesic", "nsaid", "nsaiddrip", "nsaids", "nonopioid"] },
+  { target: "other", legacy: ["steroid", "steroiddrip", "bronchodilator", "diuretic", "antiepileptic", "mannitol", "oraldrug", "oral drug", "externaldrug", "external drug", "others", "othersmed"] },
+];
+
+const MED_CATEGORY_TOKEN_TO_CANONICAL = new Map(
+  [
+    "ivAnesthetic",
+    "nmbd",
+    "opioid",
+    "localAnesthetic",
+    "reversal",
+    "antiEmetic",
+    "anticholinergic",
+    "antimicrobial",
+    "cvDrug",
+    "analgesic",
+    "other",
+  ].map(category => [String(category).toLowerCase().replace(/[^a-z0-9]+/g, ""), category]),
+);
+
+const MED_NAME_ALIASES = new Map([
+  ["amoxicillinclavuronate", "amoxicillinclavulanate"],
+  ["ampicilin", "ampicillin"],
+  ["chlorpheniramine", "chlorpheniramine"],
+  ["chlopheniramine", "chlorpheniramine"],
+  ["deksketoprofen", "dexketoprofen"],
+  ["dexsketoprofen", "dexketoprofen"],
+  ["lidocainewadrenaline", "lidocaineadrenaline"],
+  ["paraceta", "paracetamol"],
+  ["scholine", "succinylcholine"],
+]);
+
+function normalizeMedLookupToken(value) {
+  const raw = String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .trim();
+  const token = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return MED_NAME_ALIASES.get(token) || token;
 }
 
-// Normalize legacy categories to current group keys.
-const normalizeCategoryNow = Date.now();
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'ivAnesth', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('anesthetic','anaesthetic','ivanesthdrip')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'muscleRelaxant', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('relaxantdrip','relaxant')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'vasopressor', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('vasopressor','inotrope','inotropedrip')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'antibiotics', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) = 'antibioticsdrip'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'opioid', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) = 'opioiddrip'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'localAnesth', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) = 'localanesthdrip'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'reversal', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) = 'reversaldrip'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'steroid', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) = 'steroiddrip'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'antiEmetic', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('antiemetic','anti-emetic')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'nsaid', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('nsaid','nsaiddrip','nsaids')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'airwayAnesth', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('airwayanesth','airway anesth','airwayanes')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'oralDrug', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('oraldrug','oral drug')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'externalDrug', updated_at = ?
-   WHERE kind = 'med'
-     AND lower(COALESCE(category, '')) IN ('externaldrug','external drug')`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'fluids', updated_at = ?
-   WHERE kind = 'fluid'
-     AND lower(COALESCE(category, '')) = 'fluid'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'bloodProduct', updated_at = ?
-   WHERE kind = 'fluid'
-     AND lower(COALESCE(category, '')) = 'blood'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'urineOutput', updated_at = ?
-   WHERE kind = 'output'
-     AND lower(COALESCE(category, '')) = 'output'
-     AND lower(code) = 'urine'`
-).run(normalizeCategoryNow);
-db.prepare(
-  `UPDATE io_item_master
-   SET category = 'bloodLossOutput', updated_at = ?
-   WHERE kind = 'output'
-     AND lower(COALESCE(category, '')) = 'output'
-     AND lower(code) = 'bloodloss'`
-).run(normalizeCategoryNow);
+function readTsvRows(fileName) {
+  const fullPath = path.resolve(__dirname, "..", fileName);
+  if (!fs.existsSync(fullPath)) return [];
+  const content = String(fs.readFileSync(fullPath, "utf8") || "").trim();
+  if (!content) return [];
+  const lines = content.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split("\t");
+  return lines.slice(1).map(line => {
+    const values = line.split("\t");
+    const row = {};
+    for (let index = 0; index < header.length; index += 1) {
+      row[header[index]] = values[index] || "";
+    }
+    return row;
+  });
+}
 
-// Keep default output list focused for OR workflow.
-db.prepare(
-  `UPDATE io_item_master
-   SET is_active = 0, updated_at = ?
-   WHERE kind = 'output'
-     AND code IN ('drain', 'suction', 'otherOutput')`
-).run(Date.now());
+function loadLegacyBolusCounts() {
+  const rows = readTsvRows("med_bolus_importance_2020-2025.tsv");
+  const counts = new Map();
+  for (const row of rows) {
+    const token = normalizeMedLookupToken(row.drug_name);
+    const count = Number(row.legacy_count);
+    if (!token || !Number.isFinite(count) || count <= 0) continue;
+    counts.set(token, Math.max(counts.get(token) || 0, count));
+  }
+  return counts;
+}
 
-// Hide legacy generic fluid rows now that detailed fluids/blood products exist.
-db.prepare(
-  `UPDATE io_item_master
-   SET is_active = 0, updated_at = ?
-   WHERE kind = 'fluid'
-     AND code IN ('crystalloid', 'colloid', 'albumin', 'prbc', 'ffp', 'platelet')`
-).run(Date.now());
+function loadLegacyDripCounts() {
+  const rows = readTsvRows("result.legacy_all.presets.tsv");
+  const counts = new Map();
+  for (const row of rows) {
+    const token = normalizeMedLookupToken(row.drug_name);
+    const count = Number(row.weighted_count);
+    if (!token || !Number.isFinite(count) || count <= 0) continue;
+    counts.set(token, (counts.get(token) || 0) + count);
+  }
+  return counts;
+}
+
+function preferredMedCategoryForCode(code, fallbackCategory) {
+  const override = MED_CATEGORY_OVERRIDES_BY_CODE.get(code);
+  if (override) return override;
+  const token = String(fallbackCategory || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (MED_CATEGORY_TOKEN_TO_CANONICAL.has(token)) {
+    return MED_CATEGORY_TOKEN_TO_CANONICAL.get(token);
+  }
+  for (const entry of LEGACY_MED_CATEGORY_UPDATES) {
+    if (entry.legacy.includes(token)) return entry.target;
+  }
+  return "other";
+}
+
+function applyMedicationMasterCleanup() {
+  const now = Date.now();
+  const rows = db
+    .prepare(`SELECT id, code, name, default_unit, category FROM io_item_master WHERE kind = 'med'`)
+    .all();
+  const updateItem = db.prepare(
+    `UPDATE io_item_master
+       SET name = ?, default_unit = ?, category = ?, updated_at = ?
+     WHERE id = ?`
+  );
+
+  for (const row of rows) {
+    const code = String(row.code || "").trim();
+    const nextName = MED_NAME_OVERRIDES_BY_CODE.get(code) || String(row.name || "").trim();
+    const nextUnit = MED_UNIT_OVERRIDES_BY_CODE.get(code) || String(row.default_unit || "").trim() || "mg";
+    const nextCategory = preferredMedCategoryForCode(code, row.category);
+    updateItem.run(nextName, nextUnit, nextCategory, now, row.id);
+  }
+}
+
+function applyMedicationUsageRanking() {
+  const bolusCounts = loadLegacyBolusCounts();
+  const dripCounts = loadLegacyDripCounts();
+  const items = db
+    .prepare(`SELECT id, code, name FROM io_item_master WHERE kind = 'med' AND is_active = 1`)
+    .all();
+
+  const maxBolus = Math.max(1, ...Array.from(bolusCounts.values()));
+  const maxDrip = Math.max(1, ...Array.from(dripCounts.values()));
+
+  const ranked = items
+    .map(item => {
+      const token = normalizeMedLookupToken(item.name) || normalizeMedLookupToken(item.code);
+      const bolus = bolusCounts.get(token) || 0;
+      const drip = dripCounts.get(token) || 0;
+      const penalty = MED_USAGE_PENALTY_BY_CODE.get(String(item.code || "").trim()) || 1;
+      const score = Math.round(
+        ((bolus / maxBolus) * 7000 + (drip / maxDrip) * 3000) * penalty,
+      );
+      return {
+        id: item.id,
+        name: String(item.name || "").trim(),
+        score,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+  const updateUsage = db.prepare(
+    `UPDATE io_item_master
+       SET usage_score = ?, usage_rank = ?, updated_at = ?
+     WHERE id = ?`
+  );
+  const now = Date.now();
+  ranked.forEach((item, index) => {
+    updateUsage.run(item.score, index + 1, now, item.id);
+  });
+}
+
+// Normalize legacy categories to current group keys, then rank meds from legacy usage files.
+runBootstrapWrite("io_item_master normalization", () => {
+  const normalizeCategoryNow = Date.now();
+  db.prepare(
+    `UPDATE io_item_master
+     SET category = 'fluids', updated_at = ?
+     WHERE kind = 'fluid'
+       AND lower(COALESCE(category, '')) = 'fluid'`
+  ).run(normalizeCategoryNow);
+  db.prepare(
+    `UPDATE io_item_master
+     SET category = 'bloodProduct', updated_at = ?
+     WHERE kind = 'fluid'
+       AND lower(COALESCE(category, '')) = 'blood'`
+  ).run(normalizeCategoryNow);
+  db.prepare(
+    `UPDATE io_item_master
+     SET category = 'urineOutput', updated_at = ?
+     WHERE kind = 'output'
+       AND lower(COALESCE(category, '')) = 'output'
+       AND lower(code) = 'urine'`
+  ).run(normalizeCategoryNow);
+  db.prepare(
+    `UPDATE io_item_master
+     SET category = 'bloodLossOutput', updated_at = ?
+     WHERE kind = 'output'
+       AND lower(COALESCE(category, '')) = 'output'
+       AND lower(code) = 'bloodloss'`
+  ).run(normalizeCategoryNow);
+
+  db.prepare(
+    `UPDATE io_item_master
+     SET is_active = 0, updated_at = ?
+     WHERE kind = 'output'
+       AND code IN ('drain', 'suction', 'otherOutput')`
+  ).run(Date.now());
+
+  db.prepare(
+    `UPDATE io_item_master
+     SET is_active = 0, updated_at = ?
+     WHERE kind = 'fluid'
+       AND code IN ('crystalloid', 'colloid', 'albumin', 'prbc', 'ffp', 'platelet')`
+  ).run(Date.now());
+
+  applyMedicationMasterCleanup();
+  applyMedicationUsageRanking();
+});
 
 function normalizeEntryYear(raw) {
   const text = String(raw || "").trim();
@@ -1305,11 +1781,13 @@ const updateDirectoryResident = db.prepare(
        updated_at = ?
    WHERE id = ?`
 );
-for (const row of residentDirectoryRows) {
-  const m = /(\d{2,4})\s*$/.exec(String(row.staff_role || ""));
-  const parsedYear = normalizeEntryYear(m ? m[1] : null);
-  updateDirectoryResident.run(parsedYear, Date.now(), row.id);
-}
+runBootstrapWrite("staff_directory resident normalization", () => {
+  for (const row of residentDirectoryRows) {
+    const m = /(\d{2,4})\s*$/.exec(String(row.staff_role || ""));
+    const parsedYear = normalizeEntryYear(m ? m[1] : null);
+    updateDirectoryResident.run(parsedYear, Date.now(), row.id);
+  }
+});
 
 const residentCaseRows = db
   .prepare(
@@ -1326,11 +1804,13 @@ const updateCaseResident = db.prepare(
        updated_at = ?
    WHERE id = ?`
 );
-for (const row of residentCaseRows) {
-  const m = /(\d{2,4})\s*$/.exec(String(row.staff_role || ""));
-  const parsedYear = normalizeEntryYear(m ? m[1] : null);
-  updateCaseResident.run(parsedYear, Date.now(), row.id);
-}
+runBootstrapWrite("case_staff resident normalization", () => {
+  for (const row of residentCaseRows) {
+    const m = /(\d{2,4})\s*$/.exec(String(row.staff_role || ""));
+    const parsedYear = normalizeEntryYear(m ? m[1] : null);
+    updateCaseResident.run(parsedYear, Date.now(), row.id);
+  }
+});
 
 const allDirectoryRoles = db
   .prepare(
@@ -1345,11 +1825,31 @@ const updateDirectoryRole = db.prepare(
        updated_at = ?
    WHERE id = ?`
 );
-for (const row of allDirectoryRoles) {
-  const canonical = canonicalRoleIdAndLabel(row.staff_role);
-  if (!canonical) continue;
-  updateDirectoryRole.run(canonical.roleId, canonical.roleLabel, Date.now(), row.id);
-}
+runBootstrapWrite("staff_directory role normalization", () => {
+  for (const row of allDirectoryRoles) {
+    const canonical = canonicalRoleIdAndLabel(row.staff_role);
+    if (!canonical) continue;
+    updateDirectoryRole.run(canonical.roleId, canonical.roleLabel, Date.now(), row.id);
+  }
+});
+
+runBootstrapWrite("staff_directory id normalization", () => {
+  const now = Date.now();
+  db.prepare(
+    `UPDATE staff_directory
+     SET hospital_id = trim(COALESCE(personal_id, '')),
+         updated_at = ?
+     WHERE trim(COALESCE(hospital_id, '')) = ''
+       AND trim(COALESCE(personal_id, '')) <> ''`
+  ).run(now);
+  db.prepare(
+    `UPDATE staff_directory
+     SET personal_id = trim(COALESCE(hospital_id, '')),
+         updated_at = ?
+     WHERE trim(COALESCE(personal_id, '')) = ''
+       AND trim(COALESCE(hospital_id, '')) <> ''`
+  ).run(now);
+});
 
 const allCaseRoles = db
   .prepare(
@@ -1364,11 +1864,13 @@ const updateCaseRole = db.prepare(
        updated_at = ?
    WHERE id = ?`
 );
-for (const row of allCaseRoles) {
-  const canonical = canonicalRoleIdAndLabel(row.staff_role);
-  if (!canonical) continue;
-  updateCaseRole.run(canonical.roleId, canonical.roleLabel, Date.now(), row.id);
-}
+runBootstrapWrite("case_staff role normalization", () => {
+  for (const row of allCaseRoles) {
+    const canonical = canonicalRoleIdAndLabel(row.staff_role);
+    if (!canonical) continue;
+    updateCaseRole.run(canonical.roleId, canonical.roleLabel, Date.now(), row.id);
+  }
+});
 
 // ── Vital-minutes retention / pruning ─────────────────────────────────────────
 // FLORA_RETENTION_DAYS: how many days of vital_minutes to keep (default 360).
@@ -1391,6 +1893,10 @@ function pruneOldVitalMinutes() {
     }
     return result.changes;
   } catch (err) {
+    if (isSqliteReadonlyError(err)) {
+      console.warn("[FLORA] skipped vital_minutes pruning because database is read-only");
+      return 0;
+    }
     console.error("[FLORA] pruneOldVitalMinutes error:", err.message);
     return 0;
   }
@@ -1410,4 +1916,656 @@ function closeDb() {
   }
 }
 
-module.exports = { db, DB_PATH, closeDb, pruneOldVitalMinutes };
+function hashPasswordWithSalt(password, saltHex) {
+  return crypto.scryptSync(String(password), Buffer.from(saltHex, "hex"), 64).toString("hex");
+}
+
+function createPasswordRecord(password) {
+  const saltHex = crypto.randomBytes(16).toString("hex");
+  return {
+    saltHex,
+    hashHex: hashPasswordWithSalt(password, saltHex),
+  };
+}
+
+const DEFAULT_STAFF_AUTH_PASSWORD = String(
+  process.env.AIDAS_DEFAULT_STAFF_PASSWORD || "aidas",
+).trim() || "aidas";
+
+const selectAuthUserByUsername = db.prepare(
+  `SELECT id, username, hospital_id, auth_source, password_salt, password_hash, name, role, theme_mode, theme_color, is_active, created_at, updated_at, last_login_at
+   FROM auth_user
+   WHERE lower(username) = lower(?)
+   LIMIT 1`
+);
+
+const selectAuthUserByHospitalId = db.prepare(
+  `SELECT id, username, hospital_id, auth_source, password_salt, password_hash, name, role, theme_mode, theme_color, is_active, created_at, updated_at, last_login_at
+   FROM auth_user
+   WHERE hospital_id = ?
+   LIMIT 1`
+);
+
+const selectAuthUserById = db.prepare(
+  `SELECT id, username, hospital_id, auth_source, password_salt, password_hash, name, role, theme_mode, theme_color, is_active, created_at, updated_at, last_login_at
+   FROM auth_user
+   WHERE id = ?
+   LIMIT 1`
+);
+
+const insertAuthUser = db.prepare(
+  `INSERT INTO auth_user (
+      username, hospital_id, auth_source, password_salt, password_hash, name, role, is_active, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+);
+
+const updateAuthUserPassword = db.prepare(
+  `UPDATE auth_user
+   SET username = ?, hospital_id = ?, auth_source = ?, password_salt = ?, password_hash = ?, name = ?, role = ?, is_active = ?, updated_at = ?
+   WHERE id = ?`
+);
+
+const updateAuthUserProfile = db.prepare(
+  `UPDATE auth_user
+   SET username = ?, hospital_id = ?, auth_source = ?, name = ?, role = ?, is_active = ?, updated_at = ?
+   WHERE id = ?`
+);
+
+const touchAuthUserLogin = db.prepare(
+  `UPDATE auth_user
+   SET last_login_at = ?, updated_at = ?
+   WHERE id = ?`
+);
+
+const updateAuthUserActiveState = db.prepare(
+  `UPDATE auth_user
+   SET is_active = ?, updated_at = ?
+   WHERE id = ?`
+);
+
+const updateAuthUserThemePreferences = db.prepare(
+  `UPDATE auth_user
+   SET theme_mode = ?, theme_color = ?, updated_at = ?
+   WHERE id = ?`
+);
+
+const AUTH_SESSION_TTL_MS = Number(process.env.AIDAS_AUTH_SESSION_TTL_MS || 30 * 24 * 60 * 60 * 1000);
+
+const selectAuthSessionByTokenHash = db.prepare(
+  `SELECT
+      s.id AS session_id,
+      s.user_id,
+      s.client_label,
+      s.created_at AS session_created_at,
+      s.updated_at AS session_updated_at,
+      s.last_seen_at,
+      s.expires_at,
+      s.revoked_at,
+      u.id,
+      u.username,
+      u.hospital_id,
+      u.auth_source,
+      u.name,
+      u.role,
+      u.theme_mode,
+      u.theme_color,
+      u.is_active,
+      u.created_at,
+      u.updated_at,
+      u.last_login_at
+   FROM auth_session s
+   JOIN auth_user u ON u.id = s.user_id
+   WHERE s.token_hash = ?
+   LIMIT 1`
+);
+
+const insertAuthSession = db.prepare(
+  `INSERT INTO auth_session (
+      user_id, token_hash, client_label, created_at, updated_at, last_seen_at, expires_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+
+const touchAuthSession = db.prepare(
+  `UPDATE auth_session
+   SET updated_at = ?, last_seen_at = ?, expires_at = ?
+   WHERE id = ?`
+);
+
+const revokeAuthSessionById = db.prepare(
+  `UPDATE auth_session
+   SET revoked_at = ?, updated_at = ?
+   WHERE id = ?`
+);
+
+const revokeExpiredAuthSessionsStmt = db.prepare(
+  `DELETE FROM auth_session
+   WHERE revoked_at IS NOT NULL OR expires_at <= ?`
+);
+
+const insertAuthAudit = db.prepare(
+  `INSERT INTO auth_audit (
+      action, actor_user_id, actor_username, actor_role, target_user_id, target_username, status, detail_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+);
+
+const insertCaseDeviceIngestAudit = db.prepare(
+  `INSERT INTO case_device_ingest_audit (
+      case_id, hn, source_service, source_endpoint, fetch_mode,
+      minute_ts, from_ts, to_ts,
+      raw_row_count, written_row_count, status,
+      actor_username, actor_role, detail_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+);
+
+function sanitizeAuthUserRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    username: String(row.username || ""),
+    hospitalId: row.hospital_id == null ? undefined : String(row.hospital_id || ""),
+    authSource: row.auth_source == null ? undefined : String(row.auth_source || ""),
+    name: String(row.name || row.username || ""),
+    role: row.role == null ? undefined : String(row.role || ""),
+    themeMode: row.theme_mode == null ? undefined : String(row.theme_mode || ""),
+    themeColor: row.theme_color == null ? undefined : String(row.theme_color || ""),
+    isActive: Number(row.is_active || 0) === 1,
+    createdAt: Number(row.created_at || 0),
+    updatedAt: Number(row.updated_at || 0),
+    lastLoginAt: row.last_login_at == null ? null : Number(row.last_login_at),
+  };
+}
+
+function hashAuthSessionToken(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function recordAuthAudit({
+  action,
+  actorUserId = null,
+  actorUsername = null,
+  actorRole = null,
+  targetUserId = null,
+  targetUsername = null,
+  status = "ok",
+  detail = null,
+}) {
+  const detailJson =
+    detail == null ? null : JSON.stringify(detail);
+  insertAuthAudit.run(
+    String(action || "").trim() || "unknown",
+    actorUserId == null ? null : Number(actorUserId),
+    actorUsername == null ? null : String(actorUsername || "").trim() || null,
+    actorRole == null ? null : String(actorRole || "").trim() || null,
+    targetUserId == null ? null : Number(targetUserId),
+    targetUsername == null ? null : String(targetUsername || "").trim() || null,
+    String(status || "").trim() || "ok",
+    detailJson,
+    Date.now(),
+  );
+}
+
+function getAuthUserByUsername(username) {
+  const normalized = String(username || "").trim();
+  if (!normalized) return null;
+  const row = selectAuthUserByUsername.get(normalized);
+  return row ? { ...sanitizeAuthUserRow(row), passwordSalt: row.password_salt, passwordHash: row.password_hash } : null;
+}
+
+function getAuthUserById(userId) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const row = selectAuthUserById.get(id);
+  return row ? { ...sanitizeAuthUserRow(row), passwordSalt: row.password_salt, passwordHash: row.password_hash } : null;
+}
+
+function createAuthSessionForUser(user, clientLabel = "") {
+  const userId = Number(user?.id || 0);
+  if (!Number.isFinite(userId) || userId <= 0) {
+    throw new Error("user required");
+  }
+  revokeExpiredAuthSessionsStmt.run(Date.now());
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashAuthSessionToken(token);
+  const now = Date.now();
+  insertAuthSession.run(
+    userId,
+    tokenHash,
+    String(clientLabel || "").trim() || null,
+    now,
+    now,
+    now,
+    now + AUTH_SESSION_TTL_MS,
+  );
+  return {
+    token,
+    expiresAt: now + AUTH_SESSION_TTL_MS,
+  };
+}
+
+function getAuthSessionByToken(token) {
+  const text = String(token || "").trim();
+  if (!text) return null;
+  revokeExpiredAuthSessionsStmt.run(Date.now());
+  const row = selectAuthSessionByTokenHash.get(hashAuthSessionToken(text));
+  if (!row) return null;
+  if (row.revoked_at != null) return null;
+  if (Number(row.expires_at || 0) <= Date.now()) return null;
+  if (Number(row.is_active || 0) !== 1) return null;
+
+  const now = Date.now();
+  touchAuthSession.run(now, now, now + AUTH_SESSION_TTL_MS, row.session_id);
+  return {
+    sessionId: Number(row.session_id),
+    user: sanitizeAuthUserRow(row),
+  };
+}
+
+function revokeAuthSession(token) {
+  const session = getAuthSessionByToken(token);
+  if (!session) return false;
+  revokeAuthSessionById.run(Date.now(), Date.now(), session.sessionId);
+  return true;
+}
+
+function upsertAuthUser({
+  username,
+  password,
+  name,
+  role,
+  isActive = true,
+  hospitalId = null,
+  authSource = "local",
+  preserveExistingPassword = false,
+}) {
+  const normalizedUsername = String(username || "").trim();
+  const normalizedName = String(name || username || "").trim();
+  const normalizedRole = String(role || "").trim() || null;
+  const normalizedHospitalId = String(hospitalId || "").trim() || null;
+  const normalizedAuthSource = String(authSource || "").trim() || "local";
+  if (!normalizedUsername) throw new Error("username required");
+  if (!normalizedName) throw new Error("name required");
+
+  const now = Date.now();
+  const existing = normalizedHospitalId
+    ? selectAuthUserByHospitalId.get(normalizedHospitalId) || selectAuthUserByUsername.get(normalizedUsername)
+    : selectAuthUserByUsername.get(normalizedUsername);
+  if (!existing) {
+    const normalizedPassword = String(password || "");
+    if (!normalizedPassword) throw new Error("password required");
+    const passwordRecord = createPasswordRecord(normalizedPassword);
+    insertAuthUser.run(
+      normalizedUsername,
+      normalizedHospitalId,
+      normalizedAuthSource,
+      passwordRecord.saltHex,
+      passwordRecord.hashHex,
+      normalizedName,
+      normalizedRole,
+      isActive ? 1 : 0,
+      now,
+      now,
+    );
+    return sanitizeAuthUserRow(selectAuthUserByUsername.get(normalizedUsername));
+  }
+
+  if (preserveExistingPassword) {
+    updateAuthUserProfile.run(
+      normalizedUsername,
+      normalizedHospitalId,
+      normalizedAuthSource,
+      normalizedName,
+      normalizedRole,
+      isActive ? 1 : 0,
+      now,
+      existing.id,
+    );
+    return sanitizeAuthUserRow(selectAuthUserByUsername.get(normalizedUsername));
+  }
+
+  const normalizedPassword = String(password || "");
+  if (!normalizedPassword) throw new Error("password required");
+  const passwordRecord = createPasswordRecord(normalizedPassword);
+
+  updateAuthUserPassword.run(
+    normalizedUsername,
+    normalizedHospitalId,
+    normalizedAuthSource,
+    passwordRecord.saltHex,
+    passwordRecord.hashHex,
+    normalizedName,
+    normalizedRole,
+    isActive ? 1 : 0,
+    now,
+    existing.id,
+  );
+  return sanitizeAuthUserRow(selectAuthUserByUsername.get(normalizedUsername));
+}
+
+function ensureAuthUserExists(user) {
+  const normalizedUsername = String(user?.username || "").trim();
+  if (!normalizedUsername) throw new Error("username required");
+  const existing = selectAuthUserByUsername.get(normalizedUsername);
+  if (existing) return sanitizeAuthUserRow(existing);
+  return upsertAuthUser(user);
+}
+
+function listAuthUsers({ q = "", includeInactive = true } = {}) {
+  const search = String(q || "").trim().toLowerCase();
+  const like = `%${search}%`;
+  const rows = db.prepare(
+    `SELECT id, username, hospital_id, auth_source, name, role, theme_mode, theme_color, is_active, created_at, updated_at, last_login_at
+     FROM auth_user
+     WHERE (? = 1 OR is_active = 1)
+       AND (
+         ? = ''
+         OR lower(username) LIKE ?
+         OR lower(name) LIKE ?
+         OR lower(COALESCE(hospital_id, '')) LIKE ?
+         OR lower(COALESCE(role, '')) LIKE ?
+         OR lower(COALESCE(auth_source, '')) LIKE ?
+       )
+     ORDER BY is_active DESC, lower(username) ASC`
+  ).all(includeInactive ? 1 : 0, search, like, like, like, like, like);
+  return rows.map(sanitizeAuthUserRow);
+}
+
+function setAuthUserActive(userId, isActive) {
+  const existing = selectAuthUserById.get(Number(userId));
+  if (!existing) throw new Error("user not found");
+  updateAuthUserActiveState.run(isActive ? 1 : 0, Date.now(), existing.id);
+  return sanitizeAuthUserRow(selectAuthUserById.get(existing.id));
+}
+
+function setAuthUserThemePreferences(userId, { themeMode, themeColor }) {
+  const existing = selectAuthUserById.get(Number(userId));
+  if (!existing) throw new Error("user not found");
+
+  const mode = String(themeMode || "").trim().toLowerCase();
+  const color = String(themeColor || "").trim().toLowerCase();
+  const allowedModes = new Set(["light", "dark"]);
+  const allowedColors = new Set(["default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"]);
+
+  if (!allowedModes.has(mode)) throw new Error("invalid theme mode");
+  if (!allowedColors.has(color)) throw new Error("invalid theme color");
+
+  updateAuthUserThemePreferences.run(mode, color, Date.now(), existing.id);
+  return sanitizeAuthUserRow(selectAuthUserById.get(existing.id));
+}
+
+function resetAuthUserPassword(userId, password) {
+  const existing = selectAuthUserById.get(Number(userId));
+  if (!existing) throw new Error("user not found");
+
+  const nextPassword =
+    String(password || "").trim() ||
+    (String(existing.auth_source || "").trim().toLowerCase() === "staff"
+      ? DEFAULT_STAFF_AUTH_PASSWORD
+      : String(existing.hospital_id || "").trim());
+  if (!nextPassword) {
+    throw new Error("no default password available for this user");
+  }
+
+  const passwordRecord = createPasswordRecord(nextPassword);
+  const now = Date.now();
+  db.prepare(
+    `UPDATE auth_user
+     SET password_salt = ?, password_hash = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(passwordRecord.saltHex, passwordRecord.hashHex, now, existing.id);
+
+  return {
+    user: sanitizeAuthUserRow(selectAuthUserById.get(existing.id)),
+    appliedPassword: nextPassword,
+  };
+}
+
+function changeAuthUserPasswordWithCurrentPassword(username, currentPassword, newPassword) {
+  const existing = selectAuthUserByUsername.get(String(username || "").trim());
+  if (!existing || Number(existing.is_active || 0) !== 1) {
+    throw new Error("user not found");
+  }
+
+  const currentText = String(currentPassword || "");
+  const nextText = String(newPassword || "").trim();
+  if (!currentText) throw new Error("current password required");
+  if (!nextText) throw new Error("new password required");
+  if (nextText.length < 6) throw new Error("new password must be at least 6 characters");
+
+  const expected = Buffer.from(String(existing.password_hash || ""), "hex");
+  const actual = Buffer.from(
+    hashPasswordWithSalt(currentText, String(existing.password_salt || "")),
+    "hex",
+  );
+  if (expected.length === 0 || expected.length !== actual.length) {
+    throw new Error("current password is incorrect");
+  }
+  if (!crypto.timingSafeEqual(expected, actual)) {
+    throw new Error("current password is incorrect");
+  }
+
+  const passwordRecord = createPasswordRecord(nextText);
+  const now = Date.now();
+  db.prepare(
+    `UPDATE auth_user
+     SET password_salt = ?, password_hash = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(passwordRecord.saltHex, passwordRecord.hashHex, now, existing.id);
+
+  return sanitizeAuthUserRow(selectAuthUserById.get(existing.id));
+}
+
+function verifyAuthUserPassword(username, password) {
+  const row = selectAuthUserByUsername.get(String(username || "").trim());
+  if (!row || Number(row.is_active || 0) !== 1) return null;
+  const expected = Buffer.from(String(row.password_hash || ""), "hex");
+  const actual = Buffer.from(hashPasswordWithSalt(String(password || ""), String(row.password_salt || "")), "hex");
+  if (expected.length === 0 || expected.length !== actual.length) return null;
+  if (!crypto.timingSafeEqual(expected, actual)) return null;
+  const now = Date.now();
+  touchAuthUserLogin.run(now, now, row.id);
+  return sanitizeAuthUserRow({ ...row, last_login_at: now, updated_at: now });
+}
+
+function normalizeAuthToken(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function deriveStaffAuthRole(staffRoleId, staffRoleLabel) {
+  const roleId = String(staffRoleId || "").trim().toLowerCase();
+  const roleLabel = String(staffRoleLabel || "").trim().toLowerCase();
+  if (roleId === "nurseanesthetist" || roleId.includes("nurse") || roleLabel.includes("nurse")) {
+    return "nurse";
+  }
+  if (roleId.includes("resident") || roleLabel.includes("resident")) {
+    return "resident";
+  }
+  if (
+    roleId.includes("anesthetist") ||
+    roleLabel.includes("anesthetist")
+  ) {
+    return "anesthetist";
+  }
+  return roleId || roleLabel || null;
+}
+
+function buildStaffUsernameCandidates(firstName, lastName) {
+  const first = normalizeAuthToken(firstName);
+  const last = normalizeAuthToken(lastName);
+  if (!first || !last) return [];
+
+  const candidates = [];
+  const maxLastChars = Math.min(last.length, 6);
+  for (let count = 1; count <= maxLastChars; count += 1) {
+    candidates.push(`${first}.${last.slice(0, count)}`);
+  }
+  return candidates;
+}
+
+function syncStaffDirectoryAuthUsers() {
+  const staffRows = db.prepare(
+    `SELECT
+       hospital_id,
+       personal_id,
+       en_first_name,
+       en_last_name,
+       staff_name,
+       staff_role_id,
+       staff_role,
+       is_active
+     FROM staff_directory
+     WHERE trim(COALESCE(hospital_id, personal_id, '')) <> ''
+     ORDER BY is_active DESC, staff_name ASC, id ASC`
+  ).all();
+
+  if (staffRows.length === 0) return 0;
+
+  const allAuthRows = db.prepare(
+    `SELECT id, username, hospital_id, auth_source
+     FROM auth_user`
+  ).all();
+
+  const usernameOwners = new Map();
+  for (const row of allAuthRows) {
+    const username = normalizeAuthToken(String(row.username || "").replace(/\./g, ""));
+    if (!username) continue;
+    usernameOwners.set(String(row.username || "").trim().toLowerCase(), {
+      hospitalId: String(row.hospital_id || "").trim(),
+      authSource: String(row.auth_source || "").trim(),
+    });
+  }
+
+  let syncedCount = 0;
+
+  for (const row of staffRows) {
+    const hospitalId = String(row.hospital_id || row.personal_id || "").trim();
+    if (!hospitalId) continue;
+
+    const existing = selectAuthUserByHospitalId.get(hospitalId);
+    const candidates = buildStaffUsernameCandidates(row.en_first_name, row.en_last_name);
+    if (candidates.length === 0) continue;
+
+    let selectedUsername = existing ? String(existing.username || "").trim() : "";
+    if (!selectedUsername) {
+      for (const candidate of candidates) {
+        const owner = usernameOwners.get(candidate.toLowerCase());
+        if (!owner || owner.hospitalId === hospitalId) {
+          selectedUsername = candidate;
+          break;
+        }
+      }
+    }
+    if (!selectedUsername) {
+      const fallbackBase = candidates[candidates.length - 1];
+      let suffix = 2;
+      selectedUsername = `${fallbackBase}${suffix}`;
+      while (usernameOwners.has(selectedUsername.toLowerCase())) {
+        suffix += 1;
+        selectedUsername = `${fallbackBase}${suffix}`;
+      }
+    }
+
+    const preservedRole =
+      String(existing?.role || "").trim().toLowerCase() === "admin"
+        ? "admin"
+        : deriveStaffAuthRole(row.staff_role_id, row.staff_role);
+
+    upsertAuthUser({
+      username: selectedUsername,
+      password: DEFAULT_STAFF_AUTH_PASSWORD,
+      hospitalId,
+      authSource: "staff",
+      name: String(row.staff_name || selectedUsername).trim() || selectedUsername,
+      role: preservedRole,
+      isActive: Number(row.is_active || 0) === 1,
+      preserveExistingPassword: Boolean(existing),
+    });
+    usernameOwners.set(selectedUsername.toLowerCase(), { hospitalId, authSource: "staff" });
+    syncedCount += 1;
+  }
+
+  return syncedCount;
+}
+
+function recordCaseDeviceIngestAudit({
+  caseId,
+  hn = null,
+  sourceService,
+  sourceEndpoint = null,
+  fetchMode,
+  minuteTs = null,
+  fromTs = null,
+  toTs = null,
+  rawRowCount = 0,
+  writtenRowCount = 0,
+  status = "ok",
+  actorUsername = "system:minute-writer",
+  actorRole = "system",
+  detail = null,
+}) {
+  insertCaseDeviceIngestAudit.run(
+    caseId,
+    hn ? String(hn).trim() : null,
+    String(sourceService || "").trim() || "ivy",
+    sourceEndpoint ? String(sourceEndpoint).trim() : null,
+    String(fetchMode || "").trim() || "minute",
+    Number.isFinite(Number(minuteTs)) ? Number(minuteTs) : null,
+    Number.isFinite(Number(fromTs)) ? Number(fromTs) : null,
+    Number.isFinite(Number(toTs)) ? Number(toTs) : null,
+    Math.max(0, Number(rawRowCount) || 0),
+    Math.max(0, Number(writtenRowCount) || 0),
+    status === "failed" ? "failed" : status === "empty" ? "empty" : "ok",
+    String(actorUsername || "").trim() || "system:minute-writer",
+    actorRole ? String(actorRole).trim() : null,
+    detail == null ? null : JSON.stringify(detail),
+    Date.now(),
+  );
+}
+
+function ensureBootstrapAdminUsers() {
+  const adminUsers = [
+    {
+      username: "nanut.l",
+      password: "Welcome1!",
+      name: "Nanut",
+      role: "admin",
+      authSource: "seed",
+    },
+  ];
+
+  for (const user of adminUsers) {
+    ensureAuthUserExists(user);
+  }
+}
+
+runBootstrapWrite("auth_user admin seed", () => {
+  ensureBootstrapAdminUsers();
+});
+
+runBootstrapWrite("auth_user staff sync", () => {
+  syncStaffDirectoryAuthUsers();
+});
+
+module.exports = {
+  db,
+  DB_PATH,
+  closeDb,
+  pruneOldVitalMinutes,
+  createAuthSessionForUser,
+  getAuthSessionByToken,
+  getAuthUserByUsername,
+  getAuthUserById,
+  listAuthUsers,
+  recordAuthAudit,
+  recordCaseDeviceIngestAudit,
+  revokeAuthSession,
+  setAuthUserActive,
+  setAuthUserThemePreferences,
+  resetAuthUserPassword,
+  changeAuthUserPasswordWithCurrentPassword,
+  verifyAuthUserPassword,
+  upsertAuthUser,
+  ensureAuthUserExists,
+};

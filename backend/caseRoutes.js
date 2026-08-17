@@ -1,13 +1,35 @@
 const express = require("express");
 const router = express.Router();
 const { db } = require("./floradb");
-const { startMinuteWriter, stopMinuteWriter, rewindMinuteWriter } = require("./minuteWriter");
+const { startMinuteWriter, stopMinuteWriter, rewindMinuteWriter, getMinuteWriterStatus } = require("./minuteWriter");
 
 const HIS_GATEWAY_BASE_URL =
   String(process.env.HIS_GATEWAY_BASE_URL || "http://10.35.202.6:8590").replace(/\/+$/, "");
 const HIS_GATEWAY_TIMEOUT_MS = Math.max(
   3000,
   Number(process.env.HIS_GATEWAY_TIMEOUT_MS) || 45000,
+);
+const HIS_BLOOD_PRODUCT_VERIFY_PATH =
+  String(process.env.HIS_BLOOD_PRODUCT_VERIFY_PATH || "/api/blood-product-verify").trim() ||
+  "/api/blood-product-verify";
+const HIS_BLOOD_PRODUCT_LIST_PATH =
+  String(process.env.HIS_BLOOD_PRODUCT_LIST_PATH || "/api/blood-product-list").trim() ||
+  "/api/blood-product-list";
+const HIS_BLOOD_PRODUCT_VERIFY_REAL = parseBooleanFlag(
+  process.env.HIS_BLOOD_PRODUCT_VERIFY_REAL,
+  false,
+);
+const HIS_BLOOD_PRODUCT_VERIFY_MOCK = parseBooleanFlag(
+  process.env.HIS_BLOOD_PRODUCT_VERIFY_MOCK,
+  false,
+);
+const HIS_BLOOD_PRODUCT_LIST_REAL = parseBooleanFlag(
+  process.env.HIS_BLOOD_PRODUCT_LIST_REAL,
+  HIS_BLOOD_PRODUCT_VERIFY_REAL,
+);
+const HIS_BLOOD_PRODUCT_LIST_MOCK = parseBooleanFlag(
+  process.env.HIS_BLOOD_PRODUCT_LIST_MOCK,
+  HIS_BLOOD_PRODUCT_VERIFY_MOCK,
 );
 
 const MUTATING_HTTP_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -21,12 +43,78 @@ function floorQuarterHour(ts) {
   return Math.floor(ts / (15 * 60000)) * (15 * 60000);
 }
 
+function ceilMinute(ts) {
+  return Math.ceil(ts / 60000) * 60000;
+}
+
 function normalizeSource(source) {
   return source === "override" ? "override" : "manual";
 }
 
 function isArchivedCaseStatus(status) {
   return String(status || "").trim().toLowerCase() === "archived";
+}
+
+function normalizeCaseStatusLabel(status) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "archived") return "ARCHIVED";
+  return "DISCHARGED";
+}
+
+function getCaseStartOverlap(startTs) {
+  const normalizedStartTs = Number(startTs);
+  if (!Number.isFinite(normalizedStartTs)) return null;
+
+  const previousCase = db
+    .prepare(
+      `SELECT id, hn, status, start_time, discharge_time
+       FROM cases
+       WHERE status IN ('discharged', 'archived')
+         AND COALESCE(discharge_time, start_time) > ?
+       ORDER BY COALESCE(discharge_time, start_time) DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(normalizedStartTs);
+
+  if (!previousCase) return null;
+
+  const previousCaseEndTs = Number(previousCase.discharge_time ?? previousCase.start_time);
+  if (!Number.isFinite(previousCaseEndTs) || previousCaseEndTs <= normalizedStartTs) {
+    return null;
+  }
+
+  const overlapStats = db
+    .prepare(
+      `SELECT MIN(ts_minute) AS first_minute,
+              MAX(ts_minute) AS last_minute,
+              COUNT(*) AS minute_count
+       FROM vital_minutes
+       WHERE case_id = ?
+         AND ts_minute >= ?
+         AND ts_minute <= ?`,
+    )
+    .get(previousCase.id, floorMinute(normalizedStartTs), floorMinute(previousCaseEndTs));
+
+  const firstMinute = Number(overlapStats?.first_minute);
+  const lastMinute = Number(overlapStats?.last_minute);
+  const minuteCount = Number(overlapStats?.minute_count || 0);
+  if (!Number.isFinite(firstMinute) || !Number.isFinite(lastMinute) || minuteCount <= 0) {
+    return null;
+  }
+
+  return {
+    previous_case_id: Number(previousCase.id),
+    previous_case_hn: String(previousCase.hn || "").trim(),
+    previous_case_status: normalizeCaseStatusLabel(previousCase.status),
+    previous_case_end_time: previousCaseEndTs,
+    overlap_start_time: Math.max(normalizedStartTs, firstMinute),
+    overlap_end_time: previousCaseEndTs,
+    overlap_minute_count: minuteCount,
+    suggested_capture_start_time: Math.max(
+      ceilMinute(previousCaseEndTs),
+      Number.isFinite(lastMinute) ? lastMinute + 60000 : ceilMinute(previousCaseEndTs),
+    ),
+  };
 }
 
 // Archived cases are read-only across case-specific mutation routes.
@@ -47,6 +135,13 @@ router.use("/:id", (req, res, next) => {
     return next();
   }
 
+  const archivedAllowed =
+    (String(req.method || "").toUpperCase() === "PUT" && req.path === "/patient") ||
+    (String(req.method || "").toUpperCase() === "POST" && req.path === "/his/patient-info-sync");
+  if (archivedAllowed) {
+    return next();
+  }
+
   if (isArchivedCaseStatus(row.status)) {
     return res.status(409).json({ error: "archived case is read-only" });
   }
@@ -64,10 +159,65 @@ function normalizeNullableText(value) {
   return text ? text : null;
 }
 
+function parseJsonSafeObject(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeIcdCode(value) {
   const text = normalizeNullableText(value);
   if (!text) return null;
   return text.replace(/\s+/g, "").toUpperCase();
+}
+
+function normalizeIcd9ProcedureCode(value) {
+  const text = normalizeNullableText(value);
+  if (!text) return null;
+  return text.replace(/[\s.]+/g, "");
+}
+
+function resolveIcd10Text(icdCode, fallbackText = null) {
+  const normalizedCode = normalizeIcdCode(icdCode);
+  if (!normalizedCode) return normalizeNullableText(fallbackText);
+  const row = db.prepare(
+    `SELECT name_en, name_th
+     FROM icd10_master
+     WHERE icd10 = ? OR icd10who = ?
+     LIMIT 1`
+  ).get(normalizedCode, normalizedCode);
+  return (
+    normalizeNullableText(row?.name_en) ||
+    normalizeNullableText(row?.name_th) ||
+    normalizeNullableText(fallbackText)
+  );
+}
+
+function isLikelyIcd10Code(code) {
+  const normalizedCode = normalizeIcdCode(code);
+  return Boolean(normalizedCode && /^[A-Z]/.test(normalizedCode));
+}
+
+function resolveIcd9ProcedureText(icdCode, fallbackText = null) {
+  const normalizedCode = normalizeIcd9ProcedureCode(icdCode);
+  if (!normalizedCode) return normalizeNullableText(fallbackText);
+  const row = db.prepare(
+    `SELECT name_en
+     FROM icd9cm_master
+     WHERE icd9cm = ?
+     LIMIT 1`
+  ).get(normalizedCode);
+  return normalizeNullableText(row?.name_en) || normalizeNullableText(fallbackText);
+}
+
+function isLikelyIcd9ProcedureCode(code) {
+  const normalizedCode = normalizeIcd9ProcedureCode(code);
+  return Boolean(normalizedCode && /^\d{4}$/.test(normalizedCode));
 }
 
 function parseIsoOrDmyToTs(dateRaw, timeRaw = "") {
@@ -100,6 +250,66 @@ function asRowsFromSoapResult(result) {
   if (Array.isArray(rowSet)) return rowSet.filter(x => x && typeof x === "object");
   if (rowSet && typeof rowSet === "object") return [rowSet];
   return [];
+}
+
+function getFirstResultRow(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const soapRows = asRowsFromSoapResult(payload);
+  if (soapRows.length > 0) return soapRows[0];
+  if (Array.isArray(payload.rows) && payload.rows[0] && typeof payload.rows[0] === "object") {
+    return payload.rows[0];
+  }
+  if (Array.isArray(payload.data) && payload.data[0] && typeof payload.data[0] === "object") {
+    return payload.data[0];
+  }
+  if (payload.row && typeof payload.row === "object") return payload.row;
+  if (payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) return payload.data;
+  return payload;
+}
+
+function pickPayloadText(row, keys) {
+  if (!row || typeof row !== "object") return null;
+  for (const key of keys) {
+    const direct = normalizeNullableText(row[key]);
+    if (direct) return direct;
+    const upper = normalizeNullableText(row[String(key).toUpperCase()]);
+    if (upper) return upper;
+  }
+  return null;
+}
+
+function normalizeBloodBagVerification(payload) {
+  const row = getFirstResultRow(payload);
+  if (!row) return null;
+  const unitstas = pickPayloadText(row, ["unitstas", "unit_status", "status"]);
+  return {
+    hn: pickPayloadText(row, ["hn"]),
+    an: pickPayloadText(row, ["an"]),
+    patient_name: pickPayloadText(row, ["patient_name", "patientName", "pname", "name"]),
+    reqno: pickPayloadText(row, ["reqno", "request_no", "requestNo"]),
+    bdtype: pickPayloadText(row, ["bdtype", "blood_type", "bloodType"]),
+    dnrno: pickPayloadText(row, ["dnrno", "blood_bag_no", "bloodBagNo", "bag_no", "bagNo"]),
+    bloodgrp: pickPayloadText(row, ["bloodgrp", "blood_group", "bloodGroup"]),
+    rh: pickPayloadText(row, ["rh"]),
+    unitstas,
+    raw: row,
+  };
+}
+
+function asBloodProductRows(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  const soapRows = asRowsFromSoapResult(payload);
+  if (soapRows.length > 0) return soapRows;
+  if (Array.isArray(payload.rows)) return payload.rows.filter(row => row && typeof row === "object");
+  if (Array.isArray(payload.data)) return payload.data.filter(row => row && typeof row === "object");
+  const row = getFirstResultRow(payload);
+  return row ? [row] : [];
+}
+
+function normalizeBloodBagList(payload) {
+  return asBloodProductRows(payload)
+    .map(row => normalizeBloodBagVerification(row))
+    .filter(row => row && row.dnrno);
 }
 
 function parseBloodGroup(raw) {
@@ -177,6 +387,122 @@ function mapHisPatientRecord({ hn, infoRow, anRow, latestVital, hisUpdatedAt }) 
     source: "HIS",
     his_updated_at: hisUpdatedAt,
   };
+}
+
+function buildPatientInfoHisPayload(mappedPatient, patientInfoPayload, errors = {}) {
+  return {
+    patientMapped: mappedPatient,
+    patientInfo: patientInfoPayload ?? null,
+    errors: errors && typeof errors === "object" ? errors : {},
+  };
+}
+
+function upsertCaseHisPatientOnly(caseId, mappedPatient, hisPayload, now) {
+  db.prepare(
+    `INSERT INTO case_his_patient (
+       case_id, hn, an, is_patient, notype, id_card, patient_name,
+       title_th, title_en, first_name, last_name, first_name_en, last_name_en,
+       sex, dob, age_text, weight_kg, height_cm, blood_group_text, blood_group_abo, blood_group_rh,
+       race, ethnicity, religion, marital_status,
+       present_address, present_province, legal_address, legal_province,
+       mobile, contact_name, contact_tel, relation_desc, nationality,
+       source, raw_payload, his_updated_at, created_at, updated_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(case_id) DO UPDATE SET
+       hn=excluded.hn,
+       an=excluded.an,
+       is_patient=excluded.is_patient,
+       notype=excluded.notype,
+       id_card=excluded.id_card,
+       patient_name=excluded.patient_name,
+       title_th=excluded.title_th,
+       title_en=excluded.title_en,
+       first_name=excluded.first_name,
+       last_name=excluded.last_name,
+       first_name_en=excluded.first_name_en,
+       last_name_en=excluded.last_name_en,
+       sex=excluded.sex,
+       dob=excluded.dob,
+       age_text=excluded.age_text,
+       weight_kg=excluded.weight_kg,
+       height_cm=excluded.height_cm,
+       blood_group_text=excluded.blood_group_text,
+       blood_group_abo=excluded.blood_group_abo,
+       blood_group_rh=excluded.blood_group_rh,
+       race=excluded.race,
+       ethnicity=excluded.ethnicity,
+       religion=excluded.religion,
+       marital_status=excluded.marital_status,
+       present_address=excluded.present_address,
+       present_province=excluded.present_province,
+       legal_address=excluded.legal_address,
+       legal_province=excluded.legal_province,
+       mobile=excluded.mobile,
+       contact_name=excluded.contact_name,
+       contact_tel=excluded.contact_tel,
+       relation_desc=excluded.relation_desc,
+       nationality=excluded.nationality,
+       source=excluded.source,
+       raw_payload=excluded.raw_payload,
+       his_updated_at=excluded.his_updated_at,
+       updated_at=excluded.updated_at`
+  ).run(
+    caseId,
+    mappedPatient.hn || null,
+    mappedPatient.an || null,
+    mappedPatient.is_patient || null,
+    mappedPatient.notype || null,
+    mappedPatient.id_card || null,
+    mappedPatient.patient_name || null,
+    mappedPatient.title_th || null,
+    mappedPatient.title_en || null,
+    mappedPatient.first_name || null,
+    mappedPatient.last_name || null,
+    mappedPatient.first_name_en || null,
+    mappedPatient.last_name_en || null,
+    mappedPatient.sex || null,
+    mappedPatient.dob || null,
+    mappedPatient.age_text || null,
+    mappedPatient.weight_kg ?? null,
+    mappedPatient.height_cm ?? null,
+    mappedPatient.blood_group_text || null,
+    mappedPatient.blood_group_abo || null,
+    mappedPatient.blood_group_rh || null,
+    mappedPatient.race || null,
+    mappedPatient.ethnicity || null,
+    mappedPatient.religion || null,
+    mappedPatient.marital_status || null,
+    mappedPatient.present_address || null,
+    mappedPatient.present_province || null,
+    mappedPatient.legal_address || null,
+    mappedPatient.legal_province || null,
+    mappedPatient.mobile || null,
+    mappedPatient.contact_name || null,
+    mappedPatient.contact_tel || null,
+    mappedPatient.relation_desc || null,
+    mappedPatient.nationality || null,
+    mappedPatient.source || "HIS",
+    JSON.stringify(hisPayload),
+    mappedPatient.his_updated_at || now,
+    now,
+    now,
+  );
+}
+
+async function fetchPatientInfoOnly(hn) {
+  const payload = await postHisGateway("/api/patient-info", { hn });
+  const infoRow = asRowsFromSoapResult(payload)[0] || null;
+  const now = Date.now();
+  const mappedPatient = mapHisPatientRecord({
+    hn,
+    infoRow,
+    anRow: null,
+    latestVital: null,
+    hisUpdatedAt: now,
+  });
+  const hisPayload = buildPatientInfoHisPayload(mappedPatient, payload, {});
+  return { payload, infoRow, mappedPatient, hisPayload, now };
 }
 
 async function postHisGateway(path, payload) {
@@ -279,12 +605,13 @@ const LIFECYCLE_EVENT_ALIASES = {
       "start anes",
       "start anesthesia",
       "start anaesthesia",
+      "sa",
     ]),
-    end: new Set(["end ane", "end anes", "end anesthesia", "end anaesthesia"]),
+    end: new Set(["end ane", "end anes", "end anesthesia", "end anaesthesia", "ea"]),
   },
   surg: {
-    start: new Set(["start surg", "start surgery"]),
-    end: new Set(["end surg", "end surgery"]),
+    start: new Set(["start surg", "start surgery", "ss"]),
+    end: new Set(["end surg", "end surgery", "es"]),
   },
 };
 
@@ -309,6 +636,173 @@ function parseLifecycleEventTitle(title) {
   }
 
   return null;
+}
+
+const SUGGESTED_END_EVENT_GROUPS = {
+  timeOut: new Set(["time out", "timeout", "to"]),
+  startAne: new Set([
+    "start ane",
+    "start anes",
+    "start anesthesia",
+    "start anaesthesia",
+    "sa",
+  ]),
+  induction: new Set(["induction"]),
+  ssi: new Set(["ssi", "ssi prophylaxis", "ssiprophylaxis"]),
+  startSurg: new Set(["start surg", "start surgery", "ss"]),
+  endSurg: new Set(["end surg", "end surgery", "es"]),
+  reversal: new Set(["reversal", "rev"]),
+  endAne: new Set([
+    "end ane",
+    "end anes",
+    "end anesthesia",
+    "end anaesthesia",
+    "ea",
+  ]),
+};
+
+function parseSuggestedEndEventGroup(title) {
+  const normalized = normalizeLifecycleTitle(title);
+  for (const [group, aliases] of Object.entries(SUGGESTED_END_EVENT_GROUPS)) {
+    if (aliases.has(normalized)) return group;
+  }
+  return null;
+}
+
+function hasMeaningfulVitalPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  return Object.values(payload).some((value) => Number.isFinite(Number(value)));
+}
+
+function ceilToBucket(ts, bucketMs) {
+  if (!Number.isFinite(ts) || !Number.isFinite(bucketMs) || bucketMs <= 0) return 0;
+  return Math.ceil(ts / bucketMs) * bucketMs;
+}
+
+function buildSuggestedEndForCase(caseRow, referenceNowTs = Date.now()) {
+  if (!caseRow) return null;
+
+  const caseId = Number(caseRow.id);
+  const startTs = Number(caseRow.start_time);
+  const status = String(caseRow.status || "").trim().toLowerCase();
+  const dischargeTs = Number(caseRow.discharge_time);
+  const actualEndTs =
+    status === "discharged" || status === "archived"
+      ? dischargeTs
+      : Number(referenceNowTs);
+
+  if (!Number.isFinite(caseId) || caseId <= 0) return null;
+  if (!Number.isFinite(startTs) || !Number.isFinite(actualEndTs) || actualEndTs <= startTs) {
+    return null;
+  }
+
+  let maxVitalTs = 0;
+  const vitalRows = db
+    .prepare(
+      `SELECT ts_minute, payload
+       FROM vital_minutes
+       WHERE case_id = ?
+       ORDER BY ts_minute DESC, id DESC`,
+    )
+    .all(caseId);
+  for (const row of vitalRows) {
+    const payload = parseJsonSafe(row.payload);
+    if (!hasMeaningfulVitalPayload(payload)) continue;
+    const ts = Number(row.ts_minute);
+    if (Number.isFinite(ts) && ts > 0) {
+      maxVitalTs = ts;
+      break;
+    }
+  }
+
+  const ioEventRow = db
+    .prepare(
+      `SELECT MAX(event_ts) AS max_ts
+       FROM case_io_event
+       WHERE case_id = ?`,
+    )
+    .get(caseId);
+  const maxIoEventTs = Number(ioEventRow?.max_ts) || 0;
+
+  const ioRunRow = db
+    .prepare(
+      `SELECT MAX(ts) AS max_ts
+       FROM (
+         SELECT s.ts_from AS ts
+         FROM case_io_segment s
+         INNER JOIN case_io_run r ON r.id = s.run_id
+         WHERE r.case_id = ?
+         UNION ALL
+         SELECT COALESCE(s.ts_to, 0) AS ts
+         FROM case_io_segment s
+         INNER JOIN case_io_run r ON r.id = s.run_id
+         WHERE r.case_id = ?
+        )`,
+    )
+    .get(caseId, caseId);
+  const maxIoRunTs = Number(ioRunRow?.max_ts) || 0;
+
+  let maxMilestoneTs = 0;
+  let endAneTs = 0;
+  const eventRows = db
+    .prepare(
+      `SELECT title, event_ts
+       FROM case_event_note
+       WHERE case_id = ?
+         AND is_deleted = 0
+         AND event_type = 'event'
+       ORDER BY event_ts ASC, id ASC`,
+    )
+    .all(caseId);
+  for (const row of eventRows) {
+    const ts = Number(row.event_ts);
+    if (!Number.isFinite(ts) || ts <= 0) continue;
+    const group = parseSuggestedEndEventGroup(row.title);
+    if (!group) continue;
+    if (ts > maxMilestoneTs) maxMilestoneTs = ts;
+    if (group === "endAne" && ts > endAneTs) endAneTs = ts;
+  }
+
+  const lastActivityTs = Math.max(startTs, maxVitalTs, maxIoEventTs, maxIoRunTs, maxMilestoneTs);
+  if (!Number.isFinite(lastActivityTs) || lastActivityTs <= 0) return null;
+
+  let suggestionAnchorTs = lastActivityTs;
+  if (endAneTs > 0 && lastActivityTs - endAneTs > 30 * 60_000) {
+    suggestionAnchorTs = endAneTs;
+  }
+
+  const idleTailMs = Math.max(0, actualEndTs - suggestionAnchorTs);
+  const totalSpanMs = Math.max(0, actualEndTs - startTs);
+  const hasEndAne = endAneTs > 0;
+  const idleThresholdMs =
+    status === "active"
+      ? hasEndAne
+        ? 45 * 60_000
+        : 60 * 60_000
+      : 4 * 60 * 60_000;
+  const minSpanMs =
+    status === "active"
+      ? 2 * 60 * 60_000
+      : 8 * 60 * 60_000;
+  if (totalSpanMs < minSpanMs || idleTailMs < idleThresholdMs) return null;
+
+  const suggestedEndTs = ceilToBucket(suggestionAnchorTs + 15 * 60_000, 15 * 60_000);
+  if (!Number.isFinite(suggestedEndTs) || suggestedEndTs >= actualEndTs) return null;
+
+  let basedOn = "activity";
+  if (suggestionAnchorTs === endAneTs) basedOn = "end_ane";
+  else if (maxIoEventTs === suggestionAnchorTs || maxIoRunTs === suggestionAnchorTs) basedOn = "io";
+  else if (maxVitalTs === suggestionAnchorTs) basedOn = "vitals";
+  else if (maxMilestoneTs === suggestionAnchorTs) basedOn = "milestone";
+
+  return {
+    case_id: caseId,
+    suggested_end_time: suggestedEndTs,
+    last_activity_time: suggestionAnchorTs,
+    idle_tail_ms: idleTailMs,
+    has_end_ane: hasEndAne,
+    based_on: basedOn,
+  };
 }
 
 function getLifecycleOpenCount(caseId, scope, eventTs, excludeEventId) {
@@ -348,6 +842,45 @@ function getLifecycleOpenCount(caseId, scope, eventTs, excludeEventId) {
   }
 
   return openCount;
+}
+
+function getLastCaseIoActivityTs(caseId) {
+  const eventRow = db
+    .prepare(
+      `SELECT MAX(event_ts) AS max_ts
+       FROM case_io_event
+       WHERE case_id = ?`,
+    )
+    .get(caseId);
+  const maxEventTs = Number(eventRow?.max_ts) || 0;
+
+  const runRow = db
+    .prepare(
+      `SELECT MAX(ts) AS max_ts
+       FROM (
+         SELECT COALESCE(started_at, 0) AS ts
+         FROM case_io_run
+         WHERE case_id = ?
+         UNION ALL
+         SELECT COALESCE(stopped_at, 0) AS ts
+         FROM case_io_run
+         WHERE case_id = ?
+         UNION ALL
+         SELECT COALESCE(s.ts_from, 0) AS ts
+         FROM case_io_segment s
+         INNER JOIN case_io_run r ON r.id = s.run_id
+         WHERE r.case_id = ?
+         UNION ALL
+         SELECT COALESCE(s.ts_to, 0) AS ts
+         FROM case_io_segment s
+         INNER JOIN case_io_run r ON r.id = s.run_id
+         WHERE r.case_id = ?
+       )`,
+    )
+    .get(caseId, caseId, caseId, caseId);
+  const maxRunTs = Number(runRow?.max_ts) || 0;
+
+  return Math.max(maxEventTs, maxRunTs);
 }
 
 function hasLifecycleStartInCase(caseId, scope, excludeEventId) {
@@ -410,7 +943,9 @@ function validateLifecycleTransition({ caseId, eventType, title, eventTs, exclud
 
 const AUTO_EVENT_TITLE_BY_CATEGORY = new Map([
   ["ivanesth", "Induction"],
+  ["ivanesthetic", "Induction"],
   ["antibiotics", "SSI Prophylaxis"],
+  ["antimicrobial", "SSI Prophylaxis"],
   ["reversal", "Reversal"],
 ]);
 
@@ -534,6 +1069,37 @@ function parseIoNoteMeta(note) {
   return map;
 }
 
+function validateBloodGivingAuthorization(caseId, note, actor) {
+  const meta = parseIoNoteMeta(note);
+  const authorization = normalizeCategoryToken(meta.givingauthorization);
+  const authorizedBy = normalizeNullableText(meta.givingauthorizedby);
+  const authorizedRole = normalizeCategoryToken(meta.givingauthorizedrole);
+
+  if (!authorization || !authorizedBy || authorizedRole !== "anesthetist") {
+    return "Actual blood giving must be verified by an anesthetist before recording";
+  }
+  if (authorization === "self" && normalizeCategoryToken(actor?.role) !== "anesthetist") {
+    return "Only an anesthetist can self-verify actual blood giving";
+  }
+  if (authorization !== "self" && authorization !== "supervised") {
+    return "Invalid blood giving authorization";
+  }
+  if (authorization === "supervised") {
+    const verifier = db
+      .prepare(
+        `SELECT id
+         FROM case_staff
+         WHERE case_id = ? AND staff_name = ? AND lower(staff_role_id) = 'anesthetist'
+         LIMIT 1`
+      )
+      .get(caseId, authorizedBy);
+    if (!verifier) {
+      return "Selected verifier is not an anesthetist assigned to this case";
+    }
+  }
+  return null;
+}
+
 function formatCompactNumber(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
@@ -602,6 +1168,10 @@ function buildBloodProductEventDetail({
   const amountText = amountMl == null ? null : formatCompactNumber(amountMl);
   if (amountText) {
     parts.push(`Amount: ${amountText} mL`);
+  }
+  const status = normalizeNullableText(meta.status);
+  if (status) {
+    parts.push(`Status: ${status}`);
   }
 
   const detail = parts.join(" | ").trim();
@@ -816,6 +1386,12 @@ function parseIoKind(rawKind) {
   return null;
 }
 
+function parseEntryMode(raw) {
+  const val = String(raw || "").trim().toLowerCase();
+  if (val === "bolus" || val === "drip") return val;
+  return null;
+}
+
 function normalizeIoCode(rawCode) {
   const text = String(rawCode || "").trim();
   if (!text) return "";
@@ -986,15 +1562,65 @@ function writeIoAudit({
 }
 
 /* =======================
+   START CASE OVERLAP CHECK
+======================= */
+router.post("/start-overlap-check", (req, res) => {
+  const rawStartTs = Number(req.body?.start_time);
+  if (!Number.isFinite(rawStartTs)) {
+    return res.status(400).json({ error: "start_time required" });
+  }
+
+  const startTs = floorQuarterHour(rawStartTs);
+  const overlap = getCaseStartOverlap(startTs);
+  res.json({ ok: true, start_time: startTs, overlap });
+});
+
+/* =======================
    START CASE
 ======================= */
 router.post("/start", (req, res) => {
   const { hn, start_time } = req.body;
   if (!hn) return res.status(400).json({ error: "hn required" });
+  const actor = getActor(req);
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.trim() : "default output rows";
 
-  const rawStartTs =
-    typeof start_time === "number" ? start_time : Date.now();
+  const rawStartTs = Number(req.body?.start_time);
+  if (!Number.isFinite(rawStartTs)) {
+    return res.status(400).json({ error: "start_time required" });
+  }
   const startTs = floorQuarterHour(rawStartTs);
+  const overlapPolicy =
+    req.body?.overlap_policy === "exclude"
+      ? "exclude"
+      : req.body?.overlap_policy === "include"
+      ? "include"
+      : null;
+
+  const existingActive = db
+    .prepare(`SELECT id, hn, start_time FROM cases WHERE status = 'active' ORDER BY start_time DESC, id DESC LIMIT 1`)
+    .get();
+  if (existingActive) {
+    return res.status(409).json({
+      error: "an active case already exists",
+      active_case_id: existingActive.id,
+      active_case_hn: existingActive.hn,
+      active_case_start_time: existingActive.start_time,
+    });
+  }
+
+  const overlap = getCaseStartOverlap(startTs);
+  if (overlap && !overlapPolicy) {
+    return res.status(409).json({
+      error: "overlap choice required",
+      code: "OVERLAP_CHOICE_REQUIRED",
+      overlap,
+    });
+  }
+  const deviceCaptureStartTs =
+    overlap && overlapPolicy === "exclude"
+      ? Number(overlap.suggested_capture_start_time)
+      : startTs;
 
   const d = new Date(startTs);
   const ymd =
@@ -1015,23 +1641,86 @@ router.post("/start", (req, res) => {
 
   const now = Date.now();
 
-  const info = db
-    .prepare(
-      `INSERT INTO cases
-        (case_code, hn, start_time, status, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?)`
-    )
-    .run(caseCode, hn, startTs, now, now);
+  const createCaseWithDefaults = db.transaction(() => {
+    const info = db
+      .prepare(
+        `INSERT INTO cases
+          (case_code, hn, start_time, device_capture_start_time, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', ?, ?)`
+      )
+      .run(caseCode, hn, startTs, deviceCaptureStartTs, now, now);
 
-  const caseId = info.lastInsertRowid;
+    const caseId = Number(info.lastInsertRowid);
 
-  startMinuteWriter(caseId);
+    const defaultOutputItems = db
+      .prepare(
+        `SELECT id, code, name, default_unit, category
+         FROM io_item_master
+         WHERE kind = 'output'
+           AND is_active = 1
+           AND code IN ('urine', 'bloodLoss')
+         ORDER BY CASE code WHEN 'urine' THEN 1 WHEN 'bloodLoss' THEN 2 ELSE 9 END`
+      )
+      .all();
+
+    const insertRun = db.prepare(
+      `INSERT INTO case_io_run
+        (
+          case_id, item_id, kind, route, started_at, stopped_at,
+          entry_mode, note, include_in_balance, created_by, created_at, updated_at
+        )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const selectRun = db.prepare(`SELECT * FROM case_io_run WHERE id = ?`);
+
+    for (const item of defaultOutputItems) {
+      const runInfo = insertRun.run(
+        caseId,
+        item.id,
+        "output",
+        null,
+        startTs,
+        null,
+        "bolus",
+        null,
+        1,
+        actor.username,
+        now,
+        now,
+      );
+      const runId = Number(runInfo.lastInsertRowid);
+      writeIoAudit({
+        caseId,
+        entityType: "run",
+        entityId: runId,
+        action: "insert",
+        beforeJson: null,
+        afterJson: selectRun.get(runId),
+        reason,
+        actor,
+      });
+    }
+
+    return caseId;
+  });
+
+  const caseId = createCaseWithDefaults();
+
+  try {
+    startMinuteWriter(caseId);
+  } catch (err) {
+    console.error(
+      `[CASE] startMinuteWriter failed for case=${caseId}: ${err?.message || err}`,
+    );
+  }
 
   res.json({
     ok: true,
     case_id: caseId,
     case_code: caseCode,
     start_time: startTs,
+    device_capture_start_time: deviceCaptureStartTs,
+    overlap_policy: overlap ? overlapPolicy : null,
   });
 });
 
@@ -1042,7 +1731,79 @@ router.post("/discharge", (req, res) => {
   const { case_id } = req.body;
   if (!case_id) return res.status(400).json({ error: "case_id required" });
 
+  const caseRow = db
+    .prepare(`SELECT id, status, start_time FROM cases WHERE id = ?`)
+    .get(case_id);
+  if (!caseRow) {
+    return res.status(404).json({ error: "not found" });
+  }
+  if (String(caseRow.status || "").toLowerCase() !== "active") {
+    return res.status(400).json({ error: "case not active" });
+  }
+
+  const rawDischargeTs = req.body?.discharge_time;
+  const requestedTs = Number(rawDischargeTs);
+  const dischargeTs = Number.isFinite(requestedTs) ? floorMinute(requestedTs) : Date.now();
+  const startTs = Number(caseRow.start_time);
+  if (Number.isFinite(startTs) && dischargeTs < startTs) {
+    return res.status(400).json({ error: "discharge_time must be >= start_time" });
+  }
+
+  const lastMinuteRow = db
+    .prepare(
+      `SELECT MAX(ts_minute) AS last_ts_minute
+       FROM vital_minutes
+       WHERE case_id = ?`,
+    )
+    .get(case_id);
+  const lastMinuteTs = Number(lastMinuteRow?.last_ts_minute);
+  if (Number.isFinite(lastMinuteTs) && dischargeTs <= lastMinuteTs) {
+    return res.status(400).json({
+      error: "discharge_time must be later than last minute-writer data",
+    });
+  }
+
+  // Auto-stop any open drip runs at discharge time instead of blocking
+  const openRuns = db
+    .prepare(
+      `SELECT r.id, r.started_at, r.note, COALESCE(m.name, m.code, 'Unknown') AS item_name
+       FROM case_io_run r
+       JOIN io_item_master m ON m.id = r.item_id
+       WHERE r.case_id = ? AND r.stopped_at IS NULL AND r.entry_mode = 'drip'`,
+    )
+    .all(case_id);
   const now = Date.now();
+  const stoppedDrips = [];
+  for (const run of openRuns) {
+    const segments = db
+      .prepare(`SELECT ts_from, ts_to, carrier_ml_per_hr, rate_value, rate_unit FROM case_io_segment WHERE run_id = ? ORDER BY ts_from`)
+      .all(run.id);
+    let totalMl = 0;
+    for (const seg of segments) {
+      const from = Number(seg.ts_from);
+      const to = seg.ts_to != null ? Math.min(Number(seg.ts_to), dischargeTs) : dischargeTs;
+      if (to > from) {
+        const mlPerHr = Number(seg.carrier_ml_per_hr) > 0
+          ? Number(seg.carrier_ml_per_hr)
+          : (rateToMlPerHour(Number(seg.rate_value), seg.rate_unit) ?? 0);
+        totalMl += mlPerHr * (to - from) / 3_600_000;
+      }
+    }
+    // Parse planned volume from note tokens (format: "key:value|key:value")
+    const noteMeta = {};
+    for (const part of String(run.note || '').split('|')) {
+      const idx = part.indexOf(':');
+      if (idx > 0) noteMeta[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+    }
+    const plannedVolumeMl = parseFloat(noteMeta.totalVolumeMl);
+    const stopAt = Math.max(Number(run.started_at) || dischargeTs, dischargeTs);
+    db.prepare(`UPDATE case_io_run SET stopped_at = ?, updated_at = ? WHERE id = ?`).run(stopAt, now, run.id);
+    stoppedDrips.push({
+      name: run.item_name,
+      delivered_ml: Math.round(totalMl * 10) / 10,
+      planned_volume_ml: Number.isFinite(plannedVolumeMl) && plannedVolumeMl > 0 ? plannedVolumeMl : null,
+    });
+  }
 
   const r = db
     .prepare(
@@ -1050,14 +1811,20 @@ router.post("/discharge", (req, res) => {
        SET status='discharged', discharge_time=?, updated_at=?
        WHERE id=? AND status='active'`
     )
-    .run(now, now, case_id);
+    .run(dischargeTs, now, case_id);
 
   if (!r.changes) {
     return res.status(400).json({ error: "case not active" });
   }
 
-  stopMinuteWriter(case_id);
-  res.json({ ok: true });
+  try {
+    stopMinuteWriter(case_id);
+  } catch (err) {
+    console.error(
+      `[CASE] stopMinuteWriter failed for case=${case_id}: ${err?.message || err}`,
+    );
+  }
+  res.json({ ok: true, case_id, discharge_time: dischargeTs, stopped_drips: stoppedDrips });
 });
 
 /* =======================
@@ -1067,15 +1834,34 @@ router.post("/archive", (req, res) => {
   const { case_id } = req.body;
   if (!case_id) return res.status(400).json({ error: "case_id required" });
 
+  const caseRow = db
+    .prepare(`SELECT id, status FROM cases WHERE id = ?`)
+    .get(case_id);
+  if (!caseRow) {
+    return res.status(404).json({ error: "not found" });
+  }
+
+  const status = String(caseRow.status || "").toLowerCase();
+  if (status === "archived") {
+    return res.json({ ok: true, case_id, archive_time: null });
+  }
+  if (status !== "discharged") {
+    return res.status(400).json({ error: "case must be discharged before archive" });
+  }
+
   const now = Date.now();
 
-  db.prepare(
+  const r = db.prepare(
     `UPDATE cases
-     SET status='archived', updated_at=?
-     WHERE id=?`
-  ).run(now, case_id);
+     SET status='archived', archive_time=?, updated_at=?
+     WHERE id=? AND status='discharged'`
+  ).run(now, now, case_id);
 
-  res.json({ ok: true });
+  if (!r.changes) {
+    return res.status(400).json({ error: "case must be discharged before archive" });
+  }
+
+  res.json({ ok: true, case_id, archive_time: now });
 });
 
 /* =======================
@@ -1088,7 +1874,7 @@ router.put("/:id/start-time", (req, res) => {
   }
 
   const caseRow = db
-    .prepare(`SELECT id, status, discharge_time FROM cases WHERE id = ?`)
+    .prepare(`SELECT id, status, start_time, discharge_time, device_capture_start_time FROM cases WHERE id = ?`)
     .get(caseId);
   if (!caseRow) return res.status(404).json({ error: "not found" });
 
@@ -1104,21 +1890,39 @@ router.put("/:id/start-time", (req, res) => {
     return res.status(400).json({ error: "start_time must be <= discharge_time" });
   }
 
-  const now = Date.now();
-  db.prepare(`UPDATE cases SET start_time = ?, updated_at = ? WHERE id = ?`).run(
+  const previousCaptureStartTs = Number(caseRow.device_capture_start_time);
+  const nextCaptureStartTs = Math.max(
     startTs,
+    Number.isFinite(previousCaptureStartTs) ? previousCaptureStartTs : startTs,
+  );
+
+  const now = Date.now();
+  db.prepare(
+    `UPDATE cases
+     SET start_time = ?, device_capture_start_time = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(
+    startTs,
+    nextCaptureStartTs,
     now,
     caseId,
   );
 
   if (String(caseRow.status || "").toLowerCase() === "active") {
-    rewindMinuteWriter(caseId, startTs);
+    try {
+      rewindMinuteWriter(caseId, nextCaptureStartTs);
+    } catch (err) {
+      console.error(
+        `[CASE] rewindMinuteWriter failed for case=${caseId}: ${err?.message || err}`,
+      );
+    }
   }
 
   res.json({
     ok: true,
     case_id: caseId,
     start_time: startTs,
+    device_capture_start_time: nextCaptureStartTs,
   });
 });
 
@@ -1166,7 +1970,37 @@ router.put("/:id/discharge-time", (req, res) => {
     });
   }
 
+  // Auto-stop any open drip runs at discharge time instead of blocking
+  const openRuns2 = db
+    .prepare(
+      `SELECT r.id, r.started_at, COALESCE(m.name, m.code, 'Unknown') AS item_name
+       FROM case_io_run r
+       JOIN io_item_master m ON m.id = r.item_id
+       WHERE r.case_id = ? AND r.stopped_at IS NULL AND r.entry_mode = 'drip'`,
+    )
+    .all(caseId);
   const now = Date.now();
+  const stoppedDrips2 = [];
+  for (const run of openRuns2) {
+    const segments = db
+      .prepare(`SELECT ts_from, ts_to, carrier_ml_per_hr, rate_value, rate_unit FROM case_io_segment WHERE run_id = ? ORDER BY ts_from`)
+      .all(run.id);
+    let totalMl = 0;
+    for (const seg of segments) {
+      const from = Number(seg.ts_from);
+      const to = seg.ts_to != null ? Math.min(Number(seg.ts_to), dischargeTs) : dischargeTs;
+      if (to > from) {
+        const mlPerHr = Number(seg.carrier_ml_per_hr) > 0
+          ? Number(seg.carrier_ml_per_hr)
+          : (rateToMlPerHour(Number(seg.rate_value), seg.rate_unit) ?? 0);
+        totalMl += mlPerHr * (to - from) / 3_600_000;
+      }
+    }
+    const stopAt = Math.max(Number(run.started_at) || dischargeTs, dischargeTs);
+    db.prepare(`UPDATE case_io_run SET stopped_at = ?, updated_at = ? WHERE id = ?`).run(stopAt, now, run.id);
+    stoppedDrips2.push({ name: run.item_name, delivered_ml: Math.round(totalMl) });
+  }
+
   db.prepare(`UPDATE cases SET discharge_time = ?, updated_at = ? WHERE id = ?`).run(
     dischargeTs,
     now,
@@ -1177,6 +2011,27 @@ router.put("/:id/discharge-time", (req, res) => {
     ok: true,
     case_id: caseId,
     discharge_time: dischargeTs,
+    stopped_drips: stoppedDrips2,
+  });
+});
+
+/* =======================
+   SUGGESTED END TIME
+======================= */
+router.get("/:id/suggested-end", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const caseRow = db
+    .prepare(`SELECT id, status, start_time, discharge_time FROM cases WHERE id = ?`)
+    .get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "not found" });
+
+  return res.json({
+    ok: true,
+    suggestion: buildSuggestedEndForCase(caseRow),
   });
 });
 
@@ -1189,9 +2044,11 @@ router.get("/status", (req, res) => {
       `SELECT *
        FROM cases
        WHERE status IN ('active','discharged')
-       ORDER BY created_at DESC
+       ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                COALESCE(discharge_time, start_time) DESC,
+                id DESC
        LIMIT 1`
-    )
+     )
     .get();
 
   if (!row) return res.json({ status: "IDLE" });
@@ -1945,6 +2802,179 @@ router.post("/his/buffer/:hn/pre-admit", (req, res) => {
   });
 });
 
+router.post("/his/patient-info-lookup", async (req, res) => {
+  const hn = String(req.body?.hn || "").trim();
+  if (!hn) return res.status(400).json({ error: "hn is required" });
+
+  try {
+    const { mappedPatient, hisPayload } = await fetchPatientInfoOnly(hn);
+    return res.json({
+      ok: true,
+      hn,
+      source: "HIS",
+      offline: false,
+      row: { ...mappedPatient, his_payload: hisPayload },
+      allergies: [],
+      labs: [],
+      his_payload: hisPayload,
+      his_errors: {},
+    });
+  } catch (err) {
+    return res
+      .status(502)
+      .json({ error: "his gateway request failed", message: err.message || String(err) });
+  }
+});
+
+router.post("/:id/his/blood-products", async (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId)) return res.status(400).json({ error: "invalid case id" });
+
+  const caseRow = db
+    .prepare(`SELECT id, hn FROM cases WHERE id = ?`)
+    .get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "not found" });
+
+  const hn = String(caseRow.hn || "").trim();
+  const an = normalizeNullableText(req.body?.an);
+  if (!hn) return res.status(400).json({ error: "hn is required" });
+
+  let payload;
+  let source = "HIS";
+  try {
+    const useLocalBloodProductList = !HIS_BLOOD_PRODUCT_LIST_REAL || HIS_BLOOD_PRODUCT_LIST_MOCK;
+    if (useLocalBloodProductList) {
+      source = "MOCK";
+      payload = {
+        rows: [
+          {
+            hn,
+            an,
+            patient_name: normalizeNullableText(req.body?.patient_name),
+            reqno: "MOCK-REQ-12345",
+            bdtype: "Packed red cell",
+            dnrno: "12345",
+            bloodgrp: "O",
+            rh: "+",
+            unitstas: "2",
+          },
+        ],
+      };
+    } else {
+      payload = await postHisGateway(HIS_BLOOD_PRODUCT_LIST_PATH, { hn, an });
+    }
+  } catch (err) {
+    return res
+      .status(502)
+      .json({ error: "his gateway request failed", message: err.message || String(err) });
+  }
+
+  return res.json({
+    ok: true,
+    case_id: caseId,
+    hn,
+    source,
+    rows: normalizeBloodBagList(payload),
+  });
+});
+
+router.post("/:id/his/blood-product/verify", async (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId)) return res.status(400).json({ error: "invalid case id" });
+
+  const caseRow = db
+    .prepare(`SELECT id, hn FROM cases WHERE id = ?`)
+    .get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "not found" });
+
+  const caseHn = String(caseRow.hn || "").trim();
+  const hn = String(req.body?.hn || caseHn || "").trim();
+  const qr = normalizeNullableText(req.body?.qr);
+  const dnrno = normalizeNullableText(req.body?.dnrno || req.body?.blood_bag_no || req.body?.bloodBagNo);
+  if (!hn) return res.status(400).json({ error: "hn is required" });
+  if (!qr && !dnrno) return res.status(400).json({ error: "qr or dnrno is required" });
+
+  let payload;
+  try {
+    const scanText = String(qr || dnrno || "").trim();
+    const useLocalBloodProductVerifier =
+      !HIS_BLOOD_PRODUCT_VERIFY_REAL || HIS_BLOOD_PRODUCT_VERIFY_MOCK;
+    if (useLocalBloodProductVerifier) {
+      const mockAn =
+        hn === "123469"
+          ? "111169"
+          : normalizeNullableText(req.body?.an) || "3333";
+      payload =
+        scanText === "12345"
+          ? {
+              hn,
+              an: mockAn,
+              patient_name: hn === "123469" ? "Mungmee Srisuk" : normalizeNullableText(req.body?.patient_name),
+              reqno: "MOCK-REQ-12345",
+              bdtype: "Packed red cell",
+              dnrno: "12345",
+              bloodgrp: "O",
+              rh: "+",
+              unitstas: "2",
+            }
+          : {
+              hn,
+              an: mockAn,
+              patient_name: hn === "123469" ? "Mungmee Srisuk" : normalizeNullableText(req.body?.patient_name),
+              reqno: `MOCK-REQ-${scanText || "UNKNOWN"}`,
+              bdtype: "Unknown",
+              dnrno: scanText || dnrno || "",
+              bloodgrp: "",
+              rh: "",
+              unitstas: "0",
+            };
+    } else {
+      payload = await postHisGateway(HIS_BLOOD_PRODUCT_VERIFY_PATH, {
+        hn,
+        qr,
+        dnrno,
+      });
+    }
+  } catch (err) {
+    return res
+      .status(502)
+      .json({ error: "his gateway request failed", message: err.message || String(err) });
+  }
+
+  const row = normalizeBloodBagVerification(payload);
+  if (!row) {
+    return res.status(502).json({ error: "his blood product response is empty" });
+  }
+
+  const returnedHn = String(row.hn || "").trim();
+  const returnedBagNo = String(row.dnrno || "").trim();
+  const returnedStatus = String(row.unitstas || "").trim();
+  const hnMatches = Boolean(returnedHn) && returnedHn === caseHn && returnedHn === hn;
+  const bagMatches = !dnrno || !returnedBagNo || returnedBagNo === dnrno;
+  const statusOk = returnedStatus === "1" || returnedStatus === "2";
+  const ok = hnMatches && bagMatches && statusOk;
+
+  return res.json({
+    ok,
+    case_id: caseId,
+    hn: caseHn,
+    requested: { hn, qr, dnrno },
+    result: row,
+    checks: {
+      hn_match: hnMatches,
+      dnrno_match: bagMatches,
+      unitstas_ok: statusOk,
+    },
+    message: ok
+      ? "blood product verified"
+      : !hnMatches
+        ? "HN mismatch"
+        : !bagMatches
+          ? "blood bag number mismatch"
+          : "blood bag status is not ready for use",
+  });
+});
+
 router.post("/his/allergy", async (req, res) => {
   const hn = String(req.body?.hn || "").trim();
   if (!hn) return res.status(400).json({ error: "hn is required" });
@@ -2084,6 +3114,72 @@ router.post("/his/lab", async (req, res) => {
     offline: false,
     rows: rows.map(({ raw, ...rest }) => rest),
   });
+});
+
+router.get("/:id/detail-draft", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const row = db
+    .prepare(
+      `SELECT form_draft_json, updated_at
+       FROM case_detail
+       WHERE case_id = ?`,
+    )
+    .get(caseId);
+
+  return res.json({
+    ok: true,
+    case_id: caseId,
+    draft: parseJsonSafeObject(row?.form_draft_json),
+    updated_at: Number(row?.updated_at) || null,
+  });
+});
+
+router.put("/:id/detail-draft", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const caseRow = db.prepare(`SELECT id FROM cases WHERE id = ?`).get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "case not found" });
+
+  const draft = req.body?.draft;
+  if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
+    return res.status(400).json({ error: "draft object required" });
+  }
+
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO case_detail (case_id, created_at, updated_at, form_draft_json)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(case_id) DO UPDATE SET
+       form_draft_json = excluded.form_draft_json,
+       updated_at = excluded.updated_at`,
+  ).run(caseId, now, now, JSON.stringify(draft));
+
+  return res.json({ ok: true, case_id: caseId, updated_at: now });
+});
+
+router.delete("/:id/detail-draft", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO case_detail (case_id, created_at, updated_at, form_draft_json)
+     VALUES (?, ?, ?, NULL)
+     ON CONFLICT(case_id) DO UPDATE SET
+       form_draft_json = NULL,
+       updated_at = excluded.updated_at`,
+  ).run(caseId, now, now);
+
+  return res.json({ ok: true, case_id: caseId, updated_at: now });
 });
 
 router.post("/:id/his/sync", async (req, res) => {
@@ -2478,6 +3574,37 @@ router.post("/:id/his/sync", async (req, res) => {
   });
 });
 
+router.post("/:id/his/patient-info-sync", async (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const caseRow = db.prepare(`SELECT id, hn FROM cases WHERE id = ?`).get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "case not found" });
+
+  const hn = String(caseRow.hn || "").trim();
+  if (!hn) return res.status(400).json({ error: "hn is required" });
+
+  try {
+    const { mappedPatient, hisPayload, now } = await fetchPatientInfoOnly(hn);
+    upsertCaseHisPatientOnly(caseId, mappedPatient, hisPayload, now);
+    return res.json({
+      ok: true,
+      case_id: caseId,
+      hn,
+      source: "HIS",
+      offline: false,
+      saved: { patient: 1 },
+      his_errors: {},
+    });
+  } catch (err) {
+    return res
+      .status(502)
+      .json({ error: "his gateway request failed", message: err.message || String(err) });
+  }
+});
+
 router.post("/:id/his/allergy/sync", async (req, res) => {
   const caseId = Number(req.params.id);
   if (!Number.isFinite(caseId) || caseId <= 0) {
@@ -2738,6 +3865,41 @@ router.get("/:id/patient", (req, res) => {
     row: {
       ...row,
       his_payload: hisPayload,
+    },
+  });
+});
+
+router.put("/:id/patient", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId) || caseId <= 0) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const nextHn = String(req.body?.hn || "").trim();
+  if (!nextHn) {
+    return res.status(400).json({ error: "hn is required" });
+  }
+
+  const caseRow = db.prepare(`SELECT id, hn FROM cases WHERE id = ?`).get(caseId);
+  if (!caseRow) {
+    return res.status(404).json({ error: "case not found" });
+  }
+
+  const now = Date.now();
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE cases SET hn = ?, updated_at = ? WHERE id = ?`).run(nextHn, now, caseId);
+    db.prepare(`UPDATE case_his_patient SET hn = ?, updated_at = ? WHERE case_id = ?`).run(nextHn, now, caseId);
+  });
+
+  tx();
+
+  return res.json({
+    ok: true,
+    row: {
+      case_id: caseId,
+      hn: nextHn,
+      previous_hn: caseRow.hn,
+      updated_at: now,
     },
   });
 });
@@ -3007,11 +4169,17 @@ router.get("/icd10/search", (req, res) => {
       ) AS score
     FROM icd10_master
     WHERE
-      icd10 LIKE @codePrefix
-      OR icd10who LIKE @codePrefix
-      OR lower(COALESCE(name_en, '')) LIKE @textLike
-      OR lower(COALESCE(name_th, '')) LIKE @textLike
-      ${whereTokens}
+      (
+        upper(substr(trim(COALESCE(icd10, '')), 1, 1)) GLOB '[A-Z]'
+        OR upper(substr(trim(COALESCE(icd10who, '')), 1, 1)) GLOB '[A-Z]'
+      )
+      AND (
+        icd10 LIKE @codePrefix
+        OR icd10who LIKE @codePrefix
+        OR lower(COALESCE(name_en, '')) LIKE @textLike
+        OR lower(COALESCE(name_th, '')) LIKE @textLike
+        ${whereTokens}
+      )
     ORDER BY
       score DESC,
       icd10 ASC
@@ -3026,6 +4194,59 @@ router.get("/icd10/search", (req, res) => {
   });
 });
 
+router.get("/icd9/search", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) {
+    return res.json({ query: q, rows: [] });
+  }
+
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(50, Math.trunc(requestedLimit)))
+    : 20;
+
+  const codeQuery = q.replace(/[\s.]+/g, "");
+  const textQuery = q.toLowerCase();
+  const textLike = `%${textQuery}%`;
+  const textPrefix = `${textQuery}%`;
+  const codePrefix = `${codeQuery}%`;
+
+  const rows = db.prepare(
+    `SELECT
+       icd9cm,
+       short_name_en,
+       name_en,
+       (
+         CASE
+           WHEN icd9cm = @codeQuery THEN 1000
+           WHEN icd9cm LIKE @codePrefix THEN 920
+           WHEN lower(COALESCE(name_en, '')) LIKE @textPrefix THEN 900
+           WHEN lower(COALESCE(short_name_en, '')) LIKE @textPrefix THEN 880
+           WHEN lower(COALESCE(name_en, '')) LIKE @textLike THEN 820
+           WHEN lower(COALESCE(short_name_en, '')) LIKE @textLike THEN 800
+           ELSE 0
+         END
+       ) AS score
+     FROM icd9cm_master
+     WHERE
+       icd9cm LIKE @codePrefix
+       OR lower(COALESCE(name_en, '')) LIKE @textLike
+       OR lower(COALESCE(short_name_en, '')) LIKE @textLike
+     ORDER BY
+       score DESC,
+       icd9cm ASC
+     LIMIT @limit`
+  ).all({
+    codeQuery,
+    codePrefix,
+    textLike,
+    textPrefix,
+    limit,
+  });
+
+  res.json({ query: q, rows });
+});
+
 /* =======================
    CASE DIAGNOSIS
 ======================= */
@@ -3038,16 +4259,22 @@ router.get("/:id/diagnosis", (req, res) => {
   const rows = db
     .prepare(
       `SELECT
-         id,
-         diagnosis_text,
-         icd_text,
-         icd_code,
-         icd_version,
-         seq,
-         created_at
-       FROM case_diagnosis
-       WHERE case_id = ?
-       ORDER BY seq ASC, id ASC`
+         d.id,
+         d.diagnosis_text,
+         CASE
+           WHEN upper(COALESCE(d.icd_version, '')) = 'ICD-10'
+             THEN COALESCE(NULLIF(m.name_en, ''), NULLIF(m.name_th, ''), d.icd_text)
+           ELSE d.icd_text
+         END AS icd_text,
+         d.icd_code,
+         d.icd_version,
+         d.seq,
+         d.created_at
+       FROM case_diagnosis d
+       LEFT JOIN icd10_master m
+         ON (m.icd10 = d.icd_code OR m.icd10who = d.icd_code)
+       WHERE d.case_id = ?
+       ORDER BY d.seq ASC, d.id ASC`
     )
     .all(caseId);
 
@@ -3067,11 +4294,14 @@ router.post("/:id/diagnosis", (req, res) => {
 
   const seqRaw = Number(req.body?.seq);
   const seq = Number.isFinite(seqRaw) && seqRaw > 0 ? Math.trunc(seqRaw) : 1;
-  const icdText = normalizeNullableText(req.body?.icd_text);
   const icdCode = normalizeIcdCode(req.body?.icd_code);
   const icdVersion = icdCode
     ? normalizeNullableText(req.body?.icd_version) || "ICD-10"
     : normalizeNullableText(req.body?.icd_version);
+  const icdText =
+    isLikelyIcd10Code(icdCode) && String(icdVersion || "").toUpperCase() === "ICD-10"
+      ? resolveIcd10Text(icdCode, req.body?.icd_text)
+      : normalizeNullableText(req.body?.icd_text);
   const now = Date.now();
 
   const info = db
@@ -3085,15 +4315,21 @@ router.post("/:id/diagnosis", (req, res) => {
   const row = db
     .prepare(
       `SELECT
-         id,
-         diagnosis_text,
-         icd_text,
-         icd_code,
-         icd_version,
-         seq,
-         created_at
-       FROM case_diagnosis
-       WHERE id = ?`
+         d.id,
+         d.diagnosis_text,
+         CASE
+           WHEN upper(COALESCE(d.icd_version, '')) = 'ICD-10'
+             THEN COALESCE(NULLIF(m.name_en, ''), NULLIF(m.name_th, ''), d.icd_text)
+           ELSE d.icd_text
+         END AS icd_text,
+         d.icd_code,
+         d.icd_version,
+         d.seq,
+         d.created_at
+       FROM case_diagnosis d
+       LEFT JOIN icd10_master m
+         ON (m.icd10 = d.icd_code OR m.icd10who = d.icd_code)
+       WHERE d.id = ?`
     )
     .get(info.lastInsertRowid);
 
@@ -3126,10 +4362,6 @@ router.put("/:id/diagnosis/:diagId", (req, res) => {
     return res.status(400).json({ error: "diagnosis_text required" });
   }
 
-  const nextIcdText =
-    req.body?.icd_text == null
-      ? current.icd_text
-      : normalizeNullableText(req.body.icd_text);
   const nextIcdCode =
     req.body?.icd_code == null
       ? current.icd_code
@@ -3138,6 +4370,17 @@ router.put("/:id/diagnosis/:diagId", (req, res) => {
     req.body?.icd_version == null
       ? current.icd_version
       : normalizeNullableText(req.body.icd_version);
+  const nextIcdText =
+    isLikelyIcd10Code(nextIcdCode) && String(nextIcdVersion || "").toUpperCase() === "ICD-10"
+      ? resolveIcd10Text(
+          nextIcdCode,
+          req.body?.icd_text == null ? current.icd_text : req.body.icd_text,
+        )
+      : (
+          req.body?.icd_text == null
+            ? current.icd_text
+            : normalizeNullableText(req.body.icd_text)
+        );
   const seqRaw = Number(req.body?.seq);
   const nextSeq =
     req.body?.seq == null
@@ -3159,15 +4402,21 @@ router.put("/:id/diagnosis/:diagId", (req, res) => {
   const row = db
     .prepare(
       `SELECT
-         id,
-         diagnosis_text,
-         icd_text,
-         icd_code,
-         icd_version,
-         seq,
-         created_at
-       FROM case_diagnosis
-       WHERE id = ?`
+         d.id,
+         d.diagnosis_text,
+         CASE
+           WHEN upper(COALESCE(d.icd_version, '')) = 'ICD-10'
+             THEN COALESCE(NULLIF(m.name_en, ''), NULLIF(m.name_th, ''), d.icd_text)
+           ELSE d.icd_text
+         END AS icd_text,
+         d.icd_code,
+         d.icd_version,
+         d.seq,
+         d.created_at
+       FROM case_diagnosis d
+       LEFT JOIN icd10_master m
+         ON (m.icd10 = d.icd_code OR m.icd10who = d.icd_code)
+       WHERE d.id = ?`
     )
     .get(diagId);
 
@@ -3203,15 +4452,21 @@ router.get("/:id/procedures", (req, res) => {
   const rows = db
     .prepare(
       `SELECT
-         id,
-         procedure_text,
-         icd_text,
-         icd_code,
-         icd_version,
-         seq,
-         created_at
-       FROM case_procedure
-       WHERE case_id = ?
+         p.id,
+         p.procedure_text,
+         CASE
+           WHEN upper(COALESCE(p.icd_version, '')) = 'ICD-9'
+             THEN COALESCE(NULLIF(m.name_en, ''), p.icd_text)
+           ELSE p.icd_text
+         END AS icd_text,
+         p.icd_code,
+         p.icd_version,
+         p.seq,
+         p.created_at
+       FROM case_procedure p
+       LEFT JOIN icd9cm_master m
+         ON m.icd9cm = replace(replace(COALESCE(p.icd_code, ''), '.', ''), ' ', '')
+       WHERE p.case_id = ?
        ORDER BY seq ASC, id ASC`
     )
     .all(caseId);
@@ -3232,11 +4487,14 @@ router.post("/:id/procedures", (req, res) => {
 
   const seqRaw = Number(req.body?.seq);
   const seq = Number.isFinite(seqRaw) && seqRaw > 0 ? Math.trunc(seqRaw) : 1;
-  const icdText = normalizeNullableText(req.body?.icd_text);
-  const icdCode = normalizeIcdCode(req.body?.icd_code);
+  const icdCode = normalizeIcd9ProcedureCode(req.body?.icd_code);
   const icdVersion = icdCode
-    ? normalizeNullableText(req.body?.icd_version) || "ICD-10"
+    ? normalizeNullableText(req.body?.icd_version) || "ICD-9"
     : normalizeNullableText(req.body?.icd_version);
+  const icdText =
+    isLikelyIcd9ProcedureCode(icdCode) && String(icdVersion || "").toUpperCase() === "ICD-9"
+      ? resolveIcd9ProcedureText(icdCode, req.body?.icd_text)
+      : normalizeNullableText(req.body?.icd_text);
   const now = Date.now();
 
   const info = db
@@ -3250,15 +4508,21 @@ router.post("/:id/procedures", (req, res) => {
   const row = db
     .prepare(
       `SELECT
-         id,
-         procedure_text,
-         icd_text,
-         icd_code,
-         icd_version,
-         seq,
-         created_at
-       FROM case_procedure
-       WHERE id = ?`
+         p.id,
+         p.procedure_text,
+         CASE
+           WHEN upper(COALESCE(p.icd_version, '')) = 'ICD-9'
+             THEN COALESCE(NULLIF(m.name_en, ''), p.icd_text)
+           ELSE p.icd_text
+         END AS icd_text,
+         p.icd_code,
+         p.icd_version,
+         p.seq,
+         p.created_at
+       FROM case_procedure p
+       LEFT JOIN icd9cm_master m
+         ON m.icd9cm = replace(replace(COALESCE(p.icd_code, ''), '.', ''), ' ', '')
+       WHERE p.id = ?`
     )
     .get(info.lastInsertRowid);
 
@@ -3292,13 +4556,23 @@ router.put("/:id/procedures/:procedureId", (req, res) => {
   }
 
   const nextIcdText =
-    req.body?.icd_text == null
-      ? current.icd_text
-      : normalizeNullableText(req.body.icd_text);
+    isLikelyIcd9ProcedureCode(
+      req.body?.icd_code == null ? current.icd_code : req.body.icd_code
+    ) &&
+    String(
+      req.body?.icd_version == null ? current.icd_version : req.body.icd_version
+    ).toUpperCase() === "ICD-9"
+      ? resolveIcd9ProcedureText(
+          req.body?.icd_code == null ? current.icd_code : req.body.icd_code,
+          req.body?.icd_text == null ? current.icd_text : req.body.icd_text
+        )
+      : req.body?.icd_text == null
+        ? current.icd_text
+        : normalizeNullableText(req.body.icd_text);
   const nextIcdCode =
     req.body?.icd_code == null
       ? current.icd_code
-      : normalizeIcdCode(req.body.icd_code);
+      : normalizeIcd9ProcedureCode(req.body.icd_code);
   const nextIcdVersion =
     req.body?.icd_version == null
       ? current.icd_version
@@ -3324,15 +4598,21 @@ router.put("/:id/procedures/:procedureId", (req, res) => {
   const row = db
     .prepare(
       `SELECT
-         id,
-         procedure_text,
-         icd_text,
-         icd_code,
-         icd_version,
-         seq,
-         created_at
-       FROM case_procedure
-       WHERE id = ?`
+         p.id,
+         p.procedure_text,
+         CASE
+           WHEN upper(COALESCE(p.icd_version, '')) = 'ICD-9'
+             THEN COALESCE(NULLIF(m.name_en, ''), p.icd_text)
+           ELSE p.icd_text
+         END AS icd_text,
+         p.icd_code,
+         p.icd_version,
+         p.seq,
+         p.created_at
+       FROM case_procedure p
+       LEFT JOIN icd9cm_master m
+         ON m.icd9cm = replace(replace(COALESCE(p.icd_code, ''), '.', ''), ' ', '')
+       WHERE p.id = ?`
     )
     .get(procedureId);
 
@@ -3524,15 +4804,17 @@ router.post("/staff/directory", (req, res) => {
 
   const tx = db.transaction(() => {
     const now = Date.now();
+    const normalizedHospitalId = String(input.hospitalId || input.personalId || "").trim();
+    const normalizedPersonalId = String(input.personalId || input.hospitalId || "").trim();
     let existing =
-      (input.hospitalId && findByHospitalId.get(input.hospitalId)) ||
+      (normalizedHospitalId && findByHospitalId.get(normalizedHospitalId)) ||
       (input.email && findByEmail.get(input.email)) ||
       findByNameRole.get(input.name, input.roleId);
 
     if (!existing) {
       const info = insertRow.run(
-        input.hospitalId,
-        input.personalId,
+        normalizedHospitalId,
+        normalizedPersonalId,
         input.email,
         input.thFirstName,
         input.thLastName,
@@ -3552,8 +4834,8 @@ router.post("/staff/directory", (req, res) => {
 
     const row = selectById.get(existing.id);
     updateRow.run(
-      input.hospitalId || row.hospital_id,
-      input.personalId || row.personal_id,
+      normalizedHospitalId || row.hospital_id || row.personal_id,
+      normalizedPersonalId || row.personal_id || row.hospital_id,
       input.email || row.email,
       input.thFirstName || row.th_first_name,
       input.thLastName || row.th_last_name,
@@ -3603,6 +4885,8 @@ router.put("/staff/directory/:entryId", (req, res) => {
   }
   const input = normalized[0];
   const now = Date.now();
+  const normalizedHospitalId = String(input.hospitalId || input.personalId || current.hospital_id || current.personal_id || "").trim();
+  const normalizedPersonalId = String(input.personalId || input.hospitalId || current.personal_id || current.hospital_id || "").trim();
 
   db.prepare(
     `UPDATE staff_directory
@@ -3622,8 +4906,8 @@ router.put("/staff/directory/:entryId", (req, res) => {
           updated_at = ?
       WHERE id = ?`
   ).run(
-    input.hospitalId,
-    input.personalId,
+    normalizedHospitalId,
+    normalizedPersonalId,
     input.email,
     input.thFirstName,
     input.thLastName,
@@ -3732,6 +5016,46 @@ router.get("/staff/library", (req, res) => {
 });
 
 /* =======================
+   MY CASES (by hospital_id)
+======================= */
+router.get("/staff/my-cases", (req, res) => {
+  const hospitalId = String(req.query.hospital_id || "").trim();
+  const personalId = String(req.query.personal_id || "").trim();
+  const email = String(req.query.email || "").trim().toLowerCase();
+
+  if (!hospitalId && !personalId && !email) {
+    return res.status(400).json({ error: "at least one of hospital_id, personal_id, email required" });
+  }
+
+  const conditions = [];
+  const params = [];
+  if (hospitalId) { conditions.push("cs.hospital_id = ?"); params.push(hospitalId); }
+  if (personalId) { conditions.push("cs.personal_id = ?"); params.push(personalId); }
+  if (email)      { conditions.push("lower(cs.email) = ?"); params.push(email); }
+
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT
+         c.id,
+         c.case_code,
+         c.hn,
+         c.start_time,
+         c.discharge_time,
+         c.status,
+         cs.staff_role,
+         cs.staff_name
+       FROM case_staff cs
+       JOIN cases c ON c.id = cs.case_id
+       WHERE ${conditions.join(" OR ")}
+       ORDER BY c.start_time DESC
+       LIMIT 200`
+    )
+    .all(...params);
+
+  res.json({ rows });
+});
+
+/* =======================
    IO MASTER LIST (GLOBAL)
 ======================= */
 router.get("/io/master", (req, res) => {
@@ -3754,6 +5078,8 @@ router.get("/io/master", (req, res) => {
          name,
          default_unit,
          category,
+         usage_score,
+         usage_rank,
          is_active,
          created_at,
          updated_at
@@ -3767,7 +5093,12 @@ router.get("/io/master", (req, res) => {
            OR lower(COALESCE(category, '')) LIKE ?
            OR lower(COALESCE(default_unit, '')) LIKE ?
          )
-       ORDER BY is_active DESC, name ASC, code ASC
+       ORDER BY
+         is_active DESC,
+         COALESCE(usage_rank, 999999) ASC,
+         usage_score DESC,
+         name ASC,
+         code ASC
        LIMIT ?`
     )
     .all(
@@ -3794,6 +5125,7 @@ router.post("/io/master", (req, res) => {
 
   const defaultUnit = String(req.body?.default_unit || "").trim() || "ml";
   const category = String(req.body?.category || "").trim() || null;
+  const isActive = parseBooleanFlag(req.body?.is_active, true) ? 1 : 0;
 
   const codeCandidate = buildIoCodeCandidate(req.body?.code, name);
   if (!codeCandidate) {
@@ -3807,9 +5139,9 @@ router.post("/io/master", (req, res) => {
       .prepare(
         `INSERT INTO io_item_master
           (kind, code, name, default_unit, category, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(kind, code, name, defaultUnit, category, now, now);
+      .run(kind, code, name, defaultUnit, category, isActive, now, now);
 
     const row = db
       .prepare(
@@ -3820,6 +5152,8 @@ router.post("/io/master", (req, res) => {
            name,
            default_unit,
            category,
+           usage_score,
+           usage_rank,
            is_active,
            created_at,
            updated_at
@@ -3902,6 +5236,8 @@ router.put("/io/master/:itemId", (req, res) => {
            name,
            default_unit,
            category,
+           usage_score,
+           usage_rank,
            is_active,
            created_at,
            updated_at
@@ -4194,19 +5530,19 @@ router.get("/:id/io/items", (req, res) => {
     ? db
         .prepare(
           `SELECT
-             id, kind, code, name, default_unit, category, is_active
+             id, kind, code, name, default_unit, category, usage_score, usage_rank, is_active
            FROM io_item_master
            WHERE is_active = 1 AND kind = ?
-           ORDER BY name ASC`
+           ORDER BY COALESCE(usage_rank, 999999) ASC, usage_score DESC, name ASC`
         )
         .all(kind)
     : db
         .prepare(
           `SELECT
-             id, kind, code, name, default_unit, category, is_active
+             id, kind, code, name, default_unit, category, usage_score, usage_rank, is_active
            FROM io_item_master
            WHERE is_active = 1
-           ORDER BY kind ASC, name ASC`
+           ORDER BY kind ASC, COALESCE(usage_rank, 999999) ASC, usage_score DESC, name ASC`
         )
         .all();
 
@@ -4245,6 +5581,7 @@ router.get("/:id/io/runs", (req, res) => {
          r.route,
          r.started_at,
          r.stopped_at,
+         r.entry_mode,
          r.note,
          r.include_in_balance,
          r.created_by,
@@ -4253,6 +5590,7 @@ router.get("/:id/io/runs", (req, res) => {
        FROM case_io_run r
        JOIN io_item_master i ON i.id = r.item_id
        WHERE r.case_id = ?
+         AND r.include_in_balance != 0
          AND r.started_at <= ?
          AND COALESCE(r.stopped_at, 9223372036854775807) >= ?
        ORDER BY r.started_at ASC, r.id ASC`
@@ -4282,6 +5620,7 @@ router.get("/:id/io/runs", (req, res) => {
            updated_at
          FROM case_io_segment
          WHERE run_id IN (${placeholders})
+           AND include_in_balance != 0
          ORDER BY ts_from ASC, id ASC`
       )
       .all(...runIds);
@@ -4323,7 +5662,7 @@ router.post("/:id/io/runs", (req, res) => {
   }
 
   const item = db
-    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=? AND is_active=1`)
+    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=?`)
     .get(itemId);
   if (!item) return res.status(400).json({ error: "invalid item_id" });
 
@@ -4345,6 +5684,7 @@ router.post("/:id/io/runs", (req, res) => {
   const includeInBalance = parseBooleanFlag(req.body?.include_in_balance, true)
     ? 1
     : 0;
+  const entryMode = parseEntryMode(req.body?.entry_mode);
   const actor = getActor(req);
   const reason =
     typeof req.body?.reason === "string" ? req.body.reason.trim() : null;
@@ -4353,9 +5693,9 @@ router.post("/:id/io/runs", (req, res) => {
     `INSERT INTO case_io_run
       (
         case_id, item_id, kind, route, started_at, stopped_at,
-        note, include_in_balance, created_by, created_at, updated_at
+        entry_mode, note, include_in_balance, created_by, created_at, updated_at
       )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const selectRun = db.prepare(
     `SELECT
@@ -4370,6 +5710,7 @@ router.post("/:id/io/runs", (req, res) => {
        r.route,
        r.started_at,
        r.stopped_at,
+       r.entry_mode,
        r.note,
        r.include_in_balance,
        r.created_by,
@@ -4389,6 +5730,7 @@ router.post("/:id/io/runs", (req, res) => {
       route,
       startedAt,
       stoppedAt,
+      entryMode,
       note,
       includeInBalance,
       actor.username,
@@ -4417,6 +5759,535 @@ router.post("/:id/io/runs", (req, res) => {
     res.json({ ok: true, row });
   } catch (err) {
     res.status(400).json({ error: err.message || "io run create failed" });
+  }
+});
+
+/* =======================
+   IO DRIP CREATE (atomic run + first segment)
+======================= */
+router.post("/:id/io/drips", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId)) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const caseRow = db.prepare(`SELECT id FROM cases WHERE id=?`).get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "not found" });
+
+  // --- RUN fields ---
+  const runBody = req.body?.run;
+  if (!runBody || typeof runBody !== "object") {
+    return res.status(400).json({ error: "run object required" });
+  }
+
+  const itemId = Number(runBody.item_id);
+  if (!Number.isFinite(itemId)) {
+    return res.status(400).json({ error: "run.item_id required" });
+  }
+
+  const item = db
+    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=?`)
+    .get(itemId);
+  if (!item) return res.status(400).json({ error: "invalid run.item_id" });
+
+  const kind = parseIoKind(runBody.kind) || item.kind;
+  if (kind !== item.kind) {
+    return res.status(400).json({ error: "run.kind does not match item" });
+  }
+
+  const startedAt = parseNullableTs(runBody.started_at) || floorMinute(Date.now());
+  const stoppedAt = parseNullableTs(runBody.stopped_at);
+  if (stoppedAt != null && stoppedAt < startedAt) {
+    return res.status(400).json({ error: "run.stopped_at must be >= started_at" });
+  }
+
+  const route =
+    typeof runBody.route === "string" ? runBody.route.trim() || null : null;
+  const runNote =
+    typeof runBody.note === "string" ? runBody.note.trim() || null : null;
+  const runIncludeInBalance = parseBooleanFlag(runBody.include_in_balance, true) ? 1 : 0;
+  const entryMode = parseEntryMode(runBody.entry_mode);
+
+  // --- SEGMENT fields ---
+  const segBody = req.body?.segment;
+  if (!segBody || typeof segBody !== "object") {
+    return res.status(400).json({ error: "segment object required" });
+  }
+
+  const tsFrom = parseNullableTs(segBody.ts_from);
+  if (tsFrom == null) return res.status(400).json({ error: "segment.ts_from required" });
+  const tsTo = parseNullableTs(segBody.ts_to);
+  if (tsTo != null && tsTo <= tsFrom) {
+    return res.status(400).json({ error: "segment.ts_to must be > ts_from" });
+  }
+
+  const rateValue = parseNullableNumber(segBody.rate_value);
+  if (rateValue != null && rateValue < 0) {
+    return res.status(400).json({ error: "segment.rate_value must be >= 0" });
+  }
+  const rateUnit =
+    segBody.rate_unit == null ? null : normalizeRateUnit(segBody.rate_unit);
+  const doseValue = parseNullableNumber(segBody.dose_value);
+  if (doseValue != null && doseValue < 0) {
+    return res.status(400).json({ error: "segment.dose_value must be >= 0" });
+  }
+  const doseUnit =
+    typeof segBody.dose_unit === "string" ? segBody.dose_unit.trim() || null : null;
+  const carrierMlPerHr = parseNullableNumber(segBody.carrier_ml_per_hr);
+  if (carrierMlPerHr != null && carrierMlPerHr < 0) {
+    return res.status(400).json({ error: "segment.carrier_ml_per_hr must be >= 0" });
+  }
+  const segIncludeInBalance = parseBooleanFlag(segBody.include_in_balance, true) ? 1 : 0;
+  const segNote =
+    typeof segBody.note === "string" ? segBody.note.trim() || null : null;
+
+  // --- shared ---
+  const actor = getActor(req);
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.trim() : null;
+
+  const insertRun = db.prepare(
+    `INSERT INTO case_io_run
+      (
+        case_id, item_id, kind, route, started_at, stopped_at,
+        entry_mode, note, include_in_balance, created_by, created_at, updated_at
+      )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const selectRun = db.prepare(
+    `SELECT
+       r.id,
+       r.case_id,
+       r.item_id,
+       i.code AS item_code,
+       i.name AS item_name,
+       i.category AS item_category,
+       i.default_unit AS item_unit,
+       r.kind,
+       r.route,
+       r.started_at,
+       r.stopped_at,
+       r.entry_mode,
+       r.note,
+       r.include_in_balance,
+       r.created_by,
+       r.created_at,
+       r.updated_at
+     FROM case_io_run r
+     JOIN io_item_master i ON i.id = r.item_id
+     WHERE r.id = ?`
+  );
+  const insertSegment = db.prepare(
+    `INSERT INTO case_io_segment
+      (
+        run_id, ts_from, ts_to, rate_value, rate_unit,
+        dose_value, dose_unit, carrier_ml_per_hr,
+        include_in_balance, note, created_by, created_at, updated_at
+      )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const tx = db.transaction(() => {
+    const now = Date.now();
+    const runInfo = insertRun.run(
+      caseId, itemId, kind, route, startedAt, stoppedAt,
+      entryMode, runNote, runIncludeInBalance, actor.username, now, now,
+    );
+    const runId = Number(runInfo.lastInsertRowid);
+    const runRow = selectRun.get(runId);
+
+    writeIoAudit({
+      caseId,
+      entityType: "run",
+      entityId: runId,
+      action: "insert",
+      beforeJson: null,
+      afterJson: runRow,
+      reason,
+      actor,
+    });
+
+    const segInfo = insertSegment.run(
+      runId, tsFrom, tsTo, rateValue, rateUnit,
+      doseValue, doseUnit, carrierMlPerHr,
+      segIncludeInBalance, segNote, actor.username, now, now,
+    );
+    const segmentId = Number(segInfo.lastInsertRowid);
+    const segRow = db.prepare(`SELECT * FROM case_io_segment WHERE id = ?`).get(segmentId);
+
+    writeIoAudit({
+      caseId,
+      entityType: "segment",
+      entityId: segmentId,
+      action: "insert",
+      beforeJson: null,
+      afterJson: segRow,
+      reason,
+      actor,
+    });
+
+    return { runRow, segRow };
+  });
+
+  try {
+    const { runRow, segRow } = tx();
+
+    let autoEvent = null;
+    try {
+      autoEvent = createAutoCaseEventIfNeeded({
+        caseId,
+        eventTs: tsFrom,
+        itemCategory: item.category,
+        actor,
+        reason: `auto event from io drip (${String(item.category || "").trim() || "unknown"})`,
+      });
+    } catch (autoErr) {
+      console.error("[caseRoutes] auto event from io drip failed", autoErr);
+    }
+    let bloodProductEvent = null;
+    try {
+      bloodProductEvent = createBloodProductEventIfNeeded({
+        caseId,
+        eventTs: tsFrom,
+        itemCategory: item.category,
+        itemCode: item.code,
+        itemName: item.name,
+        volumeMl: null,
+        note: segNote,
+        actor,
+        reason: `blood product event from io drip (${String(item.category || "").trim() || "unknown"})`,
+      });
+    } catch (bloodErr) {
+      console.error("[caseRoutes] blood product event from io drip failed", bloodErr);
+    }
+
+    res.json({ ok: true, run: runRow, segment: segRow, auto_event: autoEvent, blood_product_event: bloodProductEvent });
+  } catch (err) {
+    res.status(400).json({ error: err.message || "io drip create failed" });
+  }
+});
+
+/* =======================
+   IO DRIP REPLACE (edit: update run + delete all segments + create fresh single segment)
+======================= */
+router.put("/:id/io/runs/:runId/drip", (req, res) => {
+  const caseId = Number(req.params.id);
+  const runId  = Number(req.params.runId);
+  if (!Number.isFinite(caseId) || !Number.isFinite(runId)) {
+    return res.status(400).json({ error: "invalid id" });
+  }
+
+  const current = db
+    .prepare(`SELECT r.*, i.kind AS item_kind, i.code AS item_code, i.name AS item_name, i.category AS item_category
+              FROM case_io_run r JOIN io_item_master i ON i.id = r.item_id
+              WHERE r.id = ? AND r.case_id = ?`)
+    .get(runId, caseId);
+  if (!current) return res.status(404).json({ error: "run not found" });
+
+  // Run fields
+  const runBody = req.body?.run;
+  if (!runBody || typeof runBody !== "object") {
+    return res.status(400).json({ error: "run object required" });
+  }
+
+  const itemId = runBody.item_id != null ? Number(runBody.item_id) : current.item_id;
+  const item = db
+    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=?`)
+    .get(itemId);
+  if (!item) return res.status(400).json({ error: "invalid run.item_id" });
+
+  const startedAt = parseNullableTs(runBody.started_at) ?? current.started_at;
+  const route = typeof runBody.route === "string" ? runBody.route.trim() || null : current.route;
+  const runNote = typeof runBody.note === "string" ? runBody.note.trim() || null : current.note;
+
+  // Segment fields
+  const segBody = req.body?.segment;
+  if (!segBody || typeof segBody !== "object") {
+    return res.status(400).json({ error: "segment object required" });
+  }
+
+  const tsFrom = parseNullableTs(segBody.ts_from);
+  if (tsFrom == null) return res.status(400).json({ error: "segment.ts_from required" });
+
+  const rateValue    = parseNullableNumber(segBody.rate_value);
+  const rateUnit     = segBody.rate_unit == null ? null : normalizeRateUnit(segBody.rate_unit);
+  const doseValue    = parseNullableNumber(segBody.dose_value);
+  const doseUnit     = typeof segBody.dose_unit === "string" ? segBody.dose_unit.trim() || null : null;
+  const carrierMlHr  = parseNullableNumber(segBody.carrier_ml_per_hr);
+  const segInclude   = parseBooleanFlag(segBody.include_in_balance, true) ? 1 : 0;
+  const segNote      = typeof segBody.note === "string" ? segBody.note.trim() || null : null;
+
+  const actor  = getActor(req);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : null;
+
+  const selectRun = db.prepare(
+    `SELECT r.id, r.case_id, r.item_id,
+            i.code AS item_code, i.name AS item_name, i.category AS item_category, i.default_unit AS item_unit,
+            r.kind, r.route, r.started_at, r.stopped_at, r.entry_mode, r.note,
+            r.include_in_balance, r.created_by, r.created_at, r.updated_at
+     FROM case_io_run r JOIN io_item_master i ON i.id = r.item_id WHERE r.id = ?`
+  );
+
+  const tx = db.transaction(() => {
+    const now = Date.now();
+    db.prepare(
+      `UPDATE case_io_run SET item_id=?, started_at=?, route=?, note=?, updated_at=? WHERE id=?`
+    ).run(itemId, startedAt, route, runNote, now, runId);
+
+    const oldSegs = db.prepare(`SELECT * FROM case_io_segment WHERE run_id=?`).all(runId);
+    for (const seg of oldSegs) {
+      writeIoAudit({ caseId, entityType: "segment", entityId: seg.id, action: "delete", beforeJson: seg, afterJson: null, reason, actor });
+    }
+    db.prepare(`DELETE FROM case_io_segment WHERE run_id=?`).run(runId);
+
+    const runRow = selectRun.get(runId);
+    writeIoAudit({ caseId, entityType: "run", entityId: runId, action: "update", beforeJson: current, afterJson: runRow, reason, actor });
+
+    const segInfo = db.prepare(
+      `INSERT INTO case_io_segment (run_id, ts_from, ts_to, rate_value, rate_unit, dose_value, dose_unit, carrier_ml_per_hr, include_in_balance, note, created_by, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(runId, tsFrom, rateValue, rateUnit, doseValue, doseUnit, carrierMlHr, segInclude, segNote, actor.username, now, now);
+    const segRow = db.prepare(`SELECT * FROM case_io_segment WHERE id=?`).get(Number(segInfo.lastInsertRowid));
+    writeIoAudit({ caseId, entityType: "segment", entityId: segRow.id, action: "insert", beforeJson: null, afterJson: segRow, reason, actor });
+
+    return { runRow, segRow };
+  });
+
+  try {
+    const { runRow, segRow } = tx();
+    res.json({ ok: true, run: runRow, segment: segRow });
+  } catch (err) {
+    res.status(400).json({ error: err.message || "drip replace failed" });
+  }
+});
+
+/* =======================
+   IO BLOOD PRODUCT CREATE (atomic upsert-run + event)
+======================= */
+router.post("/:id/io/blood-products", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId)) {
+    return res.status(400).json({ error: "invalid case id" });
+  }
+
+  const caseRow = db.prepare(`SELECT id FROM cases WHERE id=?`).get(caseId);
+  if (!caseRow) return res.status(404).json({ error: "not found" });
+
+  // --- RUN fields ---
+  const runBody = req.body?.run;
+  if (!runBody || typeof runBody !== "object") {
+    return res.status(400).json({ error: "run object required" });
+  }
+
+  const itemId = Number(runBody.item_id);
+  if (!Number.isFinite(itemId)) {
+    return res.status(400).json({ error: "run.item_id required" });
+  }
+
+  const item = db
+    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=?`)
+    .get(itemId);
+  if (!item) return res.status(400).json({ error: "invalid run.item_id" });
+  if (!isBloodProductCategory(item.category)) {
+    return res.status(400).json({ error: "item is not a blood product" });
+  }
+
+  const kind = item.kind; // always use the item's kind (fluid)
+  const route =
+    typeof runBody.route === "string" ? runBody.route.trim() || "IV" : "IV";
+  const runNote =
+    typeof runBody.note === "string" ? runBody.note.trim() || null : null;
+  const runIncludeInBalance = parseBooleanFlag(runBody.include_in_balance, true) ? 1 : 0;
+
+  // --- EVENT fields ---
+  const evBody = req.body?.event;
+  if (!evBody || typeof evBody !== "object") {
+    return res.status(400).json({ error: "event object required" });
+  }
+
+  const eventTs = parseNullableTs(evBody.event_ts);
+  if (eventTs == null) return res.status(400).json({ error: "event.event_ts required" });
+
+  const volumeMl = parseNullableNumber(evBody.volume_ml);
+  if (volumeMl == null || volumeMl <= 0) {
+    return res.status(400).json({ error: "event.volume_ml must be > 0" });
+  }
+
+  const note =
+    typeof evBody.note === "string" ? evBody.note.trim() || null : null;
+  const evIncludeInBalance = parseBooleanFlag(evBody.include_in_balance, true) ? 1 : 0;
+
+  // --- shared ---
+  const actor = getActor(req);
+  const authorizationError = validateBloodGivingAuthorization(caseId, note, actor);
+  if (authorizationError) {
+    return res.status(400).json({ error: authorizationError });
+  }
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.trim() : null;
+
+  const selectExistingRun = db.prepare(
+    `SELECT
+       r.id,
+       r.case_id,
+       r.item_id,
+       i.code AS item_code,
+       i.name AS item_name,
+       i.category AS item_category,
+       i.default_unit AS item_unit,
+       r.kind,
+       r.route,
+       r.started_at,
+       r.stopped_at,
+       r.entry_mode,
+       r.note,
+       r.include_in_balance,
+       r.created_by,
+       r.created_at,
+       r.updated_at
+     FROM case_io_run r
+     JOIN io_item_master i ON i.id = r.item_id
+     WHERE r.case_id = ? AND r.item_id = ? AND r.kind = ? AND r.entry_mode = 'bolus' AND r.include_in_balance != 0
+     ORDER BY r.id ASC
+     LIMIT 1`
+  );
+  const insertRun = db.prepare(
+    `INSERT INTO case_io_run
+      (
+        case_id, item_id, kind, route, started_at, stopped_at,
+        entry_mode, note, include_in_balance, created_by, created_at, updated_at
+      )
+     VALUES (?, ?, ?, ?, ?, NULL, 'bolus', ?, ?, ?, ?, ?)`
+  );
+  const updateRunNote = db.prepare(
+    `UPDATE case_io_run SET note=?, updated_at=? WHERE id=?`
+  );
+  const selectRun = db.prepare(
+    `SELECT
+       r.id,
+       r.case_id,
+       r.item_id,
+       i.code AS item_code,
+       i.name AS item_name,
+       i.category AS item_category,
+       i.default_unit AS item_unit,
+       r.kind,
+       r.route,
+       r.started_at,
+       r.stopped_at,
+       r.entry_mode,
+       r.note,
+       r.include_in_balance,
+       r.created_by,
+       r.created_at,
+       r.updated_at
+     FROM case_io_run r
+     JOIN io_item_master i ON i.id = r.item_id
+     WHERE r.id = ?`
+  );
+  const insertEvent = db.prepare(
+    `INSERT INTO case_io_event
+      (
+        case_id, item_id, kind, event_ts, volume_ml,
+        note, include_in_balance, created_by, created_at, updated_at
+      )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const selectEvent = db.prepare(
+    `SELECT
+       e.*,
+       i.code AS item_code,
+       i.name AS item_name,
+       i.category AS item_category
+     FROM case_io_event e
+     JOIN io_item_master i ON i.id = e.item_id
+     WHERE e.id = ?`
+  );
+
+  const tx = db.transaction(() => {
+    const now = Date.now();
+
+    // Upsert run: reuse existing or create new
+    let runRow = selectExistingRun.get(caseId, itemId, kind);
+    if (!runRow) {
+      const runInfo = insertRun.run(
+        caseId, itemId, kind, route,
+        eventTs, // started_at = first event time
+        runNote || note,
+        runIncludeInBalance, actor.username, now, now,
+      );
+      const runId = Number(runInfo.lastInsertRowid);
+      runRow = selectRun.get(runId);
+      writeIoAudit({
+        caseId,
+        entityType: "run",
+        entityId: runId,
+        action: "insert",
+        beforeJson: null,
+        afterJson: runRow,
+        reason,
+        actor,
+      });
+    } else if (runNote || note) {
+      const beforeRun = runRow;
+      updateRunNote.run(runNote || note, now, runRow.id);
+      runRow = selectRun.get(runRow.id);
+      writeIoAudit({
+        caseId,
+        entityType: "run",
+        entityId: runRow.id,
+        action: "update",
+        beforeJson: beforeRun,
+        afterJson: runRow,
+        reason,
+        actor,
+      });
+    }
+
+    // Create event
+    const evInfo = insertEvent.run(
+      caseId, itemId, kind, eventTs, volumeMl,
+      note, evIncludeInBalance, actor.username, now, now,
+    );
+    const eventId = Number(evInfo.lastInsertRowid);
+    const eventRow = selectEvent.get(eventId);
+    writeIoAudit({
+      caseId,
+      entityType: "event",
+      entityId: eventId,
+      action: "insert",
+      beforeJson: null,
+      afterJson: eventRow,
+      reason,
+      actor,
+    });
+
+    return { runRow, eventRow };
+  });
+
+  try {
+    const { runRow, eventRow } = tx();
+
+    let bloodProductEvent = null;
+    try {
+      bloodProductEvent = createBloodProductEventIfNeeded({
+        caseId,
+        eventTs,
+        itemCategory: item.category,
+        itemCode: item.code,
+        itemName: item.name,
+        volumeMl,
+        note,
+        actor,
+        reason: `blood product event from io blood-product (${String(item.name || "").trim()})`,
+      });
+    } catch (bloodErr) {
+      console.error("[caseRoutes] blood product event from io blood-products failed", bloodErr);
+    }
+
+    res.json({ ok: true, run: runRow, event: eventRow, blood_product_event: bloodProductEvent });
+  } catch (err) {
+    res.status(400).json({ error: err.message || "io blood product create failed" });
   }
 });
 
@@ -4472,6 +6343,10 @@ router.put("/:id/io/runs/:runId", (req, res) => {
       : parseBooleanFlag(req.body?.include_in_balance, true)
         ? 1
         : 0;
+  const entryMode =
+    req.body?.entry_mode === undefined
+      ? current.entry_mode ?? null
+      : parseEntryMode(req.body?.entry_mode);
 
   const actor = getActor(req);
   const reason =
@@ -4479,13 +6354,13 @@ router.put("/:id/io/runs/:runId", (req, res) => {
 
   const updateRun = db.prepare(
     `UPDATE case_io_run
-      SET route=?, started_at=?, stopped_at=?, note=?, include_in_balance=?, updated_at=?
+      SET route=?, started_at=?, stopped_at=?, entry_mode=?, note=?, include_in_balance=?, updated_at=?
       WHERE id=?`
   );
 
   try {
     const now = Date.now();
-    updateRun.run(route, startedAt, stoppedAt, note, includeInBalance, now, runId);
+    updateRun.run(route, startedAt, stoppedAt, entryMode, note, includeInBalance, now, runId);
     const row = db
       .prepare(
         `SELECT
@@ -4576,6 +6451,7 @@ router.post("/:id/io/runs/:runId/discontinue", (req, res) => {
      WHERE r.case_id = ?
        AND r.item_id = ?
        AND r.kind = ?
+       AND COALESCE(r.entry_mode, '') = COALESCE(?, '')
        AND r.include_in_balance = 1
      ORDER BY r.started_at ASC, r.id ASC`
   );
@@ -4610,6 +6486,7 @@ router.post("/:id/io/runs/:runId/discontinue", (req, res) => {
       caseId,
       current.item_id,
       current.kind,
+      current.entry_mode ?? "",
     );
     for (const run of targetRuns) {
       const runStoppedAt = Math.max(Number(run.started_at) || stoppedAt, stoppedAt);
@@ -4627,11 +6504,14 @@ router.post("/:id/io/runs/:runId/discontinue", (req, res) => {
       });
     }
 
-    const affectedEvents = selectEvents.all(
-      caseId,
-      current.item_id,
-      current.kind,
-    );
+    const affectedEvents =
+      current.entry_mode === "bolus"
+        ? selectEvents.all(
+            caseId,
+            current.item_id,
+            current.kind,
+          )
+        : [];
 
     for (const event of affectedEvents) {
       updateEvent.run(now, event.id);
@@ -5037,6 +6917,7 @@ router.get("/:id/io/events", (req, res) => {
        FROM case_io_event e
        JOIN io_item_master i ON i.id = e.item_id
        WHERE e.case_id = ?
+         AND e.include_in_balance != 0
          AND e.event_ts BETWEEN ? AND ?
        ORDER BY e.event_ts ASC, e.id ASC`
     )
@@ -5067,7 +6948,7 @@ router.post("/:id/io/events", (req, res) => {
     return res.status(400).json({ error: "item_id required" });
   }
   const item = db
-    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=? AND is_active=1`)
+    .prepare(`SELECT id, kind, code, name, category FROM io_item_master WHERE id=?`)
     .get(itemId);
   if (!item) return res.status(400).json({ error: "invalid item_id" });
 
@@ -5104,9 +6985,28 @@ router.post("/:id/io/events", (req, res) => {
   }
 
   const actor = getActor(req);
+  if (isBloodProductCategory(item.category) && volumeMl != null && volumeMl > 0) {
+    const authorizationError = validateBloodGivingAuthorization(caseId, note, actor);
+    if (authorizationError) {
+      return res.status(400).json({ error: authorizationError });
+    }
+  }
   const reason =
     typeof req.body?.reason === "string" ? req.body.reason.trim() : null;
 
+  const route =
+    typeof req.body?.route === "string" ? req.body.route.trim() || "IV" : "IV";
+
+  const selectExistingBolusRun = db.prepare(
+    `SELECT id FROM case_io_run
+     WHERE case_id = ? AND item_id = ? AND kind = ? AND entry_mode = 'bolus' AND include_in_balance != 0
+     ORDER BY id ASC LIMIT 1`
+  );
+  const insertBolusRun = db.prepare(
+    `INSERT INTO case_io_run
+      (case_id, item_id, kind, route, started_at, stopped_at, entry_mode, note, include_in_balance, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, 'bolus', NULL, ?, ?, ?, ?)`
+  );
   const insertEvent = db.prepare(
     `INSERT INTO case_io_event
       (
@@ -5119,6 +7019,13 @@ router.post("/:id/io/events", (req, res) => {
 
   try {
     const now = Date.now();
+
+    // Upsert a bolus run so the timegrid has a row for this item
+    const existingRun = selectExistingBolusRun.get(caseId, itemId, kind);
+    if (!existingRun) {
+      insertBolusRun.run(caseId, itemId, kind, route, eventTs, includeInBalance, actor.username, now, now);
+    }
+
     const info = insertEvent.run(
       caseId,
       itemId,
@@ -5265,6 +7172,7 @@ router.get("/:id/io/summary", (req, res) => {
     : 1;
   const bucketMs = bucketMin * 60_000;
   const rangeEndExclusive = toTs + bucketMs;
+  const effectiveRangeEndExclusive = Math.min(rangeEndExclusive, Date.now());
 
   const bucketCount = Math.max(1, Math.floor((toTs - fromTs) / bucketMs) + 1);
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({
@@ -5364,20 +7272,15 @@ router.get("/:id/io/summary", (req, res) => {
 
   for (const event of events) {
     if (!event.include_in_balance) continue;
+    if (event.kind === "med") {
+      // Medication administrations belong to drug totals, not fluid balance.
+      continue;
+    }
     let volumeMl = Number(event.volume_ml);
     if (!Number.isFinite(volumeMl) || volumeMl <= 0) {
       // Bolus rows may be saved via dose_value. If unit is volume (mL/L),
       // include it in fluid balance.
       volumeMl = valueWithUnitToMl(event.dose_value, event.dose_unit);
-    }
-    if ((!Number.isFinite(volumeMl) || volumeMl <= 0) && event.kind !== "output") {
-      // Legacy clinical behavior request:
-      // if bolus is entered as dose-only (e.g. mg) and no mL is provided,
-      // still count numeric dose into intake.
-      const doseValue = Number(event.dose_value);
-      if (Number.isFinite(doseValue) && doseValue > 0) {
-        volumeMl = doseValue;
-      }
     }
     if (!Number.isFinite(volumeMl) || volumeMl <= 0) continue;
 
@@ -5418,7 +7321,7 @@ router.get("/:id/io/summary", (req, res) => {
          AND s.ts_from <= ?
          AND COALESCE(s.ts_to, COALESCE(r.stopped_at, ?)) >= ?`
     )
-    .all(caseId, rangeEndExclusive, rangeEndExclusive, fromTs);
+    .all(caseId, effectiveRangeEndExclusive, effectiveRangeEndExclusive, fromTs);
 
   for (const segment of segments) {
     if (!segment.seg_include || !segment.run_include) continue;
@@ -5427,8 +7330,8 @@ router.get("/:id/io/summary", (req, res) => {
     const segEndSource =
       parseNullableTs(segment.ts_to) ??
       parseNullableTs(segment.run_stopped_at) ??
-      rangeEndExclusive;
-    const segEnd = Math.min(segEndSource, rangeEndExclusive);
+      effectiveRangeEndExclusive;
+    const segEnd = Math.min(segEndSource, effectiveRangeEndExclusive);
     if (!Number.isFinite(segStart) || !Number.isFinite(segEnd) || segEnd <= segStart) {
       continue;
     }
@@ -6423,6 +8326,32 @@ router.get("/:id/timeaxis", (req, res) => {
   }
 
   res.json({ case_id: caseId, axis });
+});
+
+/* =======================
+   MINUTE WRITER STATUS / CONTROL
+======================= */
+router.get("/:id/writer-status", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId)) return res.status(400).json({ error: "invalid id" });
+  const all = getMinuteWriterStatus();
+  const writer = all.find(w => w.caseId === caseId) || null;
+  res.json({ caseId, writer });
+});
+
+router.post("/:id/writer-refetch", (req, res) => {
+  const caseId = Number(req.params.id);
+  if (!Number.isFinite(caseId)) return res.status(400).json({ error: "invalid id" });
+
+  const row = db
+    .prepare(`SELECT start_time FROM cases WHERE id = ? AND status = 'active'`)
+    .get(caseId);
+  if (!row) return res.status(404).json({ error: "case not found or not active" });
+
+  const ok = rewindMinuteWriter(caseId, row.start_time);
+  if (!ok) return res.status(500).json({ error: "rewind failed" });
+
+  res.json({ ok: true, rewoundTo: row.start_time });
 });
 
 module.exports = router;

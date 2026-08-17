@@ -1,7 +1,7 @@
 # AIDAS Desktop Shell
 
 This Electron shell runs:
-- `frontend-v2` (UI)
+- `frontend` (UI)
 - `backend` (API + SQLite)
 
 It does **not** run `ivy` (kept as a separate app).

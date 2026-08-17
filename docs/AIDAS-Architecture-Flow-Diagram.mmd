@@ -1,0 +1,85 @@
+flowchart TB
+    classDef user fill:#D9ECFF,stroke:#1565C0,stroke-width:2px,color:#111,font-weight:bold;
+    classDef aidas fill:#DCF7DC,stroke:#2E7D32,stroke-width:2px,color:#111,font-weight:bold;
+    classDef hidro fill:#FFF2CC,stroke:#B28704,stroke-width:2px,color:#111,font-weight:bold;
+    classDef db fill:#F4D7FF,stroke:#8E24AA,stroke-width:2px,color:#111,font-weight:bold;
+    classDef ext fill:#FFD7E5,stroke:#C2185B,stroke-width:2px,color:#111,font-weight:bold;
+    classDef out fill:#EAEAEA,stroke:#555,stroke-width:2px,color:#111,font-weight:bold;
+
+    U1[Anesthetist / OR Staff]:::user
+    U2[Manual Entry and Review]:::user
+
+    subgraph AIDAS [AIDAS Desktop]
+        direction TB
+        A1[React Frontend UI]:::aidas
+        A2[Chart / FluidMed / Form / Staff / Patient / Report]:::aidas
+        A3[Electron Desktop Shell]:::aidas
+        A4[Node.js + Express Backend]:::aidas
+        A5[Minute Writer]:::aidas
+        A6[Case Logic and APIs]:::aidas
+    end
+
+    subgraph HIDRO [Hidro Integration Layer]
+        direction TB
+        H1[Observation Ingestion]:::hidro
+        H2[Parameter Mapping and Normalization]:::hidro
+    end
+
+    subgraph DB [Local Data Layer]
+        direction TB
+        D1[SQLite flora.db]:::db
+        D2[Cases]:::db
+        D3[Vital Minutes]:::db
+        D4[Events]:::db
+        D5[Medication / Fluid / Blood Product]:::db
+        D6[Forms / Staff / Master Data]:::db
+    end
+
+    subgraph EXT [External Sources]
+        direction TB
+        E1[Patient Monitor]:::ext
+        E2[Anesthesia Machine]:::ext
+        E3[Infusion Pump]:::ext
+        E4[HIS / Hospital Integration]:::ext
+    end
+
+    subgraph OUT [Outputs]
+        direction TB
+        O1[Timeline and Case Review]:::out
+        O2[Anesthesia Report PDF]:::out
+        O3[Clinical Summary / Print]:::out
+    end
+
+    U1 --> U2 --> A1
+    A1 --> A2 --> A3 --> A4
+    A4 --> A6
+    A4 --> A5
+
+    E1 --> H1
+    E2 --> H1
+    E3 --> H1
+    H1 --> H2 --> A5
+
+    E4 --> A4
+
+    A5 --> D3
+    A6 --> D1
+    D1 --> D2
+    D1 --> D3
+    D1 --> D4
+    D1 --> D5
+    D1 --> D6
+
+    A2 --> D2
+    A2 --> D4
+    A2 --> D5
+    A2 --> D6
+
+    D2 --> O1
+    D3 --> O1
+    D4 --> O1
+    D5 --> O1
+    D6 --> O1
+
+    O1 --> O2
+    O2 --> O3

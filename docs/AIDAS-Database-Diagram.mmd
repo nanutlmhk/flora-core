@@ -1,0 +1,277 @@
+erDiagram
+    CASES {
+        int id PK
+        text case_code
+        text hn
+        int start_time
+        int discharge_time
+        int archive_time
+        text status
+    }
+
+    PATIENT_SNAPSHOT {
+        int id PK
+        int case_id UK
+        text hn
+        text name
+        text gender
+        text blood_group
+        int dob
+        real weight
+        text asa_status
+    }
+
+    CASE_DETAIL {
+        int id PK
+        int case_id UK
+        text surgeon
+        text or_room
+        text case_type
+        text note
+        text form_draft_json
+    }
+
+    CASE_DIAGNOSIS {
+        int id PK
+        int case_id FK
+        text diagnosis_text
+        text icd_code
+        text icd_version
+        int seq
+    }
+
+    CASE_PROCEDURE {
+        int id PK
+        int case_id FK
+        text procedure_text
+        text icd_code
+        text icd_version
+        int seq
+    }
+
+    CASE_ALLERGY {
+        int id PK
+        int case_id FK
+        text allergen
+        text reaction
+        text severity
+        int seq
+    }
+
+    VITAL_MINUTES {
+        int id PK
+        int case_id FK
+        text ivy_source
+        int ts_minute
+        text payload
+    }
+
+    CASE_TIMELINE_VALUE {
+        int id PK
+        int case_id FK
+        int ts_minute
+        text param_key
+        text value_type
+        real value_num
+        text value_text
+        text source
+    }
+
+    CASE_EVENT_NOTE {
+        int id PK
+        int case_id FK
+        int event_ts
+        text event_type
+        text title
+        text detail
+        int is_deleted
+    }
+
+    STAFF_ROLE {
+        text id PK
+        text display_name
+        int sort_order
+    }
+
+    STAFF_DIRECTORY {
+        int id PK
+        text hospital_id
+        text staff_name
+        text staff_role_id
+        text staff_role
+        int is_active
+    }
+
+    CASE_STAFF {
+        int id PK
+        int case_id FK
+        text hospital_id
+        text staff_name
+        text staff_role_id
+        text staff_role
+        int seq
+    }
+
+    AUTH_USER {
+        int id PK
+        text username
+        text hospital_id
+        text name
+        text role
+        int is_active
+    }
+
+    AUTH_SESSION {
+        int id PK
+        int user_id FK
+        text token_hash
+        int expires_at
+        int revoked_at
+    }
+
+    IO_ITEM_MASTER {
+        int id PK
+        text kind
+        text code
+        text name
+        text default_unit
+        text category
+    }
+
+    CASE_IO_RUN {
+        int id PK
+        int case_id FK
+        int item_id FK
+        text kind
+        text route
+        int started_at
+        int stopped_at
+        text entry_mode
+    }
+
+    CASE_IO_SEGMENT {
+        int id PK
+        int run_id FK
+        int ts_from
+        int ts_to
+        real rate_value
+        real dose_value
+        text rate_unit
+        text dose_unit
+    }
+
+    CASE_IO_EVENT {
+        int id PK
+        int case_id FK
+        int item_id FK
+        text kind
+        int event_ts
+        real volume_ml
+        real dose_value
+        text dose_unit
+    }
+
+    CASE_HIS_PATIENT {
+        int id PK
+        int case_id UK
+        text hn
+        text an
+        text patient_name
+        text sex
+        text dob
+        real weight_kg
+        real height_cm
+        text raw_payload
+    }
+
+    CASE_HIS_ALLERGY {
+        int id PK
+        int case_id FK
+        text allergen
+        text reaction
+        text severity
+        text raw_payload
+    }
+
+    CASE_HIS_LAB {
+        int id PK
+        int case_id FK
+        text test_name
+        text test_group
+        text value_text
+        text unit
+        int collected_at
+        text raw_payload
+    }
+
+    HIS_PATIENT_BUFFER {
+        int id PK
+        text hn UK
+        text an
+        text patient_name
+        text sex
+        text dob
+        int his_updated_at
+    }
+
+    HIS_ALLERGY_BUFFER {
+        int id PK
+        text hn
+        text allergen
+        text reaction
+        text severity
+    }
+
+    HIS_LAB_BUFFER {
+        int id PK
+        text hn
+        text test_name
+        text value_text
+        text unit
+        int collected_at
+    }
+
+    ICD10_MASTER {
+        text icd10 PK
+        text icd10who
+        text name_en
+        text name_th
+    }
+
+    ICD9CM_MASTER {
+        text icd9cm PK
+        text short_name_en
+        text name_en
+    }
+
+    CASES ||--|| PATIENT_SNAPSHOT : has
+    CASES ||--|| CASE_DETAIL : has
+    CASES ||--o{ CASE_DIAGNOSIS : has
+    CASES ||--o{ CASE_PROCEDURE : has
+    CASES ||--o{ CASE_ALLERGY : has
+    CASES ||--o{ VITAL_MINUTES : records
+    CASES ||--o{ CASE_TIMELINE_VALUE : overrides
+    CASES ||--o{ CASE_EVENT_NOTE : logs
+    CASES ||--o{ CASE_STAFF : assigns
+    CASES ||--o{ CASE_IO_RUN : contains
+    CASES ||--o{ CASE_IO_EVENT : contains
+    CASES ||--|| CASE_HIS_PATIENT : caches
+    CASES ||--o{ CASE_HIS_ALLERGY : caches
+    CASES ||--o{ CASE_HIS_LAB : caches
+
+    STAFF_ROLE ||--o{ STAFF_DIRECTORY : classifies
+    STAFF_ROLE ||--o{ CASE_STAFF : classifies
+    STAFF_DIRECTORY o|--o{ CASE_STAFF : selected_into_case
+
+    AUTH_USER ||--o{ AUTH_SESSION : owns
+
+    IO_ITEM_MASTER ||--o{ CASE_IO_RUN : defines
+    IO_ITEM_MASTER ||--o{ CASE_IO_EVENT : defines
+    CASE_IO_RUN ||--o{ CASE_IO_SEGMENT : splits_into
+
+    ICD10_MASTER o|--o{ CASE_DIAGNOSIS : references
+    ICD9CM_MASTER o|--o{ CASE_PROCEDURE : references
+
+    HIS_PATIENT_BUFFER ||..o| CASE_HIS_PATIENT : seeds
+    HIS_ALLERGY_BUFFER ||..o{ CASE_HIS_ALLERGY : seeds
+    HIS_LAB_BUFFER ||..o{ CASE_HIS_LAB : seeds

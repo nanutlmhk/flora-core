@@ -1,0 +1,132 @@
+import type { AuthThemeColor, AuthThemeMode } from "../api/authApi";
+import type { AxisStepMin } from "../views/caseview/constants";
+
+export type AidasEditionCode = "full" | "rcat" | "eforl";
+export type EditionReportMode = "standard" | "smart_fit" | "detail";
+
+export type EditionInfo = {
+  code: AidasEditionCode;
+  productName: string;
+  displayName: string;
+  shortBadge: string;
+  allowedTimelineScales: AxisStepMin[];
+  allowedReportModes: EditionReportMode[];
+  allowThemeColorPicker: boolean;
+  lockedThemeColor?: AuthThemeColor;
+  defaultThemeMode?: AuthThemeMode;
+  allowedTimelineParamIds?: string[];
+};
+
+const EDITION_CONFIG: Record<AidasEditionCode, EditionInfo> = {
+  full: {
+    code: "full",
+    productName: "Aidas",
+    displayName: "Aidas",
+    shortBadge: "",
+    allowedTimelineScales: [1, 3, 5, 15],
+    allowedReportModes: ["standard", "smart_fit", "detail"],
+    allowThemeColorPicker: true,
+  },
+  rcat: {
+    code: "rcat",
+    productName: "Aidas RCAT",
+    displayName: "Aidas RCAT Community",
+    shortBadge: "RCAT",
+    allowedTimelineScales: [1, 5],
+    allowedReportModes: ["standard"],
+    allowThemeColorPicker: true,
+    allowedTimelineParamIds: [
+      "hr",
+      "spo2",
+      "nibp_sys",
+      "nibp_map",
+      "nibp_dia",
+      "art_sys",
+      "art_map",
+      "art_dia",
+      "cvp",
+      "temperature",
+      "set_vent_mode",
+      "set_tidal_volume",
+      "set_rr",
+      "set_peep",
+      "set_fio2",
+      "et_co2",
+      "et_agent",
+    ],
+  },
+  eforl: {
+    code: "eforl",
+    productName: "Aidas EforL",
+    displayName: "Aidas E for L Partner",
+    shortBadge: "EforL",
+    allowedTimelineScales: [1, 3, 5],
+    allowedReportModes: ["standard", "smart_fit"],
+    allowThemeColorPicker: false,
+    lockedThemeColor: "eforl",
+    defaultThemeMode: "light",
+    allowedTimelineParamIds: [
+      "hr",
+      "spo2",
+      "nibp_sys",
+      "nibp_map",
+      "nibp_dia",
+      "art_sys",
+      "art_map",
+      "art_dia",
+      "cvp",
+      "temperature",
+      "tof",
+      "ppv",
+      "ppi",
+      "set_vent_mode",
+      "set_tidal_volume",
+      "set_rr",
+      "set_peep",
+      "set_fio2",
+      "et_co2",
+      "et_agent",
+      "mac",
+      "airway_pressure_peak",
+      "set_ie_ratio",
+      "set_fgf_total",
+      "set_total_fg_flow",
+    ],
+  },
+};
+
+function normalizeEditionCode(raw: unknown): AidasEditionCode {
+  const token = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (token === "rcat") return "rcat";
+  if (token === "eforl" || token === "e-for-l" || token === "e_for_l") return "eforl";
+  return "full";
+}
+
+export function getEditionInfo(): EditionInfo {
+  if (typeof window === "undefined") return EDITION_CONFIG.full;
+  const code = normalizeEditionCode(window.aidasDesktop?.getEditionInfo?.()?.code);
+  return EDITION_CONFIG[code];
+}
+
+export function clampEditionTimelineScale(
+  value: AxisStepMin,
+  allowedTimelineScales: AxisStepMin[],
+): AxisStepMin {
+  return allowedTimelineScales.includes(value) ? value : allowedTimelineScales[0];
+}
+
+export function clampEditionReportMode(
+  value: EditionReportMode,
+  allowedReportModes: EditionReportMode[],
+): EditionReportMode {
+  return allowedReportModes.includes(value) ? value : allowedReportModes[0];
+}
+
+export function isTimelineParamAllowed(edition: EditionInfo, rowId: string): boolean {
+  if (!edition.allowedTimelineParamIds || edition.allowedTimelineParamIds.length === 0) {
+    return true;
+  }
+  return edition.allowedTimelineParamIds.includes(rowId);
+}

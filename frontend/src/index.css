@@ -1,0 +1,1893 @@
+@import "tailwindcss";
+
+/* ================================
+   GLOBAL TYPOGRAPHY LOCK (OFFLINE)
+   ================================ */
+
+:root {
+  --app-font:
+    "Segoe UI",
+    "Noto Sans Thai",
+    "Tahoma",
+    "Arial",
+    system-ui,
+    sans-serif;
+  --app-bg: #dde8f7;
+  --app-main-bg: #ecf3ff;
+  --app-panel-bg: rgba(255, 255, 255, 0.94);
+  --app-border: #8ea9cb;
+  --app-text: #0a1f3c;
+  --app-muted: #314d73;
+  --app-main-glow-a: rgba(96, 165, 250, 0.09);
+  --app-main-glow-b: rgba(45, 212, 191, 0.08);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(211, 228, 248, 0.95) 0%,
+    rgba(233, 241, 255, 0.95) 52%,
+    rgba(214, 240, 234, 0.95) 100%
+  );
+  --app-nav-bg: rgba(255, 255, 255, 0.72);
+  --app-nav-border: #7f9fc7;
+  --app-nav-hover: rgba(255, 255, 255, 0.92);
+  --app-accent: #145da6;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(255, 255, 255, 0.98);
+  --app-control-bg-hover: rgba(255, 255, 255, 1);
+  --app-control-border: #7f9fc7;
+  --app-control-text: #0a1f3c;
+  --app-control-muted: #44628d;
+  --app-control-focus: rgba(20, 93, 166, 0.34);
+  --app-button-neutral-bg: rgba(255, 255, 255, 0.84);
+  --app-button-neutral-hover: rgba(255, 255, 255, 1);
+  --app-tooltip-bg: rgba(248, 252, 255, 0.98);
+  --app-tooltip-text: #123253;
+  --app-tooltip-border: rgba(136, 165, 202, 0.72);
+  --app-tooltip-shadow: 0 8px 20px rgba(45, 78, 118, 0.2);
+  --app-rail-blur: 6px;
+  --app-topbar-blur: 8px;
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 10px 22px rgba(60, 96, 147, 0.08);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(150, 180, 219, 0.55),
+    0 5px 14px rgba(60, 96, 147, 0.08);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --chart-grid-line: rgba(78, 108, 151, 0.34);
+  --chart-grid-line-strong: rgba(53, 86, 136, 0.7);
+  --chart-now-col: rgba(34, 128, 255, 0.12);
+  --chart-axis-text: #10284a;
+  --chart-axis-text-shadow: rgba(255, 255, 255, 0.62);
+  --chart-spo2: #1d4f91;
+  --chart-hr: #1f2937;
+  --chart-pr: #0f766e;
+  --chart-nibp: #166534;
+  --chart-art: #991b1b;
+  --chart-cvp: #c2410c;
+  --chart-temp: #8b5cf6;
+  --badge-event-bg: rgba(59, 130, 246, 0.2);
+  --badge-event-text: #0f5aa8;
+  --badge-note-bg: rgba(245, 158, 11, 0.22);
+  --badge-note-text: #965c00;
+  --badge-start-bg: rgba(16, 185, 129, 0.2);
+  --badge-start-text: #0f7f5b;
+  --badge-end-bg: rgba(239, 68, 68, 0.2);
+  --badge-end-text: #9f2e2e;
+  --badge-timeout-bg: rgba(139, 92, 246, 0.2);
+  --badge-timeout-text: #6441c4;
+  --badge-mid-bg: rgba(6, 182, 212, 0.18);
+  --badge-mid-text: #0f7e95;
+  --badge-intake-bg: rgba(14, 165, 233, 0.2);
+  --badge-intake-text: #0d6f93;
+  --badge-output-bg: rgba(245, 158, 11, 0.2);
+  --badge-output-text: #8d5400;
+  --badge-drip-bg: rgba(168, 85, 247, 0.2);
+  --badge-drip-text: #7a3fc2;
+  --badge-measure-bg: rgba(14, 165, 233, 0.18);
+  --badge-measure-text: #0e7490;
+  --badge-setting-bg: rgba(245, 158, 11, 0.18);
+  --badge-setting-text: #b45309;
+  --io-drip-fill: #1aa4da;
+  --io-drip-glow: rgba(26, 164, 218, 0.35);
+  --timegrid-now-line: rgba(31, 101, 171, 0.78);
+  --timegrid-focus-bg: rgba(35, 108, 189, 0.11);
+  --timegrid-focus-ring: rgba(35, 108, 189, 0.3);
+  --timegrid-row-even: #f1f7ff;
+  --timegrid-row-odd: #e0ecfb;
+  --timegrid-event-header-bg: rgba(59, 130, 246, 0.16);
+  --timegrid-io-header-bg: rgba(16, 185, 129, 0.16);
+  --timegrid-vital-header-bg: rgba(14, 165, 233, 0.16);
+  --timegrid-label-even: #f7fbff;
+  --timegrid-label-odd: #e8f1fe;
+  --timegrid-row-divider: rgba(57, 94, 140, 0.42);
+  --timegrid-sticky-divider: rgba(50, 90, 140, 0.56);
+  --timegrid-sticky-shadow: rgba(28, 68, 120, 0.18);
+  --timegrid-row-hover-bg: rgba(47, 140, 245, 0.22);
+  --timegrid-row-hover-line: rgba(47, 140, 245, 0.62);
+  --timegrid-row-active-bg: rgba(47, 140, 245, 0.28);
+  --timegrid-row-active-line: rgba(47, 140, 245, 0.72);
+}
+
+.dark {
+  --app-bg: #091a33;
+  --app-main-bg: #102845;
+  --app-panel-bg: rgba(11, 33, 61, 0.93);
+  --app-border: #4b76a9;
+  --app-text: #e8f1ff;
+  --app-muted: #bfd1ea;
+  --app-main-glow-a: rgba(96, 168, 255, 0.2);
+  --app-main-glow-b: rgba(53, 216, 180, 0.13);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(8, 32, 66, 0.97) 0%,
+    rgba(10, 47, 89, 0.97) 48%,
+    rgba(10, 61, 72, 0.97) 100%
+  );
+  --app-nav-bg: rgba(8, 30, 55, 0.94);
+  --app-nav-border: #5c84b5;
+  --app-nav-hover: rgba(22, 54, 92, 0.98);
+  --app-accent: #69c9ff;
+  --app-accent-contrast: #042642;
+  --app-control-bg: rgba(8, 31, 59, 0.96);
+  --app-control-bg-hover: rgba(12, 39, 71, 0.99);
+  --app-control-border: #5882b4;
+  --app-control-text: #e8f1ff;
+  --app-control-muted: #c5d5ec;
+  --app-control-focus: rgba(105, 201, 255, 0.35);
+  --app-button-neutral-bg: rgba(11, 39, 70, 0.95);
+  --app-button-neutral-hover: rgba(19, 54, 94, 0.99);
+  --app-tooltip-bg: rgba(7, 27, 52, 0.98);
+  --app-tooltip-text: #ebf3ff;
+  --app-tooltip-border: rgba(111, 163, 230, 0.5);
+  --app-tooltip-shadow: 0 12px 28px rgba(0, 8, 23, 0.55);
+  --app-rail-blur: 10px;
+  --app-topbar-blur: 11px;
+  --app-rail-shadow: inset 0 1px 0 rgba(138, 182, 243, 0.09),
+    0 16px 34px rgba(1, 8, 21, 0.33);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(87, 126, 183, 0.42),
+    0 10px 24px rgba(1, 7, 20, 0.35);
+  --app-nav-shadow: inset 0 1px 0 rgba(138, 182, 243, 0.1);
+  --chart-grid-line: rgba(136, 167, 208, 0.36);
+  --chart-grid-line-strong: rgba(161, 198, 241, 0.66);
+  --chart-now-col: rgba(78, 162, 255, 0.17);
+  --chart-axis-text: #e2eeff;
+  --chart-axis-text-shadow: rgba(2, 12, 27, 0.75);
+  --chart-spo2: #8cc8ff;
+  --chart-hr: #f5f8ff;
+  --chart-pr: #5eead4;
+  --chart-nibp: #5edb8b;
+  --chart-art: #ff8e8e;
+  --chart-cvp: #ffb36b;
+  --chart-temp: #c4b5fd;
+  --badge-event-bg: rgba(84, 153, 255, 0.27);
+  --badge-event-text: #a8d7ff;
+  --badge-note-bg: rgba(245, 169, 44, 0.31);
+  --badge-note-text: #ffd9a0;
+  --badge-start-bg: rgba(34, 211, 158, 0.27);
+  --badge-start-text: #a8f8dc;
+  --badge-end-bg: rgba(252, 97, 97, 0.28);
+  --badge-end-text: #ffc2c2;
+  --badge-timeout-bg: rgba(164, 116, 255, 0.31);
+  --badge-timeout-text: #dec5ff;
+  --badge-mid-bg: rgba(35, 193, 226, 0.3);
+  --badge-mid-text: #b0f1ff;
+  --badge-intake-bg: rgba(46, 180, 245, 0.31);
+  --badge-intake-text: #b3edff;
+  --badge-output-bg: rgba(247, 173, 55, 0.31);
+  --badge-output-text: #ffdeaa;
+  --badge-drip-bg: rgba(182, 109, 255, 0.31);
+  --badge-drip-text: #e8d0ff;
+  --badge-measure-bg: rgba(46, 180, 245, 0.31);
+  --badge-measure-text: #b3edff;
+  --badge-setting-bg: rgba(247, 173, 55, 0.3);
+  --badge-setting-text: #ffd99e;
+  --io-drip-fill: #6ad7ff;
+  --io-drip-glow: rgba(106, 215, 255, 0.45);
+  --timegrid-now-line: rgba(126, 198, 255, 0.9);
+  --timegrid-focus-bg: rgba(78, 162, 255, 0.2);
+  --timegrid-focus-ring: rgba(113, 190, 255, 0.46);
+  --timegrid-row-even: #0d2f4f;
+  --timegrid-row-odd: #103452;
+  --timegrid-event-header-bg: rgba(84, 153, 255, 0.2);
+  --timegrid-io-header-bg: rgba(34, 211, 158, 0.2);
+  --timegrid-vital-header-bg: rgba(46, 180, 245, 0.2);
+  --timegrid-label-even: #0a2643;
+  --timegrid-label-odd: #102f4e;
+  --timegrid-row-divider: rgba(120, 157, 205, 0.42);
+  --timegrid-sticky-divider: rgba(130, 173, 226, 0.5);
+  --timegrid-sticky-shadow: rgba(2, 15, 34, 0.5);
+  --timegrid-row-hover-bg: rgba(78, 162, 255, 0.16);
+  --timegrid-row-hover-line: rgba(113, 190, 255, 0.48);
+  --timegrid-row-active-bg: rgba(78, 162, 255, 0.2);
+  --timegrid-row-active-line: rgba(126, 198, 255, 0.58);
+}
+
+.dark.theme-default {
+  /* Same as base .dark — explicit to allow future overrides */
+  --app-bg: #091a33;
+  --app-main-bg: #102845;
+  --app-panel-bg: rgba(15, 40, 71, 0.85);
+  --timegrid-row-even: #0d2f4f;
+  --timegrid-row-odd: #103452;
+}
+
+/* ── Dark / Grey ────────────────────────────────── */
+.dark.theme-grey {
+  --app-bg: #111111;
+  --app-main-bg: #1a1a1a;
+  --app-panel-bg: rgba(28, 28, 28, 0.92);
+  --app-border: #333333;
+  --app-text: #e5e5e5;
+  --app-muted: #9ca3af;
+  --app-main-glow-a: rgba(180, 180, 180, 0.04);
+  --app-main-glow-b: rgba(160, 160, 160, 0.03);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(22, 22, 22, 0.97) 0%,
+    rgba(26, 26, 26, 0.97) 100%
+  );
+  --app-nav-bg: rgba(18, 18, 18, 0.9);
+  --app-nav-border: #3d3d3d;
+  --app-nav-hover: rgba(32, 32, 32, 0.95);
+  --app-accent: #a1a1aa;
+  --app-accent-contrast: #111111;
+  --app-control-bg: rgba(22, 22, 22, 0.9);
+  --app-control-bg-hover: rgba(32, 32, 32, 0.97);
+  --app-control-border: #3d3d3d;
+  --app-control-text: #e5e5e5;
+  --app-control-muted: #9ca3af;
+  --app-control-focus: rgba(161, 161, 170, 0.28);
+  --app-button-neutral-bg: rgba(24, 24, 24, 0.9);
+  --app-button-neutral-hover: rgba(40, 40, 40, 0.96);
+  --app-tooltip-bg: rgba(14, 14, 14, 0.98);
+  --app-tooltip-text: #f0f0f0;
+  --app-tooltip-border: rgba(70, 70, 70, 0.55);
+  --app-tooltip-shadow: 0 12px 28px rgba(0, 0, 0, 0.7);
+  --app-rail-blur: 8px;
+  --app-topbar-blur: 10px;
+  --app-rail-shadow: inset 0 1px 0 rgba(120, 120, 120, 0.08),
+    0 16px 34px rgba(0, 0, 0, 0.45);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(80, 80, 80, 0.4),
+    0 10px 24px rgba(0, 0, 0, 0.45);
+  --app-nav-shadow: inset 0 1px 0 rgba(120, 120, 120, 0.08);
+  --chart-grid-line: rgba(160, 160, 160, 0.22);
+  --chart-grid-line-strong: rgba(180, 180, 180, 0.42);
+  --chart-now-col: rgba(180, 180, 180, 0.1);
+  --chart-axis-text: #d1d5db;
+  --chart-axis-text-shadow: rgba(0, 0, 0, 0.75);
+  --timegrid-now-line: rgba(200, 200, 200, 0.65);
+  --timegrid-focus-bg: rgba(180, 180, 180, 0.1);
+  --timegrid-focus-ring: rgba(180, 180, 180, 0.36);
+  --timegrid-row-even: #1c1c1c;
+  --timegrid-row-odd: #222222;
+  --timegrid-event-header-bg: rgba(150, 150, 150, 0.14);
+  --timegrid-io-header-bg: rgba(150, 150, 150, 0.14);
+  --timegrid-vital-header-bg: rgba(150, 150, 150, 0.14);
+  --timegrid-label-even: #181818;
+  --timegrid-label-odd: #1e1e1e;
+  --timegrid-row-divider: rgba(80, 80, 80, 0.44);
+  --timegrid-sticky-divider: rgba(90, 90, 90, 0.5);
+  --timegrid-sticky-shadow: rgba(0, 0, 0, 0.5);
+  --timegrid-row-hover-bg: rgba(160, 160, 160, 0.1);
+  --timegrid-row-hover-line: rgba(180, 180, 180, 0.38);
+  --timegrid-row-active-bg: rgba(160, 160, 160, 0.15);
+  --timegrid-row-active-line: rgba(180, 180, 180, 0.48);
+}
+
+/* ── Dark / Green ───────────────────────────────── */
+.dark.theme-green {
+  --app-bg: #05110a;
+  --app-main-bg: #0a1f13;
+  --app-panel-bg: rgba(10, 31, 19, 0.9);
+  --app-border: #1e4030;
+  --app-text: #dcf5e8;
+  --app-muted: #7abf92;
+  --app-main-glow-a: rgba(16, 185, 129, 0.15);
+  --app-main-glow-b: rgba(52, 211, 153, 0.1);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(4, 14, 8, 0.97) 0%,
+    rgba(7, 22, 14, 0.97) 48%,
+    rgba(6, 22, 12, 0.97) 100%
+  );
+  --app-nav-bg: rgba(4, 14, 8, 0.9);
+  --app-nav-border: #2a5038;
+  --app-nav-hover: rgba(10, 26, 16, 0.95);
+  --app-accent: #10b981;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(5, 16, 10, 0.92);
+  --app-control-bg-hover: rgba(8, 24, 14, 0.97);
+  --app-control-border: #2a5038;
+  --app-control-text: #dcf5e8;
+  --app-control-muted: #6aaa80;
+  --app-control-focus: rgba(16, 185, 129, 0.3);
+  --app-button-neutral-bg: rgba(6, 20, 12, 0.9);
+  --app-button-neutral-hover: rgba(12, 32, 20, 0.96);
+  --app-tooltip-bg: rgba(3, 10, 6, 0.98);
+  --app-tooltip-text: #dcf5e8;
+  --app-tooltip-border: rgba(30, 80, 50, 0.55);
+  --app-tooltip-shadow: 0 12px 28px rgba(0, 8, 3, 0.65);
+  --app-rail-blur: 10px;
+  --app-topbar-blur: 11px;
+  --app-rail-shadow: inset 0 1px 0 rgba(50, 160, 100, 0.08),
+    0 16px 34px rgba(0, 5, 2, 0.4);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(40, 120, 70, 0.35),
+    0 10px 24px rgba(0, 5, 2, 0.4);
+  --app-nav-shadow: inset 0 1px 0 rgba(50, 160, 100, 0.08);
+  --chart-grid-line: rgba(80, 180, 120, 0.22);
+  --chart-grid-line-strong: rgba(100, 200, 140, 0.45);
+  --chart-now-col: rgba(52, 211, 153, 0.13);
+  --chart-axis-text: #bbf7d0;
+  --chart-axis-text-shadow: rgba(0, 10, 4, 0.75);
+  --timegrid-now-line: rgba(52, 211, 153, 0.85);
+  --timegrid-focus-bg: rgba(16, 185, 129, 0.16);
+  --timegrid-focus-ring: rgba(52, 211, 153, 0.42);
+  --timegrid-row-even: #0b2217;
+  --timegrid-row-odd: #102e1f;
+  --timegrid-event-header-bg: rgba(16, 185, 129, 0.18);
+  --timegrid-io-header-bg: rgba(16, 185, 129, 0.18);
+  --timegrid-vital-header-bg: rgba(16, 185, 129, 0.18);
+  --timegrid-label-even: #081a11;
+  --timegrid-label-odd: #0c2418;
+  --timegrid-row-divider: rgba(40, 120, 75, 0.4);
+  --timegrid-sticky-divider: rgba(50, 140, 85, 0.48);
+  --timegrid-sticky-shadow: rgba(0, 8, 3, 0.5);
+  --timegrid-row-hover-bg: rgba(16, 185, 129, 0.14);
+  --timegrid-row-hover-line: rgba(52, 211, 153, 0.44);
+  --timegrid-row-active-bg: rgba(16, 185, 129, 0.18);
+  --timegrid-row-active-line: rgba(52, 211, 153, 0.55);
+}
+
+/* ── Dark / Black Pink ─────────────────────────── */
+.dark.theme-blackpink {
+  --app-bg: #060608;
+  --app-main-bg: #0b0b12;
+  --app-panel-bg: rgba(19, 18, 28, 0.94);
+  --app-border: #5d3e59;
+  --app-text: #ffeaf5;
+  --app-muted: #d7a9c8;
+  --app-main-glow-a: rgba(232, 121, 165, 0.1);
+  --app-main-glow-b: rgba(244, 170, 200, 0.07);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(8, 8, 12, 0.98) 0%,
+    rgba(17, 14, 24, 0.98) 52%,
+    rgba(34, 14, 28, 0.98) 100%
+  );
+  --app-nav-bg: rgba(18, 14, 24, 0.94);
+  --app-nav-border: #7e4a73;
+  --app-nav-hover: rgba(39, 20, 42, 0.98);
+  --app-accent: #e879a5;
+  --app-accent-contrast: #2a0e1b;
+  --app-control-bg: rgba(16, 14, 24, 0.98);
+  --app-control-bg-hover: rgba(24, 18, 31, 1);
+  --app-control-border: #7e4a73;
+  --app-control-text: #ffeaf5;
+  --app-control-muted: #d1a1c1;
+  --app-control-focus: rgba(232, 121, 165, 0.3);
+  --app-button-neutral-bg: rgba(24, 18, 31, 0.96);
+  --app-button-neutral-hover: rgba(38, 24, 44, 1);
+  --app-tooltip-bg: rgba(10, 9, 15, 0.99);
+  --app-tooltip-text: #ffeaf5;
+  --app-tooltip-border: rgba(162, 99, 147, 0.55);
+  --app-tooltip-shadow: 0 14px 30px rgba(0, 0, 0, 0.62);
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 153, 211, 0.05),
+    0 16px 34px rgba(0, 0, 0, 0.45);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(122, 70, 110, 0.44),
+    0 10px 24px rgba(0, 0, 0, 0.45);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 153, 211, 0.05);
+  --chart-grid-line: rgba(180, 123, 167, 0.28);
+  --chart-grid-line-strong: rgba(226, 154, 207, 0.5);
+  --chart-now-col: rgba(232, 121, 165, 0.12);
+  --chart-axis-text: #ffe6f1;
+  --chart-axis-text-shadow: rgba(0, 0, 0, 0.78);
+  --chart-spo2: #ffa8d0;
+  --chart-hr: #fff2f8;
+  --chart-pr: #f9a8d4;
+  --chart-nibp: #fb7185;
+  --chart-art: #ff8fa3;
+  --chart-cvp: #fca5a5;
+  --chart-temp: #f0abfc;
+  --badge-event-bg: rgba(232, 121, 165, 0.22);
+  --badge-event-text: #ffd1e7;
+  --badge-note-bg: rgba(251, 191, 36, 0.22);
+  --badge-note-text: #ffe8aa;
+  --badge-start-bg: rgba(45, 212, 191, 0.22);
+  --badge-start-text: #befaf0;
+  --badge-end-bg: rgba(251, 113, 133, 0.22);
+  --badge-end-text: #ffd0d8;
+  --badge-timeout-bg: rgba(192, 132, 252, 0.24);
+  --badge-timeout-text: #ecd5ff;
+  --badge-mid-bg: rgba(232, 121, 165, 0.18);
+  --badge-mid-text: #ffd1e7;
+  --badge-intake-bg: rgba(236, 141, 181, 0.22);
+  --badge-intake-text: #ffd5ea;
+  --badge-output-bg: rgba(251, 191, 36, 0.22);
+  --badge-output-text: #ffe4a3;
+  --badge-drip-bg: rgba(222, 118, 166, 0.22);
+  --badge-drip-text: #ffd0e6;
+  --badge-measure-bg: rgba(236, 141, 181, 0.2);
+  --badge-measure-text: #ffd7eb;
+  --badge-setting-bg: rgba(251, 191, 36, 0.2);
+  --badge-setting-text: #ffe1a0;
+  --io-drip-fill: #ee8db5;
+  --io-drip-glow: rgba(238, 141, 181, 0.32);
+  --timegrid-now-line: rgba(238, 141, 181, 0.82);
+  --timegrid-focus-bg: rgba(232, 121, 165, 0.14);
+  --timegrid-focus-ring: rgba(238, 141, 181, 0.38);
+  --timegrid-row-even: #15121d;
+  --timegrid-row-odd: #1b1522;
+  --timegrid-event-header-bg: rgba(232, 121, 165, 0.16);
+  --timegrid-io-header-bg: rgba(222, 118, 166, 0.14);
+  --timegrid-vital-header-bg: rgba(232, 121, 165, 0.14);
+  --timegrid-label-even: #100d17;
+  --timegrid-label-odd: #17111d;
+  --timegrid-row-divider: rgba(126, 74, 115, 0.42);
+  --timegrid-sticky-divider: rgba(141, 85, 129, 0.52);
+  --timegrid-sticky-shadow: rgba(0, 0, 0, 0.52);
+  --timegrid-row-hover-bg: rgba(232, 121, 165, 0.12);
+  --timegrid-row-hover-line: rgba(238, 141, 181, 0.42);
+  --timegrid-row-active-bg: rgba(232, 121, 165, 0.16);
+  --timegrid-row-active-line: rgba(238, 141, 181, 0.52);
+}
+
+/* ── Dark / EforL ───────────────────────────────── */
+.dark.theme-eforl {
+  --app-bg: #08090b;
+  --app-main-bg: #121418;
+  --app-panel-bg: rgba(21, 24, 29, 0.95);
+  --app-border: #6e242d;
+  --app-text: #fff2f3;
+  --app-muted: #d8aab0;
+  --app-main-glow-a: rgba(200, 39, 57, 0.12);
+  --app-main-glow-b: rgba(239, 68, 68, 0.08);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(10, 11, 13, 0.98) 0%,
+    rgba(20, 20, 24, 0.98) 54%,
+    rgba(47, 14, 20, 0.98) 100%
+  );
+  --app-nav-bg: rgba(18, 18, 22, 0.94);
+  --app-nav-border: #7a3139;
+  --app-nav-hover: rgba(38, 18, 22, 0.98);
+  --app-accent: #d92d3a;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(17, 19, 23, 0.98);
+  --app-control-bg-hover: rgba(28, 20, 23, 1);
+  --app-control-border: #7a3139;
+  --app-control-text: #fff2f3;
+  --app-control-muted: #d8aab0;
+  --app-control-focus: rgba(217, 45, 58, 0.32);
+  --app-button-neutral-bg: rgba(24, 20, 23, 0.96);
+  --app-button-neutral-hover: rgba(42, 24, 28, 1);
+  --app-tooltip-bg: rgba(11, 12, 15, 0.99);
+  --app-tooltip-text: #fff2f3;
+  --app-tooltip-border: rgba(160, 69, 79, 0.55);
+  --app-tooltip-shadow: 0 14px 30px rgba(0, 0, 0, 0.62);
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 140, 150, 0.05),
+    0 16px 34px rgba(0, 0, 0, 0.45);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(130, 46, 55, 0.44),
+    0 10px 24px rgba(0, 0, 0, 0.45);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 140, 150, 0.05);
+  --chart-grid-line: rgba(188, 92, 103, 0.25);
+  --chart-grid-line-strong: rgba(221, 114, 126, 0.46);
+  --chart-now-col: rgba(217, 45, 58, 0.12);
+  --chart-axis-text: #ffe5e8;
+  --chart-axis-text-shadow: rgba(0, 0, 0, 0.78);
+  --badge-event-bg: rgba(217, 45, 58, 0.2);
+  --badge-event-text: #ffd8dd;
+  --badge-mid-bg: rgba(217, 45, 58, 0.18);
+  --badge-mid-text: #ffd8dd;
+  --badge-intake-bg: rgba(217, 45, 58, 0.18);
+  --badge-intake-text: #ffd8dd;
+  --badge-drip-bg: rgba(217, 45, 58, 0.18);
+  --badge-drip-text: #ffd8dd;
+  --io-drip-fill: #ff6b78;
+  --io-drip-glow: rgba(255, 107, 120, 0.34);
+  --timegrid-now-line: rgba(255, 107, 120, 0.84);
+  --timegrid-focus-bg: rgba(217, 45, 58, 0.15);
+  --timegrid-focus-ring: rgba(255, 107, 120, 0.4);
+  --timegrid-row-even: #16171b;
+  --timegrid-row-odd: #1d1f24;
+  --timegrid-event-header-bg: rgba(217, 45, 58, 0.16);
+  --timegrid-io-header-bg: rgba(217, 45, 58, 0.14);
+  --timegrid-vital-header-bg: rgba(217, 45, 58, 0.14);
+  --timegrid-label-even: #121317;
+  --timegrid-label-odd: #181a1f;
+  --timegrid-row-divider: rgba(122, 49, 57, 0.42);
+  --timegrid-sticky-divider: rgba(150, 64, 74, 0.5);
+  --timegrid-sticky-shadow: rgba(0, 0, 0, 0.52);
+  --timegrid-row-hover-bg: rgba(217, 45, 58, 0.12);
+  --timegrid-row-hover-line: rgba(255, 107, 120, 0.4);
+  --timegrid-row-active-bg: rgba(217, 45, 58, 0.16);
+  --timegrid-row-active-line: rgba(255, 107, 120, 0.52);
+}
+
+/* ── Light / Old Rose ───────────────────────────── */
+.light.theme-oldrose {
+  --app-bg: #fdf5f5;
+  --app-main-bg: #fffbfb;
+  --app-panel-bg: rgba(255, 255, 255, 0.85);
+  --app-border: #e2b8c5;
+  --app-text: #4a212e;
+  --app-muted: #8a5063;
+  --app-main-glow-a: rgba(251, 113, 133, 0.08);
+  --app-main-glow-b: rgba(236, 72, 153, 0.06);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(248, 233, 233, 0.95) 0%,
+    rgba(255, 241, 241, 0.95) 52%,
+    rgba(240, 214, 222, 0.95) 100%
+  );
+  --app-nav-bg: rgba(255, 240, 242, 0.6);
+  --app-nav-border: #da9eb2;
+  --app-nav-hover: rgba(255, 236, 240, 0.88);
+  --app-accent: #ab1f5a;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(255, 252, 252, 0.92);
+  --app-control-bg-hover: rgba(255, 250, 252, 0.99);
+  --app-control-border: #daa8b8;
+  --app-control-text: #4a212e;
+  --app-control-muted: #8a5a68;
+  --app-control-focus: rgba(171, 31, 90, 0.22);
+  --app-button-neutral-bg: rgba(255, 245, 247, 0.65);
+  --app-button-neutral-hover: rgba(255, 238, 242, 0.9);
+  --app-tooltip-bg: rgba(255, 252, 253, 0.98);
+  --app-tooltip-text: #4a212e;
+  --app-tooltip-border: rgba(210, 155, 175, 0.65);
+  --app-tooltip-shadow: 0 8px 20px rgba(90, 30, 50, 0.2);
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 10px 22px rgba(120, 50, 80, 0.08);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(210, 140, 165, 0.5),
+    0 5px 14px rgba(120, 50, 80, 0.08);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --timegrid-now-line: rgba(171, 31, 90, 0.7);
+  --timegrid-focus-bg: rgba(171, 31, 90, 0.09);
+  --timegrid-focus-ring: rgba(171, 31, 90, 0.28);
+  --timegrid-row-even: #fff5f5;
+  --timegrid-row-odd: #fee2e2;
+  --timegrid-event-header-bg: rgba(171, 31, 90, 0.12);
+  --timegrid-io-header-bg: rgba(171, 31, 90, 0.12);
+  --timegrid-vital-header-bg: rgba(171, 31, 90, 0.12);
+  --timegrid-label-even: #fff9f9;
+  --timegrid-label-odd: #feeaea;
+  --timegrid-row-divider: rgba(180, 90, 120, 0.28);
+  --timegrid-sticky-divider: rgba(185, 95, 125, 0.38);
+  --timegrid-sticky-shadow: rgba(90, 30, 50, 0.12);
+  --timegrid-row-hover-bg: rgba(171, 31, 90, 0.1);
+  --timegrid-row-hover-line: rgba(200, 60, 110, 0.38);
+  --timegrid-row-active-bg: rgba(171, 31, 90, 0.15);
+  --timegrid-row-active-line: rgba(200, 60, 110, 0.48);
+}
+
+/* ── Light / Pink ───────────────────────────────── */
+.light.theme-pink {
+  --app-bg: #fff5f8;
+  --app-main-bg: #fffbfd;
+  --app-panel-bg: rgba(255, 255, 255, 0.85);
+  --app-border: #e2b8d4;
+  --app-text: #470f31;
+  --app-muted: #8a5070;
+  --app-main-glow-a: rgba(236, 72, 153, 0.09);
+  --app-main-glow-b: rgba(219, 39, 119, 0.07);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(248, 233, 245, 0.95) 0%,
+    rgba(255, 241, 251, 0.95) 52%,
+    rgba(240, 214, 236, 0.95) 100%
+  );
+  --app-nav-bg: rgba(255, 238, 248, 0.6);
+  --app-nav-border: #da9ec4;
+  --app-nav-hover: rgba(255, 234, 246, 0.88);
+  --app-accent: #d81b60;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(255, 252, 254, 0.92);
+  --app-control-bg-hover: rgba(255, 250, 253, 0.99);
+  --app-control-border: #daa8c8;
+  --app-control-text: #470f31;
+  --app-control-muted: #8a5a78;
+  --app-control-focus: rgba(216, 27, 96, 0.22);
+  --app-button-neutral-bg: rgba(255, 245, 250, 0.65);
+  --app-button-neutral-hover: rgba(255, 236, 246, 0.9);
+  --app-tooltip-bg: rgba(255, 252, 254, 0.98);
+  --app-tooltip-text: #470f31;
+  --app-tooltip-border: rgba(210, 155, 195, 0.65);
+  --app-tooltip-shadow: 0 8px 20px rgba(90, 20, 60, 0.2);
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 10px 22px rgba(120, 30, 80, 0.08);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(210, 140, 185, 0.5),
+    0 5px 14px rgba(120, 30, 80, 0.08);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --timegrid-now-line: rgba(216, 27, 96, 0.7);
+  --timegrid-focus-bg: rgba(216, 27, 96, 0.09);
+  --timegrid-focus-ring: rgba(216, 27, 96, 0.28);
+  --timegrid-row-even: #fff5f8;
+  --timegrid-row-odd: #fce7f3;
+  --timegrid-event-header-bg: rgba(216, 27, 96, 0.12);
+  --timegrid-io-header-bg: rgba(216, 27, 96, 0.12);
+  --timegrid-vital-header-bg: rgba(216, 27, 96, 0.12);
+  --timegrid-label-even: #fff9fb;
+  --timegrid-label-odd: #fdeaf5;
+  --timegrid-row-divider: rgba(180, 70, 130, 0.28);
+  --timegrid-sticky-divider: rgba(185, 75, 135, 0.38);
+  --timegrid-sticky-shadow: rgba(80, 15, 45, 0.12);
+  --timegrid-row-hover-bg: rgba(216, 27, 96, 0.1);
+  --timegrid-row-hover-line: rgba(230, 50, 110, 0.38);
+  --timegrid-row-active-bg: rgba(216, 27, 96, 0.15);
+  --timegrid-row-active-line: rgba(230, 50, 110, 0.48);
+}
+
+/* ── Light / RCAT ───────────────────────────────── */
+.light.theme-rcat {
+  --app-bg: #f6f8fc;
+  --app-main-bg: #ffffff;
+  --app-panel-bg: rgba(255, 255, 255, 0.96);
+  --app-border: #9eb0cc;
+  --app-text: #123766;
+  --app-muted: #4e6487;
+  --app-main-glow-a: rgba(20, 64, 124, 0.06);
+  --app-main-glow-b: rgba(209, 161, 42, 0.07);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(243, 246, 252, 0.97) 0%,
+    rgba(255, 255, 255, 0.98) 55%,
+    rgba(250, 245, 230, 0.97) 100%
+  );
+  --app-nav-bg: rgba(248, 250, 255, 0.82);
+  --app-nav-border: #9aacc7;
+  --app-nav-hover: rgba(255, 255, 255, 0.98);
+  --app-accent: #123f78;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(255, 255, 255, 0.99);
+  --app-control-bg-hover: rgba(255, 255, 255, 1);
+  --app-control-border: #94a8c7;
+  --app-control-text: #123766;
+  --app-control-muted: #557097;
+  --app-control-focus: rgba(18, 63, 120, 0.24);
+  --app-button-neutral-bg: rgba(248, 250, 255, 0.92);
+  --app-button-neutral-hover: rgba(255, 255, 255, 1);
+  --app-tooltip-bg: rgba(255, 255, 255, 0.99);
+  --app-tooltip-text: #123766;
+  --app-tooltip-border: rgba(139, 157, 187, 0.65);
+  --app-tooltip-shadow: 0 10px 24px rgba(25, 45, 78, 0.16);
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 10px 22px rgba(35, 61, 102, 0.08);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(145, 165, 196, 0.52),
+    0 5px 14px rgba(35, 61, 102, 0.08);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --badge-note-bg: rgba(209, 161, 42, 0.18);
+  --badge-note-text: #8b6511;
+  --badge-output-bg: rgba(209, 161, 42, 0.18);
+  --badge-output-text: #8b6511;
+  --timegrid-now-line: rgba(18, 63, 120, 0.7);
+  --timegrid-focus-bg: rgba(18, 63, 120, 0.08);
+  --timegrid-focus-ring: rgba(18, 63, 120, 0.24);
+  --timegrid-row-even: #f8fbff;
+  --timegrid-row-odd: #eef3fb;
+  --timegrid-event-header-bg: rgba(18, 63, 120, 0.12);
+  --timegrid-io-header-bg: rgba(209, 161, 42, 0.11);
+  --timegrid-vital-header-bg: rgba(18, 63, 120, 0.1);
+  --timegrid-label-even: #fbfdff;
+  --timegrid-label-odd: #f2f6fd;
+  --timegrid-row-divider: rgba(79, 104, 146, 0.3);
+  --timegrid-sticky-divider: rgba(73, 101, 148, 0.4);
+  --timegrid-sticky-shadow: rgba(26, 49, 84, 0.12);
+  --timegrid-row-hover-bg: rgba(18, 63, 120, 0.08);
+  --timegrid-row-hover-line: rgba(18, 63, 120, 0.34);
+  --timegrid-row-active-bg: rgba(18, 63, 120, 0.12);
+  --timegrid-row-active-line: rgba(18, 63, 120, 0.44);
+}
+
+/* ── Light / EforL ──────────────────────────────── */
+.light.theme-eforl {
+  --app-bg: #fff6f6;
+  --app-main-bg: #fffdfd;
+  --app-panel-bg: rgba(255, 255, 255, 0.96);
+  --app-border: #dfb3b8;
+  --app-text: #561b22;
+  --app-muted: #8a5058;
+  --app-main-glow-a: rgba(217, 45, 58, 0.07);
+  --app-main-glow-b: rgba(239, 68, 68, 0.05);
+  --app-topbar-bg: linear-gradient(
+    90deg,
+    rgba(252, 243, 243, 0.98) 0%,
+    rgba(255, 255, 255, 0.98) 56%,
+    rgba(250, 234, 236, 0.98) 100%
+  );
+  --app-nav-bg: rgba(255, 243, 244, 0.78);
+  --app-nav-border: #d7a0a7;
+  --app-nav-hover: rgba(255, 235, 237, 0.96);
+  --app-accent: #c82739;
+  --app-accent-contrast: #ffffff;
+  --app-control-bg: rgba(255, 255, 255, 0.99);
+  --app-control-bg-hover: rgba(255, 252, 252, 1);
+  --app-control-border: #d9a8af;
+  --app-control-text: #561b22;
+  --app-control-muted: #8f5a62;
+  --app-control-focus: rgba(200, 39, 57, 0.24);
+  --app-button-neutral-bg: rgba(255, 247, 247, 0.9);
+  --app-button-neutral-hover: rgba(255, 239, 240, 1);
+  --app-tooltip-bg: rgba(255, 254, 254, 0.99);
+  --app-tooltip-text: #561b22;
+  --app-tooltip-border: rgba(209, 147, 155, 0.65);
+  --app-tooltip-shadow: 0 10px 24px rgba(103, 32, 40, 0.16);
+  --app-rail-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 10px 22px rgba(120, 35, 45, 0.08);
+  --app-topbar-shadow: inset 0 -1px 0 rgba(205, 140, 148, 0.5),
+    0 5px 14px rgba(120, 35, 45, 0.08);
+  --app-nav-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --badge-event-bg: rgba(200, 39, 57, 0.12);
+  --badge-event-text: #8d2330;
+  --badge-mid-bg: rgba(200, 39, 57, 0.12);
+  --badge-mid-text: #8d2330;
+  --badge-intake-bg: rgba(200, 39, 57, 0.12);
+  --badge-intake-text: #8d2330;
+  --badge-drip-bg: rgba(200, 39, 57, 0.12);
+  --badge-drip-text: #8d2330;
+  --timegrid-now-line: rgba(200, 39, 57, 0.72);
+  --timegrid-focus-bg: rgba(200, 39, 57, 0.09);
+  --timegrid-focus-ring: rgba(200, 39, 57, 0.28);
+  --timegrid-row-even: #fff8f8;
+  --timegrid-row-odd: #fdecec;
+  --timegrid-event-header-bg: rgba(200, 39, 57, 0.12);
+  --timegrid-io-header-bg: rgba(200, 39, 57, 0.11);
+  --timegrid-vital-header-bg: rgba(200, 39, 57, 0.1);
+  --timegrid-label-even: #fffafb;
+  --timegrid-label-odd: #fef1f2;
+  --timegrid-row-divider: rgba(180, 82, 94, 0.28);
+  --timegrid-sticky-divider: rgba(185, 86, 99, 0.38);
+  --timegrid-sticky-shadow: rgba(101, 31, 39, 0.12);
+  --timegrid-row-hover-bg: rgba(200, 39, 57, 0.09);
+  --timegrid-row-hover-line: rgba(220, 61, 80, 0.36);
+  --timegrid-row-active-bg: rgba(200, 39, 57, 0.14);
+  --timegrid-row-active-line: rgba(220, 61, 80, 0.46);
+}
+
+/* Light themes need stronger amber contrast than the dark-oriented
+   Tailwind utility combinations used across dialogs, report actions,
+   and warning buttons. */
+.light .app-theme-scope [class*="text-amber-50"],
+.light .app-theme-scope [class*="text-amber-100"],
+.light .app-theme-scope [class*="text-amber-200"],
+.light .app-theme-scope [class*="text-amber-300"],
+.light .app-theme-scope [class*="text-amber-400"],
+.light .app-theme-scope [class*="text-yellow-50"],
+.light .app-theme-scope [class*="text-yellow-100"],
+.light .app-theme-scope [class*="text-yellow-200"],
+.light .app-theme-scope [class*="text-yellow-300"],
+.light .app-theme-scope [class*="text-yellow-400"] {
+  color: #92400e !important;
+}
+
+.light .app-theme-scope [class*="bg-amber-500/10"],
+.light .app-theme-scope [class*="bg-amber-500/12"],
+.light .app-theme-scope [class*="bg-amber-500/15"],
+.light .app-theme-scope [class*="bg-amber-500/20"],
+.light .app-theme-scope [class*="bg-amber-400/10"],
+.light .app-theme-scope [class*="bg-yellow-500/10"],
+.light .app-theme-scope [class*="bg-yellow-500/15"],
+.light .app-theme-scope [class*="bg-yellow-400/10"] {
+  background-color: #ffedd5 !important;
+}
+
+.light .app-theme-scope [class*="border-amber-300"],
+.light .app-theme-scope [class*="border-amber-400"],
+.light .app-theme-scope [class*="border-amber-500"],
+.light .app-theme-scope [class*="border-yellow-300"],
+.light .app-theme-scope [class*="border-yellow-400"],
+.light .app-theme-scope [class*="border-yellow-500"] {
+  border-color: rgba(217, 119, 6, 0.55) !important;
+}
+
+.light .app-theme-scope button[class*="border-amber"],
+.light .app-theme-scope button[class*="border-yellow"] {
+  color: #7c2d12 !important;
+}
+
+.light .app-theme-scope button[class*="border-amber"]:hover,
+.light .app-theme-scope button[class*="border-yellow"]:hover {
+  background-color: #fed7aa !important;
+}
+
+:root[data-role-tone="nurse"] {
+  --app-accent: #138e7a;
+  --app-accent-contrast: #f2fffb;
+  --app-nav-border: #79bdb3;
+}
+
+:root.dark[data-role-tone="nurse"] {
+  --app-accent: #65ddc9;
+  --app-accent-contrast: #083832;
+  --app-nav-border: #4d8e86;
+}
+
+html,
+body,
+#root {
+  font-family: var(--app-font);
+  font-size: 11px;
+  line-height: 1.2;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+/* Normalize elements that break inheritance */
+table,
+td,
+th,
+select,
+option,
+button,
+input {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================= */
+/* AIDAS SCROLLBAR THEME (DARK)  */
+/* ============================= */
+
+::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(96, 165, 250, 0.6);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+.app-shell {
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+.app-main {
+  background:
+    radial-gradient(
+      1100px 520px at 16% -20%,
+      var(--app-main-glow-a),
+      transparent 58%
+    ),
+    radial-gradient(
+      1000px 460px at 100% -28%,
+      var(--app-main-glow-b),
+      transparent 56%
+    ),
+    var(--app-main-bg);
+}
+
+.app-rail {
+  background: var(--app-panel-bg);
+  border-color: var(--app-border);
+  backdrop-filter: blur(var(--app-rail-blur));
+  box-shadow: var(--app-rail-shadow);
+}
+
+.app-topbar {
+  background: var(--app-topbar-bg);
+  border-color: var(--app-border);
+  backdrop-filter: blur(var(--app-topbar-blur));
+  box-shadow: var(--app-topbar-shadow);
+}
+
+.app-nav-shell {
+  background: var(--app-nav-bg);
+  border-color: var(--app-nav-border);
+  box-shadow: var(--app-nav-shadow);
+}
+
+.app-nav-item {
+  color: var(--app-text);
+}
+
+.app-nav-item:hover {
+  background: var(--app-nav-hover);
+}
+
+.app-nav-item-active {
+  background: var(--app-accent);
+  color: var(--app-accent-contrast);
+}
+
+.app-theme-scope input:not([type="checkbox"]):not([type="radio"]),
+.app-theme-scope select,
+.app-theme-scope textarea {
+  background: var(--app-control-bg);
+  color: var(--app-control-text);
+  border-color: var(--app-control-border);
+}
+
+.app-theme-scope input:not([type="checkbox"]):not([type="radio"]):hover,
+.app-theme-scope select:hover,
+.app-theme-scope textarea:hover {
+  background: var(--app-control-bg-hover);
+}
+
+.app-theme-scope input::placeholder,
+.app-theme-scope textarea::placeholder {
+  color: var(--app-control-muted);
+}
+
+.app-theme-scope input:not([type="checkbox"]):not([type="radio"]):focus,
+.app-theme-scope select:focus,
+.app-theme-scope textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--app-control-focus);
+}
+
+/* Keep autofill from forcing white backgrounds in dark theme */
+.app-theme-scope input:-webkit-autofill,
+.app-theme-scope input:-webkit-autofill:hover,
+.app-theme-scope input:-webkit-autofill:focus,
+.app-theme-scope input:-webkit-autofill:active,
+.app-theme-scope textarea:-webkit-autofill,
+.app-theme-scope textarea:-webkit-autofill:hover,
+.app-theme-scope textarea:-webkit-autofill:focus,
+.app-theme-scope textarea:-webkit-autofill:active,
+.app-theme-scope select:-webkit-autofill,
+.app-theme-scope select:-webkit-autofill:hover,
+.app-theme-scope select:-webkit-autofill:focus,
+.app-theme-scope select:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--app-control-text) !important;
+  box-shadow: 0 0 0 1000px var(--app-control-bg) inset !important;
+  transition: background-color 9999s ease-out 0s;
+}
+
+/* Keep datalist/autofill controls on app theme colors after selection */
+.app-theme-scope .caseview-io-item-input {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.app-theme-scope .caseview-io-item-input:-webkit-autofill,
+.app-theme-scope .caseview-io-item-input:-webkit-autofill:hover,
+.app-theme-scope .caseview-io-item-input:-webkit-autofill:focus,
+.app-theme-scope .caseview-io-item-input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--app-text) !important;
+  box-shadow: 0 0 0 1000px var(--app-control-bg) inset !important;
+  transition: background-color 9999s ease-out 0s;
+}
+
+.app-theme-scope input[type="checkbox"],
+.app-theme-scope input[type="radio"] {
+  accent-color: var(--app-accent);
+}
+
+.app-theme-scope button:not([class*="bg-"]):not([class*="text-red"]):not(
+    [class*="text-blue"]
+  ):not([class*="text-green"]):not(.app-nav-item) {
+  background: var(--app-button-neutral-bg);
+  border-color: var(--app-control-border);
+  color: var(--app-text);
+}
+
+.app-theme-scope button:not([class*="bg-"]):not([class*="text-red"]):not(
+    [class*="text-blue"]
+  ):not([class*="text-green"]):not(.app-nav-item):hover {
+  background: var(--app-button-neutral-hover);
+}
+
+.app-theme-scope .bg-blue-600 {
+  background: var(--app-accent) !important;
+  color: var(--app-accent-contrast) !important;
+}
+
+.app-theme-scope .hover\:bg-blue-700:hover {
+  filter: brightness(0.93);
+}
+
+.app-tooltip {
+  position: relative;
+}
+
+.app-tooltip[data-tooltip]:not([data-tooltip=""]):hover::after,
+.app-tooltip[data-tooltip]:not([data-tooltip=""]):focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 1000;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  max-width: min(280px, 70vw);
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--app-tooltip-border);
+  background: var(--app-tooltip-bg);
+  color: var(--app-tooltip-text);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-line;
+  text-align: left;
+  box-shadow: var(--app-tooltip-shadow);
+  pointer-events: none;
+}
+
+.app-tooltip[data-tooltip]:not([data-tooltip=""]):hover::before,
+.app-tooltip[data-tooltip]:not([data-tooltip=""]):focus-visible::before {
+  content: "";
+  position: absolute;
+  z-index: 999;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  border-width: 4px;
+  border-style: solid;
+  border-color: var(--app-tooltip-bg) transparent transparent transparent;
+  pointer-events: none;
+}
+
+/* =====================================================
+   THEME-AWARE TAILWIND CLASS OVERRIDES
+   Maps hardcoded Tailwind gray/dark: classes to CSS
+   variables so all themes (grey, green, oldrose, pink)
+   render correctly — not just the default blue-dark.
+   ===================================================== */
+
+/* Dark mode — map gray backgrounds to theme vars */
+.dark .app-theme-scope .dark\:bg-gray-950,
+.dark .app-theme-scope .dark\:bg-gray-900 {
+  background-color: var(--app-main-bg) !important;
+}
+
+.dark .app-theme-scope .dark\:bg-gray-800 {
+  background-color: var(--app-panel-bg) !important;
+}
+
+/* Dark mode — map gray borders to theme vars */
+.dark .app-theme-scope .dark\:border-gray-800,
+.dark .app-theme-scope .dark\:border-gray-700 {
+  border-color: var(--app-border) !important;
+}
+
+/* Dark mode — map gray text to theme vars */
+.dark .app-theme-scope .dark\:text-gray-100,
+.dark .app-theme-scope .dark\:text-gray-200 {
+  color: var(--app-text) !important;
+}
+
+.dark .app-theme-scope .dark\:text-gray-300 {
+  color: color-mix(in srgb, var(--app-text) 78%, var(--app-muted)) !important;
+}
+
+.dark .app-theme-scope .dark\:text-gray-400 {
+  color: var(--app-muted) !important;
+}
+
+/* Light color themes — tint gray backgrounds with theme palette */
+.light.theme-oldrose .app-theme-scope .bg-white,
+.light.theme-oldrose .app-theme-scope .bg-gray-50,
+.light.theme-pink .app-theme-scope .bg-white,
+.light.theme-pink .app-theme-scope .bg-gray-50,
+.light.theme-rcat .app-theme-scope .bg-white,
+.light.theme-rcat .app-theme-scope .bg-gray-50,
+.light.theme-eforl .app-theme-scope .bg-white,
+.light.theme-eforl .app-theme-scope .bg-gray-50 {
+  background-color: var(--app-panel-bg) !important;
+}
+
+/* Light color themes — tint gray borders */
+.light.theme-oldrose .app-theme-scope .border-gray-200,
+.light.theme-oldrose .app-theme-scope .border-gray-300,
+.light.theme-pink .app-theme-scope .border-gray-200,
+.light.theme-pink .app-theme-scope .border-gray-300,
+.light.theme-rcat .app-theme-scope .border-gray-200,
+.light.theme-rcat .app-theme-scope .border-gray-300,
+.light.theme-eforl .app-theme-scope .border-gray-200,
+.light.theme-eforl .app-theme-scope .border-gray-300 {
+  border-color: var(--app-border) !important;
+}
+
+/* Light color themes — tint gray text */
+.light.theme-oldrose .app-theme-scope .text-gray-900,
+.light.theme-oldrose .app-theme-scope .text-gray-800,
+.light.theme-oldrose .app-theme-scope .text-gray-700,
+.light.theme-pink .app-theme-scope .text-gray-900,
+.light.theme-pink .app-theme-scope .text-gray-800,
+.light.theme-pink .app-theme-scope .text-gray-700,
+.light.theme-rcat .app-theme-scope .text-gray-900,
+.light.theme-rcat .app-theme-scope .text-gray-800,
+.light.theme-rcat .app-theme-scope .text-gray-700,
+.light.theme-eforl .app-theme-scope .text-gray-900,
+.light.theme-eforl .app-theme-scope .text-gray-800,
+.light.theme-eforl .app-theme-scope .text-gray-700 {
+  color: var(--app-text) !important;
+}
+
+.light.theme-oldrose .app-theme-scope .text-gray-600,
+.light.theme-oldrose .app-theme-scope .text-gray-500,
+.light.theme-pink .app-theme-scope .text-gray-600,
+.light.theme-pink .app-theme-scope .text-gray-500,
+.light.theme-rcat .app-theme-scope .text-gray-600,
+.light.theme-rcat .app-theme-scope .text-gray-500,
+.light.theme-eforl .app-theme-scope .text-gray-600,
+.light.theme-eforl .app-theme-scope .text-gray-500 {
+  color: var(--app-muted) !important;
+}
+
+.badge-event {
+  background: var(--badge-event-bg);
+  color: var(--badge-event-text);
+}
+
+.badge-note {
+  background: var(--badge-note-bg);
+  color: var(--badge-note-text);
+}
+
+.badge-start {
+  background: var(--badge-start-bg);
+  color: var(--badge-start-text);
+}
+
+.badge-end {
+  background: var(--badge-end-bg);
+  color: var(--badge-end-text);
+}
+
+.badge-timeout {
+  background: var(--badge-timeout-bg);
+  color: var(--badge-timeout-text);
+}
+
+.badge-mid {
+  background: var(--badge-mid-bg);
+  color: var(--badge-mid-text);
+}
+
+.badge-intake {
+  background: var(--badge-intake-bg);
+  color: var(--badge-intake-text);
+}
+
+.badge-output {
+  background: var(--badge-output-bg);
+  color: var(--badge-output-text);
+}
+
+.badge-drip {
+  background: var(--badge-drip-bg);
+  color: var(--badge-drip-text);
+}
+
+.badge-measure {
+  background: var(--badge-measure-bg);
+  color: var(--badge-measure-text);
+}
+
+.badge-setting {
+  background: var(--badge-setting-bg);
+  color: var(--badge-setting-text);
+}
+
+.case-quick-actions {
+  border-color: color-mix(in srgb, var(--app-border) 92%, white 8%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--app-panel-bg) 86%, black 14%) 0%, var(--app-panel-bg) 100%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 4%, transparent),
+    0 12px 30px color-mix(in srgb, black 12%, transparent);
+}
+
+.case-quick-action {
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  isolation: isolate;
+}
+
+.case-quick-action::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--quick-action-accent, var(--app-accent)) 92%, white 8%) 0%,
+    color-mix(in srgb, var(--quick-action-accent, var(--app-accent)) 32%, transparent) 100%
+  );
+  opacity: 0.95;
+}
+
+.case-quick-action::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 0.7rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, white 8%, transparent) 0%,
+    transparent 55%,
+    color-mix(in srgb, black 4%, transparent) 100%
+  );
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.case-quick-action:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--quick-action-accent, var(--app-accent)) 52%,
+    var(--app-border)
+  ) !important;
+  box-shadow:
+    0 14px 28px color-mix(in srgb, var(--quick-action-accent, var(--app-accent)) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 7%, transparent) !important;
+}
+
+.case-quick-action__label,
+.case-quick-action__shortcut,
+.case-quick-action__icon {
+  position: relative;
+  z-index: 1;
+}
+
+.case-quick-action__label {
+  letter-spacing: 0.01em;
+  font-weight: 700;
+}
+
+.case-quick-action__icon {
+  flex-shrink: 0;
+}
+
+.io-drip-bar {
+  position: absolute;
+  top: 36%;
+  height: 3px;
+  transform: translateY(-50%);
+  background: var(--io-drip-fill);
+  box-shadow: 0 0 0 1px var(--io-drip-glow);
+  pointer-events: none;
+  border-radius: 0;
+}
+
+/* Vertical tick cap shared style */
+.io-drip-start::before,
+.io-drip-single::before,
+.io-drip-end::after,
+.io-drip-single::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 11px;
+  background: var(--io-drip-fill);
+  border-radius: 1px;
+}
+
+.io-drip-start {
+  left: 3px;
+  right: -1px;
+}
+.io-drip-start::before {
+  left: -2px;
+}
+
+.io-drip-mid {
+  left: -1px;
+  right: -1px;
+}
+
+.io-drip-end {
+  left: -1px;
+  right: 3px;
+}
+.io-drip-end::after {
+  right: -2px;
+}
+
+.io-drip-single {
+  left: 3px;
+  right: 3px;
+}
+.io-drip-single::before {
+  left: -2px;
+}
+.io-drip-single::after {
+  right: -2px;
+}
+
+.io-drip-rate-label {
+  margin-top: 10px;
+  color: color-mix(in srgb, var(--app-text) 82%, var(--io-drip-fill) 18%);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 0 var(--app-bg);
+  background: color-mix(in srgb, var(--app-bg) 88%, transparent);
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+
+.dark .io-drip-rate-label {
+  color: color-mix(in srgb, #ffffff 86%, var(--io-drip-fill) 14%);
+  background: rgba(0, 0, 0, 0.28);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+.io-drip-tone-iv-anesthetic {
+  --io-drip-fill: #60a5fa;
+  --io-drip-glow: rgba(96, 165, 250, 0.35);
+}
+
+.io-drip-tone-nmbd {
+  --io-drip-fill: #34d399;
+  --io-drip-glow: rgba(52, 211, 153, 0.35);
+}
+
+.io-drip-tone-opioid {
+  --io-drip-fill: #c084fc;
+  --io-drip-glow: rgba(192, 132, 252, 0.35);
+}
+
+.io-drip-tone-cv-drug {
+  --io-drip-fill: #fb7185;
+  --io-drip-glow: rgba(251, 113, 133, 0.35);
+}
+
+.io-drip-tone-antibiotic {
+  --io-drip-fill: #fbbf24;
+  --io-drip-glow: rgba(251, 191, 36, 0.35);
+}
+
+.io-drip-tone-anti-emetic {
+  --io-drip-fill: #22c55e;
+  --io-drip-glow: rgba(34, 197, 94, 0.35);
+}
+
+.io-drip-tone-analgesic {
+  --io-drip-fill: #f97316;
+  --io-drip-glow: rgba(249, 115, 22, 0.35);
+}
+
+.io-drip-tone-anticholinergic {
+  --io-drip-fill: #f59e0b;
+  --io-drip-glow: rgba(245, 158, 11, 0.35);
+}
+
+.io-drip-tone-reversal {
+  --io-drip-fill: #a78bfa;
+  --io-drip-glow: rgba(167, 139, 250, 0.35);
+}
+
+.io-drip-tone-local-anesthetic {
+  --io-drip-fill: #14b8a6;
+  --io-drip-glow: rgba(20, 184, 166, 0.35);
+}
+
+.io-drip-tone-fluid {
+  --io-drip-fill: #22d3ee;
+  --io-drip-glow: rgba(34, 211, 238, 0.35);
+}
+
+.io-drip-tone-other {
+  --io-drip-fill: #94a3b8;
+  --io-drip-glow: rgba(148, 163, 184, 0.35);
+}
+
+/* ============================= */
+/* TIMEGRID COMPACT TYPOGRAPHY   */
+/* ============================= */
+.timegrid-compact,
+.timegrid-compact td,
+.timegrid-compact th,
+.timegrid-compact input,
+.timegrid-compact select,
+.timegrid-compact option {
+  font-size: 9px !important;
+  line-height: 1.25;
+}
+
+.timegrid-compact input[type="number"]::-webkit-outer-spin-button,
+.timegrid-compact input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.timegrid-compact input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.app-theme-scope .timegrid-compact input:not([type="checkbox"]):not([type="radio"]),
+.app-theme-scope .timegrid-compact select {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-theme-scope .timegrid-compact input:not([type="checkbox"]):not([type="radio"]):hover,
+.app-theme-scope .timegrid-compact select:hover {
+  background: transparent !important;
+}
+
+.timegrid-compact td:focus-within {
+  box-shadow: inset 0 0 0 1px var(--timegrid-focus-ring);
+  background: var(--timegrid-focus-bg);
+}
+
+.timegrid-compact input:focus,
+.timegrid-compact select:focus {
+  background: var(--timegrid-focus-bg);
+}
+
+.timegrid-label-even,
+.timegrid-cell-even {
+  background: var(--timegrid-row-even);
+}
+
+.timegrid-label-odd,
+.timegrid-cell-odd {
+  background: var(--timegrid-row-odd);
+}
+
+.timegrid-row-event-header {
+  background: var(--timegrid-event-header-bg) !important;
+}
+
+.timegrid-row-io-header {
+  background: var(--timegrid-io-header-bg) !important;
+}
+
+.timegrid-row-vital-header {
+  background: var(--timegrid-vital-header-bg) !important;
+}
+
+.timegrid-compact tbody tr > td:first-child {
+  background-clip: padding-box;
+}
+
+.timegrid-now-cell {
+  box-shadow: inset 1px 0 0 var(--timegrid-now-line),
+    inset -1px 0 0 var(--timegrid-now-line);
+}
+
+.timeaxis-now-cell {
+  box-shadow: inset 1px 0 0 var(--timegrid-now-line),
+    inset -1px 0 0 var(--timegrid-now-line);
+}
+
+.timegrid-compact tbody tr.timegrid-row > td.timegrid-row-cell,
+.timegrid-compact tbody tr.timegrid-row > td.timegrid-sticky-label {
+  border-bottom: 1px solid var(--timegrid-row-divider);
+}
+
+.timegrid-sticky-label {
+  box-shadow: inset -1px 0 0 var(--timegrid-sticky-divider),
+    4px 0 8px -8px var(--timegrid-sticky-shadow);
+  background-clip: padding-box;
+}
+
+.timegrid-compact tbody tr.timegrid-row:hover > td {
+  background: var(--timegrid-row-hover-bg) !important;
+}
+
+.timegrid-compact tbody tr.timegrid-row-active > td {
+  background: var(--timegrid-row-active-bg) !important;
+}
+
+.timegrid-compact tbody tr.timegrid-row:hover > td,
+.timegrid-compact tbody tr.timegrid-row-active > td {
+  box-shadow: inset 0 1px 0 var(--timegrid-row-hover-line),
+    inset 0 -1px 0 var(--timegrid-row-hover-line);
+}
+
+.timegrid-compact tbody tr.timegrid-row-active > td {
+  box-shadow: inset 0 1px 0 var(--timegrid-row-active-line),
+    inset 0 -1px 0 var(--timegrid-row-active-line);
+}
+
+/* Preserve current-column border contrast even when row hover/active highlight is applied */
+.timegrid-compact tbody tr.timegrid-row:hover > td.timegrid-now-cell {
+  box-shadow: inset 1px 0 0 var(--timegrid-now-line),
+    inset -1px 0 0 var(--timegrid-now-line),
+    inset 0 1px 0 var(--timegrid-row-hover-line),
+    inset 0 -1px 0 var(--timegrid-row-hover-line);
+}
+
+.timegrid-compact tbody tr.timegrid-row-active > td.timegrid-now-cell {
+  box-shadow: inset 1px 0 0 var(--timegrid-now-line),
+    inset -1px 0 0 var(--timegrid-now-line),
+    inset 0 1px 0 var(--timegrid-row-active-line),
+    inset 0 -1px 0 var(--timegrid-row-active-line);
+}
+
+/* TimeGrid lives in an overflow-y container; show tooltips below cell to avoid clipping under chart area */
+.timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):hover::after,
+.timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):focus-visible::after {
+  top: calc(100% + 6px);
+  bottom: auto;
+  z-index: 1300;
+}
+
+.timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):hover::before,
+.timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):focus-visible::before {
+  top: calc(100% + 2px);
+  bottom: auto;
+  z-index: 1299;
+  border-color: transparent transparent var(--app-tooltip-bg) transparent;
+}
+
+/* Force 24-hour display for time controls in Chromium/WebKit */
+.time24-input::-webkit-datetime-edit-ampm-field {
+  display: none;
+}
+
+.report-timeline-readonly input,
+.report-timeline-readonly select,
+.report-timeline-readonly button {
+  pointer-events: none;
+}
+
+.report-surface {
+  background: var(--app-control-bg);
+}
+
+.report-border {
+  border-color: var(--app-border) !important;
+}
+
+.report-cell-text {
+  color: var(--app-text);
+}
+
+.report-muted-text {
+  color: var(--app-muted);
+}
+
+.report-chart-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+
+.report-chart-toggle.is-clickable {
+  cursor: pointer;
+}
+
+.report-chart-toggle.is-empty {
+  opacity: 0.62;
+}
+
+.report-chart-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--app-control-border);
+  background: var(--app-control-bg);
+  color: var(--app-accent);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.report-chart-toggle.is-on .report-chart-checkbox {
+  border-color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-accent) 22%, transparent);
+}
+
+/* Report should stay print-like even when app is in dark mode. */
+.report-root {
+  --chart-grid-line: #cbd5e1;
+  --chart-grid-line-strong: #64748b;
+  --chart-now-col: rgba(15, 23, 42, 0.04);
+  --chart-axis-text: #0f172a;
+  --chart-axis-text-shadow: transparent;
+  --chart-spo2: #1d4f91;
+  --chart-hr: #111111;
+  --chart-pr: #0f766e;
+  --chart-nibp: #166534;
+  --chart-art: #991b1b;
+  --chart-cvp: #c2410c;
+  --chart-temp: #111111;
+}
+
+.report-document {
+  background: #ffffff !important;
+}
+
+.report-root .report-page,
+.report-document .report-sheet {
+  background: #ffffff !important;
+  border-color: #1f2937 !important;
+}
+
+.report-thai-text,
+.report-page .report-thai-text,
+.report-document .report-thai-text {
+  font-family: "Noto Sans Thai", "Sarabun", "TH Sarabun New", Tahoma, sans-serif !important;
+}
+
+/* Force readable report text regardless of app theme tinting/filter overlays. */
+.report-page,
+.report-page *,
+.report-document .report-sheet,
+.report-document .report-sheet * {
+  color: #0f172a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  mix-blend-mode: normal !important;
+  text-shadow: none !important;
+}
+
+.report-page .report-surface,
+.report-document .report-surface {
+  background: #ffffff !important;
+}
+
+.report-page .report-border,
+.report-document .report-border {
+  border-color: #1f2937 !important;
+}
+
+.report-page .report-cell-text,
+.report-document .report-cell-text {
+  color: #0f172a !important;
+}
+
+.report-page .report-header-barcode,
+.report-page .report-header-barcode > div,
+.report-document .report-header-barcode,
+.report-document .report-header-barcode > div {
+  background: #ffffff !important;
+  border-color: #6b7280 !important;
+  color: #000000 !important;
+}
+
+.report-page .report-header-barcode svg,
+.report-page .report-header-barcode rect,
+.report-document .report-header-barcode svg,
+.report-document .report-header-barcode rect {
+  color: #000000 !important;
+}
+
+.report-page .report-muted-text,
+.report-page .text-gray-500,
+.report-page .text-gray-400,
+.report-page .dark\:text-gray-300,
+.report-page .dark\:text-gray-400,
+.report-document .report-muted-text,
+.report-document .text-gray-500,
+.report-document .text-gray-400,
+.report-document .dark\:text-gray-300,
+.report-document .dark\:text-gray-400 {
+  color: #334155 !important;
+}
+
+.report-page .bg-gray-50,
+.report-page .bg-gray-100,
+.report-page .bg-gray-900,
+.report-page .bg-gray-950,
+.report-page .dark\:bg-gray-900,
+.report-page .dark\:bg-gray-950,
+.report-page .dark\:bg-gray-800,
+.report-document .bg-gray-50,
+.report-document .bg-gray-100,
+.report-document .bg-gray-900,
+.report-document .bg-gray-950,
+.report-document .dark\:bg-gray-900,
+.report-document .dark\:bg-gray-950,
+.report-document .dark\:bg-gray-800 {
+  background: #ffffff !important;
+}
+
+/* Restore table header background after the broad white override above */
+.report-page th,
+.report-document th {
+  background: #d1d5db !important;
+  color: #0f172a !important;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 8mm;
+}
+
+@media print {
+  html,
+  body,
+  #root {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .app-topbar,
+  .app-rail,
+  .report-toolbar,
+  .report-setup {
+    display: none !important;
+  }
+
+  /* Break the h-screen / overflow-hidden shell so printToPDF can lay out
+     all report pages beyond the visible viewport height */
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    width: auto !important;
+  }
+
+  .app-shell,
+  .app-shell > * {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    flex: none !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+
+  .app-main {
+    overflow: visible !important;
+    height: auto !important;
+    flex: none !important;
+    background: #ffffff !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+
+  .app-rail,
+  .app-topbar {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .report-root,
+  .report-document {
+    padding: 0 !important;
+    color: #0f172a !important;
+    background: #ffffff !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .report-pages,
+  .report-document {
+    display: block !important;
+    gap: 0 !important;
+    width: 100% !important;
+  }
+
+  .report-pages > .report-page + .report-page,
+  .report-document > .report-sheet + .report-sheet {
+    margin-top: 0 !important;
+  }
+
+  .report-page,
+  .report-sheet {
+    display: flex !important;
+    flex-direction: column !important;
+    page-break-after: always;
+    break-after: page;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 281mm !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  .report-page:last-child,
+  .report-sheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .report-page .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  .report-page .min-w-max {
+    min-width: max-content !important;
+    width: auto !important;
+  }
+
+  .report-page .bg-gray-50,
+  .report-page .bg-gray-100,
+  .report-page .bg-gray-900,
+  .report-page .bg-gray-950,
+  .report-page .dark\:bg-gray-900,
+  .report-page .dark\:bg-gray-950,
+  .report-page .dark\:bg-gray-800 {
+    background: #ffffff !important;
+  }
+
+  .report-page .report-surface {
+    background: #ffffff !important;
+  }
+
+  .report-page .text-gray-100,
+  .report-page .text-gray-200,
+  .report-page .text-gray-300,
+  .report-page .text-gray-400,
+  .report-page .dark\:text-gray-100,
+  .report-page .dark\:text-gray-200,
+  .report-page .dark\:text-gray-300,
+  .report-page .dark\:text-gray-400 {
+    color: #0f172a !important;
+  }
+
+  .report-page .report-cell-text,
+  .report-page .report-muted-text {
+    color: #0f172a !important;
+  }
+
+  /* Print table borders */
+  .report-page table {
+    border-collapse: collapse !important;
+  }
+
+  .report-page th,
+  .report-page td {
+    border-color: #334155 !important;
+  }
+
+  /* Ensure table header background prints */
+  .report-page th {
+    background-color: #d1d5db !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* All grid/table borders — solid dark lines for paper readability */
+  .report-page .report-border,
+  .report-page [class*="border-"] {
+    border-color: #1f2937 !important;
+  }
+
+  /* Section header underlines */
+  .report-page .border-b {
+    border-bottom-color: #1f2937 !important;
+  }
+
+  /* Page header border */
+  .report-page header {
+    border-bottom-color: #1f2937 !important;
+  }
+
+  .report-page .param-picker-panel {
+    display: none !important;
+  }
+
+  .report-timeline-readonly {
+    margin-top: 1mm !important;
+  }
+
+
+  .report-timeline-readonly input[type="checkbox"] {
+    transform: scale(0.86);
+  }
+}

@@ -62,6 +62,11 @@ def normalize_code(value: Optional[str]) -> str:
     return text.upper()
 
 
+def is_likely_icd10_code(value: Optional[str]) -> bool:
+    text = normalize_code(value)
+    return bool(text) and bool(re.match(r"^[A-Z]", text))
+
+
 def parse_int_like(value: Optional[str]) -> Optional[int]:
     text = normalize_text(value)
     if not text:
@@ -193,6 +198,8 @@ def to_record(cells: Dict[int, str], header_map: Dict[str, int]) -> Optional[Dic
 
     icd10 = normalize_code(get("icd10"))
     if not icd10:
+        return None
+    if not is_likely_icd10_code(icd10):
         return None
 
     icd10who = normalize_code(get("icd10who")) or icd10

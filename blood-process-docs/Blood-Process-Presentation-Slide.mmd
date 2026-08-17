@@ -1,0 +1,66 @@
+flowchart TB
+    classDef his fill:#FFD7E5,stroke:#C2185B,stroke-width:2px,color:#111,font-weight:bold;
+    classDef clinical fill:#D9ECFF,stroke:#1565C0,stroke-width:2px,color:#111,font-weight:bold;
+    classDef aidas fill:#DCF7DC,stroke:#2E7D32,stroke-width:2px,color:#111,font-weight:bold;
+    classDef decision fill:#FFF8D6,stroke:#B28704,stroke-width:2px,color:#111,font-weight:bold;
+    classDef startEnd fill:#FFFFFF,stroke:#444,stroke-width:2px,color:#111,font-weight:bold,stroke-dasharray: 5 5;
+
+    subgraph OR [OR WORKFLOW]
+        direction TB
+        C1([START CASE]):::startEnd
+        C2[Open Blood Board]:::clinical
+        C3[Review Bag List]:::clinical
+        C4[Scan Select Bag]:::clinical
+        C5[Bedside Check]:::clinical
+        C6[Verify and Sign]:::clinical
+        C7{Need Warming?}:::decision
+        C8[Warm Bag]:::clinical
+        C9[Start Giving]:::clinical
+        C10{Outcome}:::decision
+        C11[Complete Bag]:::clinical
+        C12[Stop or Reaction]:::clinical
+        C13{More Bags?}:::decision
+        C14([END CASE]):::startEnd
+    end
+
+    subgraph AD [AIDAS]
+        direction TB
+        A1[Fetch HIS List]:::aidas
+        A2[Show Bag List]:::aidas
+        A3[Match HIS Data]:::aidas
+        A4[Record Verify]:::aidas
+        A5[Record Warming]:::aidas
+        A6[Record Start and Amount]:::aidas
+        A7[Record End Stop Reaction]:::aidas
+        A8[Update Blood Board]:::aidas
+        A9[Refresh HIS List]:::aidas
+        A10[Append New Bags]:::aidas
+        A11[Generate Summary]:::aidas
+    end
+
+    subgraph HIS [HIS AND BLOOD BANK]
+        direction TB
+        H1[Prepare Bags]:::his
+        H2[Ready or Dispensed]:::his
+        H3[More Bags Requested]:::his
+        H4[New Bags in HIS]:::his
+    end
+
+    H1 --> H2
+    C1 --> C2 --> A1
+    A1 --> H2
+    H2 --> A2
+    A2 --> C3 --> C4
+    C4 --> A3 --> C5
+    C5 --> C6 --> A4
+    A4 --> C7
+    C7 -->|Yes| C8 --> A5 --> C9
+    C7 -->|No| C9
+    C9 --> A6 --> C10
+    C10 -->|Completed| C11 --> A7
+    C10 -->|Stopped or Reaction| C12 --> A7
+    A7 --> A8 --> C13
+    C13 -->|Yes| H3 --> H4 --> A9 --> A10 --> A2
+    C13 -->|No| C14 --> A11
+
+    linkStyle default stroke:#666,stroke-width:2px;

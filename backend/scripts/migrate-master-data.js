@@ -43,6 +43,7 @@ const TABLES = [
   "staff_directory",
   "io_item_master",
   "icd10_master",
+  "icd9cm_master",
 ];
 
 function tableCols(schemaName, tableName) {

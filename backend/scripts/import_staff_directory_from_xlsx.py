@@ -29,6 +29,8 @@ RE_TRAIL_DOT_ZERO = re.compile(r"^-?\d+\.0$")
 RE_TRAILING_YEAR = re.compile(r"(\d{2,4})\s*$")
 
 ROLE_MAP = {
+    "anes cu staff": ("anesthetist", "Anesthetist"),
+    "anes cu staffs": ("anesthetist", "Anesthetist"),
     "anesthetist": ("anesthetist", "Anesthetist"),
     "assistant": ("assistant", "Assistant"),
     "circulating nurse": ("circulatingNurse", "Circulating nurse"),
@@ -224,6 +226,30 @@ def detect_header_map(header_row: List[str]) -> Dict[str, int]:
             mapping["hospital_id"] = idx
         elif key in {"innovianid"}:
             mapping["innovian_id"] = idx
+
+    # New CU staff workbook layout:
+    # [ลำดับ, ชื่อไทย, นามสกุลไทย, ชื่ออังกฤษ, นามสกุลอังกฤษ, รหัสประจำตัว รพ., Personal Role, Email, Confirm data, Innovian ID]
+    personal_role = normalize_text(header_row[6] if len(header_row) > 6 else "").lower()
+    email_header = normalize_text(header_row[7] if len(header_row) > 7 else "").lower()
+    innovian_header = normalize_text(header_row[9] if len(header_row) > 9 else "").lower()
+    if (
+        not {"en_first_name", "en_last_name", "staff_role"}.issubset(mapping.keys())
+        and personal_role == "personal role"
+        and email_header == "email"
+        and innovian_header == "innovian id"
+    ):
+        mapping.update(
+            {
+                "th_first_name": 1,
+                "th_last_name": 2,
+                "en_first_name": 3,
+                "en_last_name": 4,
+                "hospital_id": 5,
+                "staff_role": 6,
+                "email": 7,
+                "innovian_id": 9,
+            }
+        )
     return mapping
 
 
@@ -333,6 +359,9 @@ def collect_records(rows_by_sheet: Dict[str, List[List[str]]]) -> List[Dict[str,
             hospital_id = normalize_id(get_cell(row, header_map.get("hospital_id", -1)))
             innovian_id = normalize_id(get_cell(row, header_map.get("innovian_id", -1)))
 
+            if "..." in email or hospital_id == "12345":
+                continue
+
             staff_name = make_staff_name(en_first, en_last, th_first, th_last)
             if not staff_name:
                 continue
@@ -438,7 +467,9 @@ def upsert_records(conn: sqlite3.Connection, records: List[Dict[str, str]]) -> T
     now = int(time.time() * 1000)
 
     for rec in records:
-        hospital_id = rec.get("hospital_id", "")
+        shared_id = rec.get("hospital_id", "") or rec.get("personal_id", "")
+        hospital_id = shared_id
+        personal_id = rec.get("personal_id", "") or shared_id
         email = rec.get("email", "")
         staff_name = rec.get("staff_name", "")
         staff_role = rec.get("staff_role", "")
@@ -475,8 +506,8 @@ def upsert_records(conn: sqlite3.Connection, records: List[Dict[str, str]]) -> T
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
                 """,
                 (
-                    rec.get("hospital_id", "") or None,
-                    rec.get("personal_id", "") or None,
+                    hospital_id or None,
+                    personal_id or None,
                     rec.get("email", "") or None,
                     rec.get("th_first_name", "") or None,
                     rec.get("th_last_name", "") or None,
@@ -520,8 +551,8 @@ def upsert_records(conn: sqlite3.Connection, records: List[Dict[str, str]]) -> T
             WHERE id = ?
             """,
             (
-                merge_value(existing.get("hospital_id"), rec.get("hospital_id", "")) or None,
-                merge_value(existing.get("personal_id"), rec.get("personal_id", "")) or None,
+                merge_value(existing.get("hospital_id"), hospital_id) or None,
+                merge_value(existing.get("personal_id"), personal_id) or None,
                 merge_value(existing.get("email"), rec.get("email", "")) or None,
                 merge_value(existing.get("th_first_name"), rec.get("th_first_name", "")) or None,
                 merge_value(existing.get("th_last_name"), rec.get("th_last_name", "")) or None,

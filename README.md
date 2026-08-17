@@ -1,194 +1,138 @@
-<div align="center">
-  <img src="electron/assets/aidas-app.png" alt="Flora / AIDAS" width="112" />
+# Aidas
 
-  # Flora
+Aidas is a desktop anesthesia information and documentation system used for real operating-room case recording, device-assisted vital sign capture, fluid and medication charting, clinical forms, and anesthesia report generation.
 
-  **Desktop anesthesia workflow platform for case capture, minute writing, and device integration**
+The current desktop app is built as an Electron package with a React frontend, Node backend, SQLite database, and shared parameter mapping used by Aidas and Hidro integration paths.
 
-  <p>
-    <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows-2563eb">
-    <img alt="Desktop" src="https://img.shields.io/badge/Desktop-Electron-0f172a">
-    <img alt="Frontend" src="https://img.shields.io/badge/Frontend-React-0ea5e9">
-    <img alt="Backend" src="https://img.shields.io/badge/Backend-Express-16a34a">
-    <img alt="Database" src="https://img.shields.io/badge/Database-SQLite-7c3aed">
-    <img alt="Runtime" src="https://img.shields.io/badge/Runtime-Clinical%20Workstation-475569">
-  </p>
-</div>
+## Current Version
 
----
+- Current package version: `1.2.2`
+- Release and milestone history: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)
 
-## Overview
+Major clinical milestones:
 
-Flora is a Windows desktop anesthesia workflow project with three runtime layers:
-
-- `AIDAS`: Electron shell and clinical UI for the workstation experience
-- `backend`: local API and case database writer
-- `Ivy / Hidro`: ingestion services that collect monitor and machine data and expose it to AIDAS
-
-The system is designed for long-running client-PC sessions, repeated case open/close cycles, and resilient local operation.
-
-## Architecture
-
-```text
-Patient Monitor / Machine / HL7
-            |
-            v
-     Ivy / Hidro ingest
-     - collects observations
-     - stores raw device data
-            |
-            v
-      HTTP observation API
-            |
-            v
-       AIDAS backend
-     - minute writer
-     - case/event APIs
-     - SQLite persistence
-            |
-            v
-     AIDAS desktop frontend
-     - case workflow
-     - drug / fluid capture
-     - report / print layout
-```
-
-## Highlights
-
-- Desktop-first workflow built for anesthesia documentation
-- Local-first runtime with SQLite-backed persistence
-- Separate ingestion runtime for device and observation streams
-- Timeline, drugs, fluids, blood products, events, and printable report views
-- Launcher-based startup model for client deployment and troubleshooting
+- `1.0.0`: first real clinical release in intervention OR with `GE B1x5` and `GE Carestation 750`
+- `1.1.0`: packaged Aidas and Hidro installer workflow
+- `1.2.0`: Neuro OR expansion with `GE B650/850` and `GE Aisys / Avance`
+- `1.2.1`: stabilization patch after Neuro OR beta and packaged client rollout
+- `1.2.2`: line-form refinement, report/event fixes, manual drug fallback, and first edition architecture support
 
 ## Repository Layout
 
-- [`frontend-v2`](frontend-v2): React UI
-- [`backend`](backend): Express API and Flora database access
-- [`electron`](electron): AIDAS Electron main process
-- [`ivy`](ivy): ingestion server and `ivy.db` runtime
-- [`ivy-tray`](ivy-tray): Hidro tray shell
-- [`scripts`](scripts): packaging, recovery, and startup helper scripts
-- [`shared`](shared): shared runtime mappings and helpers
+- `frontend/`: React/Vite frontend for the Aidas desktop UI
+- `backend/`: Node backend, SQLite schema, case APIs, minute writer, and master-data import tools
+- `electron/`: Electron shell and desktop PDF/report generation entry points
+- `shared/`: shared parameter maps and integration constants
+- `scripts/`: desktop build, launch, repair, client DB, and verification scripts
+- `docs/`: release notes, integration documents, IP/license drafts, and working documentation
 
-## Runtime Model
+## Development
 
-### Data stores
-
-- `flora.db`
-  - AIDAS case database
-  - stores cases, minute snapshots, manual edits, events, staff, diagnosis, drugs, and related case state
-
-- `ivy.db`
-  - Ivy raw observation database
-  - stores incoming GE750, HL7, and device observations before AIDAS consumes them
-
-Important behavior:
-
-- AIDAS does **not** read `ivy.db` directly
-- AIDAS backend reads observations from Ivy over HTTP
-
-### Default ports
-
-- Ivy HTTP: `3000`
-- AIDAS backend: `3001`
-- HL7 listener: `6000`
-
-### Service flow
-
-1. Ivy receives device data and writes raw observations into `ivy.db`
-2. Ivy exposes observations over HTTP
-3. AIDAS backend minute writer reads Ivy observation data
-4. AIDAS backend writes case-minute snapshots into `flora.db`
-5. AIDAS frontend reads case state from the backend
-
-## Quick Start
-
-Install root dependencies:
+Install dependencies in the root, frontend, and backend folders as needed:
 
 ```powershell
 npm install
+Set-Location frontend
+npm install
+Set-Location ..\backend
+npm install
+Set-Location ..
 ```
 
-Install subproject dependencies as needed:
+Build the frontend:
 
 ```powershell
-cd backend
-npm install
-
-cd ..\ivy
-npm install
-
-cd ..\frontend-v2
-npm install
-```
-
-Build the frontend bundle:
-
-```powershell
-cd c:\Users\onlys\flora-aplha
 npm run desktop:build:web
 ```
 
-## Launchers
+Run the desktop app after building:
 
-Use launcher files as the normal run path instead of starting the Electron app manually.
+```powershell
+npm run desktop:start:no-build
+```
 
-### AIDAS
+Build and run in one command:
 
-- Visible: [`start-aidas.cmd`](start-aidas.cmd)
-- Hidden: [`start-aidas-hidden.vbs`](start-aidas-hidden.vbs)
-- Test: [`start-aidas-test.cmd`](start-aidas-test.cmd)
+```powershell
+npm run desktop:start
+```
 
-Behavior:
+## Packaging
 
-- uses the client runtime database path
-- clears stale backend state on startup
-- uses dedicated Electron profile and cache folders
-- preserves SQLite WAL and SHM files during normal startup
+Build the Windows installer:
 
-### Hidro
+```powershell
+npm run desktop:package:win
+```
 
-- Hidden: [`start-hidro-hidden.vbs`](start-hidro-hidden.vbs)
-- Test: [`start-hidro-test.cmd`](start-hidro-test.cmd)
+Generated installer artifacts are written to `dist-electron/`.
 
-## Health And Debug Endpoints
+Runtime release bundles and client database files are local deployment artifacts and are ignored by git under `deploy-artifacts/`.
 
-- Ivy health: `http://127.0.0.1:3000/health`
-- Ivy services: `http://127.0.0.1:3000/api/admin/services`
-- AIDAS backend health: `http://127.0.0.1:3001/health`
-- AIDAS minute writer debug: `http://127.0.0.1:3001/debug/minute-writer`
+## Database
 
-## Deployment Notes
+In packaged mode, Aidas uses:
 
-- client deployments are launcher-driven
-- hidden VBS launchers are intended for end users
-- visible CMD launchers are intended for troubleshooting and validation
-- recovery and repair paths are separate from standard startup
+```text
+C:\porjai\data\flora.db
+```
 
-Useful scripts:
+The installer does not bundle a production database. A valid client database must be prepared and placed at the runtime path.
 
-- [`repair-aidas-db.cmd`](repair-aidas-db.cmd)
-- [`build-client-package.cmd`](build-client-package.cmd)
-- [`scripts/start-aidas.ps1`](scripts/start-aidas.ps1)
-- [`scripts/start-aidas-recover.ps1`](scripts/start-aidas-recover.ps1)
+Build a sanitized client database from the deployment source DB:
 
-## Stability Hardening
+```powershell
+node scripts/build-client-db.js
+```
 
-- dedicated Electron profile and cache folders
-- single-instance protection in the AIDAS Electron shell
-- backend active-case writer reconciliation
-- graceful shutdown for AIDAS backend and Ivy services
-- SQLite WAL, busy-timeout, and checkpoint tuning
-- launcher recovery for stale backend state
+Check required master data in a client database:
 
-## Development Notes
+```powershell
+npm run db:check:master -- C:\porjai\data\flora.db
+```
 
-- runtime profile folders are ignored by git
-- local build artifacts and deploy staging directories are ignored
-- line ending behavior is controlled by [`.gitattributes`](.gitattributes)
-- repository-specific ignore rules live in [`.gitignore`](.gitignore)
+Expected master tables include:
 
-## License
+- `icd10_master`
+- `icd9cm_master`
+- `io_item_master`
+- `staff_role`
 
-Internal project repository. Add the intended license here if this repository is going to be shared outside the current team.
+Migrate master data from a source DB into the local app DB:
+
+```powershell
+npm run db:migrate:master
+```
+
+## Operational Scripts
+
+- `scripts/start-aidas.ps1`: launch Aidas using the packaged runtime database path
+- `scripts/launch-aidas.ps1`: launch helper for local runtime
+- `scripts/repair-aidas-db.js`: inspect or repair active-case state
+- `scripts/check-master-data.js`: verify ICD and other master tables
+- `scripts/build-client-db.js`: prepare a clean client DB with master data and default admin
+- `scripts/build-desktop-win.ps1`: Windows packaging wrapper
+
+## Release Notes
+
+Every release or client-facing patch should be recorded in [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md).
+
+Use the release notes for:
+
+- real clinical milestones
+- device integration milestones
+- patch summaries
+- validation and rollout notes
+- known operational meaning of each version
+
+## Git Notes
+
+Generated and local runtime outputs are intentionally ignored:
+
+- `frontend/dist/`
+- `dist-electron/`
+- `deploy-artifacts/`
+- `tmp_docx_extract/`
+- local runtime profiles and database files
+
+Keep source changes, release notes, scripts, and reusable documentation in git. Keep installers, runtime DB files, and temporary document extraction folders outside git unless there is a deliberate reason to version them.
