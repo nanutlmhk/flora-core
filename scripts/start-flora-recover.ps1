@@ -1,6 +1,6 @@
 $ErrorActionPreference = "SilentlyContinue"
 
-$pidFile = $env:AIDAS_BACKEND_PID_FILE
+$pidFile = $env:FLORA_BACKEND_PID_FILE
 
 if ($pidFile -and (Test-Path $pidFile)) {
   try {

@@ -225,7 +225,7 @@ secure channel.
 
 Copied-document folder:
 
-`C:\Users\onlys\Aidas\docs\handoff\Vimut Docs`
+`C:\Users\onlys\Flora\docs\handoff\Vimut Docs`
 
 The folder is flat and contains documents only. Local timestamps use
 Asia/Bangkok (`UTC+7`). The original sources remain in place.
@@ -233,10 +233,10 @@ Asia/Bangkok (`UTC+7`). The original sources remain in place.
 | Document in `Vimut Docs` | Original source path | Local timestamp |
 | --- | --- | --- |
 | `ab.docx` | `C:\Users\onlys\Downloads\ab.docx` | `2026-01-13T10:15:00+07:00` |
-| `fkpj-meeting-report-2026-05-30.md` | `C:\Users\onlys\Aidas\fkpj-meeting-report-2026-05-30.md` | `2026-06-21T16:23:17+07:00` |
-| `HANDOFF-HOSPITAL-CONTEXT.md` | `C:\Users\onlys\Aidas\docs\HANDOFF-HOSPITAL-CONTEXT.md` | `2026-07-21T12:08:11+07:00` |
-| `HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `C:\Users\onlys\Aidas\docs\HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `2026-07-21T12:08:11+07:00` |
-| `Medical-Device-Integration-Handover-Checklist-Response.md` | `C:\Users\onlys\Aidas\docs\Medical-Device-Integration-Handover-Checklist-Response.md` | `2026-07-21T13:11:15+07:00` |
+| `fkpj-meeting-report-2026-05-30.md` | `C:\Users\onlys\Flora\fkpj-meeting-report-2026-05-30.md` | `2026-06-21T16:23:17+07:00` |
+| `HANDOFF-HOSPITAL-CONTEXT.md` | `C:\Users\onlys\Flora\docs\HANDOFF-HOSPITAL-CONTEXT.md` | `2026-07-21T12:08:11+07:00` |
+| `HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `C:\Users\onlys\Flora\docs\HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `2026-07-21T12:08:11+07:00` |
+| `Medical-Device-Integration-Handover-Checklist-Response.md` | `C:\Users\onlys\Flora\docs\Medical-Device-Integration-Handover-Checklist-Response.md` | `2026-07-21T13:11:15+07:00` |
 | `Medical-Device-Integration-Handover-Checklist-Response.pdf` | `C:\Users\onlys\Downloads\Medical-Device-Integration-Handover-Checklist-Response.pdf` | `2026-07-21T14:15:11+07:00` |
 | `P3 TOR ย่อ_งานบำรุงรักษาเครื่องมือกลุ่ม Vital Sign แล.pdf` | `C:\Users\onlys\OneDrive\เอกสาร\P3 TOR ย่อ_งานบำรุงรักษาเครื่องมือกลุ่ม Vital Sign แล.pdf` | `2026-03-07T15:19:52+07:00` |
 | `ViMUT Hospital-Purchase Order4110060127.pdf` | `C:\Users\onlys\Downloads\ViMUT Hospital-Purchase Order4110060127.pdf` | `2026-03-24T13:04:09+07:00` |

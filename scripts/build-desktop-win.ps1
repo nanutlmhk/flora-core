@@ -14,24 +14,24 @@ $editionCode = $Edition.ToLowerInvariant()
 
 switch ($editionCode) {
   "eforl" {
-    $productName = "Aidas EforL"
-    $appId = "com.aidas.eforl.desktop"
-    $artifactName = "Aidas-EforL-Setup-${version}.$" + "{ext}"
+    $productName = "Flora EforL"
+    $appId = "com.flora.eforl.desktop"
+    $artifactName = "Flora-EforL-Setup-${version}.$" + "{ext}"
   }
   "rcat" {
-    $productName = "Aidas RCAT"
-    $appId = "com.aidas.rcat.desktop"
-    $artifactName = "Aidas-RCAT-Setup-${version}.$" + "{ext}"
+    $productName = "Flora RCAT"
+    $appId = "com.flora.rcat.desktop"
+    $artifactName = "Flora-RCAT-Setup-${version}.$" + "{ext}"
   }
   default {
-    $productName = "Aidas"
-    $appId = "com.aidas.desktop"
-    $artifactName = "Aidas-Setup-${version}.$" + "{ext}"
+    $productName = "Flora"
+    $appId = "com.flora.desktop"
+    $artifactName = "Flora-Setup-${version}.$" + "{ext}"
   }
 }
 
 function Stop-InstallerLocks {
-  $processNames = @("Aidas", "Aidas EforL", "Aidas RCAT", "Aidas-Setup-$version", "Aidas-EforL-Setup-$version", "Aidas-RCAT-Setup-$version", "Aidas-Setup", "Aidas-EforL-Setup", "Aidas-RCAT-Setup")
+  $processNames = @("Flora", "Flora EforL", "Flora RCAT", "Flora-Setup-$version", "Flora-EforL-Setup-$version", "Flora-RCAT-Setup-$version", "Flora-Setup", "Flora-EforL-Setup", "Flora-RCAT-Setup")
   foreach ($name in $processNames) {
     Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   }
@@ -57,11 +57,11 @@ for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
       Remove-Item "dist-electron" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    Invoke-Step "aidas icon build" "npm run aidas:icon:build"
+    Invoke-Step "flora icon build" "npm run flora:icon:build"
     Invoke-Step "frontend build" "npm run desktop:build:web"
     Invoke-Step "backend native rebuild" "npm run backend:rebuild:native"
-    $env:AIDAS_EDITION = $editionCode
-    Invoke-Step "electron package" "npx electron-builder --win nsis --x64 --config.extraMetadata.aidasEdition=$editionCode --config.productName=""$productName"" --config.appId=$appId --config.win.artifactName=""$artifactName"""
+    $env:FLORA_EDITION = $editionCode
+    Invoke-Step "electron package" "npx electron-builder --win nsis --x64 --config.extraMetadata.floraEdition=$editionCode --config.productName=""$productName"" --config.appId=$appId --config.win.artifactName=""$artifactName"""
 
     Write-Host "[BUILD] Success"
     exit 0

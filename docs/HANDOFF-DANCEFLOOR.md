@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Dancefloor is the project-memory and operational workspace around the software portfolio. It is not a replacement for AIDAS, Hidro, or Innovian. Its role is to connect delivery, support, governance, assets, decisions, incidents, and hospital context.
+Dancefloor is the project-memory and operational workspace around the software portfolio. It is not a replacement for FLORA, Hidro, or Innovian. Its role is to connect delivery, support, governance, assets, decisions, incidents, and hospital context.
 
 ## Product Model
 
@@ -42,4 +42,4 @@ The repository includes KCMH asset records, hospital network request material, C
 - Record observed facts separately from assumptions.
 - Keep private credentials, patient data, and live tokens out of the project workspace.
 - Record the next owner and next action for unresolved issues.
-- Use one project timeline to connect Innovian maintenance, AIDAS rollout, Hidro incidents, and hospital IT decisions.
+- Use one project timeline to connect Innovian maintenance, FLORA rollout, Hidro incidents, and hospital IT decisions.

@@ -1,6 +1,6 @@
-# AIDAS Community and E for L Edition Spec Draft
+# FLORA Community and E for L Edition Spec Draft
 
-Prepared from doctor handwritten requirement in [6423.jpg](c:/Users/onlys/Aidas/docs/6423.jpg).
+Prepared from doctor handwritten requirement in [6423.jpg](c:/Users/onlys/Flora/docs/6423.jpg).
 
 This draft is meant to help us turn the note into a clearer product-edition structure before implementation.
 
@@ -8,12 +8,12 @@ This draft is meant to help us turn the note into a clearer product-edition stru
 
 The requirement is no longer only:
 
-- `AIDAS RCAT Community Edition`
+- `FLORA RCAT Community Edition`
 
 It is now:
 
-- `AIDAS RCAT Community Edition`
-- `AIDAS E for L Partner Edition`
+- `FLORA RCAT Community Edition`
+- `FLORA E for L Partner Edition`
 
 Both appear to be free or special-distribution editions, but they serve different purposes.
 
@@ -37,7 +37,7 @@ Target:
 
 - partner edition for `E for L`
 - more capable than RCAT edition
-- still limited compared with full AIDAS
+- still limited compared with full FLORA
 - likely intended as a curated partner package with some library and formula support
 
 Identity from note:
@@ -333,11 +333,11 @@ Interpretation:
 
 Based on the handwritten note, the editions likely become:
 
-### AIDAS Full Edition
+### FLORA Full Edition
 
 - full commercial / full hospital capability
 
-### AIDAS RCAT Community Edition
+### FLORA RCAT Community Edition
 
 - free / community / academic / broad introductory version
 - strongly limited
@@ -345,7 +345,7 @@ Based on the handwritten note, the editions likely become:
 - no library / no formula calculator
 - limited graphing and print capability
 
-### AIDAS E for L Partner Edition
+### FLORA E for L Partner Edition
 
 - free or partner-distributed special edition
 - more capable than RCAT
@@ -361,15 +361,15 @@ To avoid confusion, I would recommend:
 
 ### Option A
 
-- `AIDAS Full Edition`
-- `AIDAS RCAT Community Edition`
-- `AIDAS E for L Partner Edition`
+- `FLORA Full Edition`
+- `FLORA RCAT Community Edition`
+- `FLORA E for L Partner Edition`
 
 ### Option B
 
-- `AIDAS Full Edition`
-- `AIDAS Community Edition (RCAT)`
-- `AIDAS Partner Edition (E for L)`
+- `FLORA Full Edition`
+- `FLORA Community Edition (RCAT)`
+- `FLORA Partner Edition (E for L)`
 
 Option B is slightly cleaner in product structure.
 

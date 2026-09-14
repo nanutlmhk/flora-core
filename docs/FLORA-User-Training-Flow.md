@@ -1,4 +1,4 @@
-# AIDAS User Training Flow
+# FLORA User Training Flow
 
 Prepared for official user training after live use in OR rooms `701`, `508`, and `901`.
 
@@ -10,7 +10,7 @@ This document is not yet the full user manual. Its purpose is to define the trai
 
 The training objective is to make users able to:
 
-- start and continue a case safely in AIDAS
+- start and continue a case safely in FLORA
 - understand what comes from automatic device capture and what must still be entered manually
 - document the main anesthesia workflow correctly
 - recognize common problems early
@@ -19,7 +19,7 @@ The training objective is to make users able to:
 
 The goal is not to teach every page in maximum detail on day 1.
 
-The goal is to make real OR users confident enough to use AIDAS correctly in daily work.
+The goal is to make real OR users confident enough to use FLORA correctly in daily work.
 
 ---
 
@@ -82,17 +82,17 @@ Duration: `15-20 min`
 
 Purpose:
 
-- explain what AIDAS is
+- explain what FLORA is
 - explain what Hidro does
 - explain which rooms are live now
-- explain that AIDAS is a local-first OR documentation system
+- explain that FLORA is a local-first OR documentation system
 - explain that manual workflow and automatic capture must coexist
 
 Users should understand:
 
 - patient monitor / anesthesia machine data may auto-populate
 - some information still must be entered manually
-- AIDAS is a documentation system, not a physiologic monitor replacement
+- FLORA is a documentation system, not a physiologic monitor replacement
 
 ### Phase 2: Core workflow training
 
@@ -143,7 +143,7 @@ This should be taught as one continuous case story.
 
 Teach users to check:
 
-- AIDAS opens correctly
+- FLORA opens correctly
 - Hidro is running
 - room/device connection looks normal
 - printer/report path is available if used
@@ -305,7 +305,7 @@ Duration: `60-75 min`
 
 Content:
 
-- what AIDAS does
+- what FLORA does
 - how to start a case
 - chart workflow
 - fluid / med workflow
@@ -368,7 +368,7 @@ Training should be supported by these materials:
 
 ## 11. Proposed rollout order
 
-Because AIDAS is already live in `701`, `508`, and `901`, training should be staged like this:
+Because FLORA is already live in `701`, `508`, and `901`, training should be staged like this:
 
 ### Stage 1: stabilize live-room users
 
@@ -399,7 +399,7 @@ After repeated training and feedback:
 
 If only one first official training session is possible, it should cover these minimum topics:
 
-1. What AIDAS is and what Hidro does
+1. What FLORA is and what Hidro does
 2. How to start/open a case
 3. What data are automatic and what are manual
 4. How to enter events, fluids, bolus, drips, and blood product workflow currently used
@@ -413,8 +413,8 @@ If only one first official training session is possible, it should cover these m
 
 After this training-flow draft, the next recommended documents are:
 
-1. `AIDAS Quick Start Guide`
-2. `AIDAS Official User Manual`
-3. `AIDAS Report Review Checklist`
-4. `AIDAS Room Troubleshooting Card`
+1. `FLORA Quick Start Guide`
+2. `FLORA Official User Manual`
+3. `FLORA Report Review Checklist`
+4. `FLORA Room Troubleshooting Card`
 

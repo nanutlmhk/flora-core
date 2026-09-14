@@ -25,18 +25,16 @@ const outPath = path.resolve(readArg("out", defaultOut));
 const outDir = path.dirname(outPath);
 
 const PRESERVE_TABLES = new Set([
-  "auth_user",
   "icd10_master",
   "icd9cm_master",
   "io_item_master",
   "staff_role",
-  "staff_directory",
 ]);
 
 const DEFAULT_ADMIN = {
-  username: "nanut.l",
-  password: "Welcome1!",
-  name: "Nanut",
+  username: "admin",
+  password: "admin",
+  name: "Administrator",
   role: "admin",
   authSource: "seed",
 };
@@ -97,28 +95,23 @@ async function main() {
     tx();
     db.pragma("foreign_keys = ON");
 
-    const existingAdmin = db
-      .prepare(`SELECT id FROM auth_user WHERE lower(username) = lower(?) LIMIT 1`)
-      .get(DEFAULT_ADMIN.username);
-    if (!existingAdmin) {
-      const now = Date.now();
-      const passwordRecord = createPasswordRecord(DEFAULT_ADMIN.password);
-      db.prepare(
-        `INSERT INTO auth_user (
-            username, hospital_id, auth_source, password_salt, password_hash, name, role, is_active, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)` ,
-      ).run(
-        DEFAULT_ADMIN.username,
-        null,
-        DEFAULT_ADMIN.authSource,
-        passwordRecord.saltHex,
-        passwordRecord.hashHex,
-        DEFAULT_ADMIN.name,
-        DEFAULT_ADMIN.role,
-        now,
-        now,
-      );
-    }
+    const now = Date.now();
+    const passwordRecord = createPasswordRecord(DEFAULT_ADMIN.password);
+    db.prepare(
+      `INSERT INTO auth_user (
+          username, hospital_id, auth_source, password_salt, password_hash, name, role, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)` ,
+    ).run(
+      DEFAULT_ADMIN.username,
+      null,
+      DEFAULT_ADMIN.authSource,
+      passwordRecord.saltHex,
+      passwordRecord.hashHex,
+      DEFAULT_ADMIN.name,
+      DEFAULT_ADMIN.role,
+      now,
+      now,
+    );
 
     db.exec("VACUUM");
 

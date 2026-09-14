@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const Database = require(path.resolve(__dirname, "..", "backend", "node_modules", "better-sqlite3"));
 
-const dbPath = path.resolve(process.argv[2] || process.env.FLORA_DB_PATH || "C:\\porjai\\data\\flora.db");
+const dbPath = path.resolve(process.argv[2] || process.env.FLORA_DB_PATH || path.join(__dirname, "..", "data", "flora.db"));
 
 if (!fs.existsSync(dbPath)) {
   console.error(`[MASTER-CHECK] database not found: ${dbPath}`);

@@ -171,7 +171,7 @@ function deriveAnesRoles(row) {
 function syncDb(dbPath, anesRows, otherRows) {
   const db = new Database(dbPath);
   const now = Date.now();
-  const defaultPassword = "aidas";
+  const defaultPassword = "flora";
 
   const selectStaffByHospitalId = db.prepare(`SELECT * FROM staff_directory WHERE hospital_id = ? LIMIT 1`);
   const selectStaffByName = db.prepare(`SELECT * FROM staff_directory WHERE lower(staff_name) = lower(?) LIMIT 1`);

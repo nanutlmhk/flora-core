@@ -1,35 +1,37 @@
 const { contextBridge, webFrame, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("aidasDesktop", {
+contextBridge.exposeInMainWorld("floraDesktop", {
   isElectron: true,
   platform: process.platform,
   getEditionInfo: () => ({
-    code: ipcRenderer.sendSync("aidas:app:get-edition-code"),
-    productName: ipcRenderer.sendSync("aidas:app:get-product-name"),
-    version: ipcRenderer.sendSync("aidas:app:get-version"),
+    code: ipcRenderer.sendSync("flora:app:get-edition-code"),
+    productName: ipcRenderer.sendSync("flora:app:get-product-name"),
+    version: ipcRenderer.sendSync("flora:app:get-version"),
   }),
+  getBackendBaseUrl: () =>
+    ipcRenderer.sendSync("flora:app:get-backend-base-url"),
   setZoomLevel: (level) => webFrame.setZoomLevel(level),
   getZoomLevel: () => webFrame.getZoomLevel(),
   getBootstrapStatus: () =>
-    ipcRenderer.invoke("aidas:bootstrap:get-status"),
+    ipcRenderer.invoke("flora:bootstrap:get-status"),
   retryBootstrapStart: () =>
-    ipcRenderer.invoke("aidas:bootstrap:retry-start"),
+    ipcRenderer.invoke("flora:bootstrap:retry-start"),
   runBootstrapSafeRecovery: () =>
-    ipcRenderer.invoke("aidas:bootstrap:safe-recovery"),
+    ipcRenderer.invoke("flora:bootstrap:safe-recovery"),
   stopBootstrapBackend: () =>
-    ipcRenderer.invoke("aidas:bootstrap:stop-backend"),
+    ipcRenderer.invoke("flora:bootstrap:stop-backend"),
   onShutdownRequested: (callback) => {
     if (typeof callback !== "function") return () => {};
     const listener = () => callback();
-    ipcRenderer.on("aidas:app:shutdown-request", listener);
-    return () => ipcRenderer.removeListener("aidas:app:shutdown-request", listener);
+    ipcRenderer.on("flora:app:shutdown-request", listener);
+    return () => ipcRenderer.removeListener("flora:app:shutdown-request", listener);
   },
   shutdownApp: () =>
-    ipcRenderer.invoke("aidas:app:shutdown"),
+    ipcRenderer.invoke("flora:app:shutdown"),
   printReport: () =>
-    ipcRenderer.invoke("aidas:report:print-dialog"),
+    ipcRenderer.invoke("flora:report:print-dialog"),
   generateReportPdf: (payload) =>
-    ipcRenderer.invoke("aidas:report:generate-pdf", payload || {}),
+    ipcRenderer.invoke("flora:report:generate-pdf", payload || {}),
   openReportPdfPreview: (payload) =>
-    ipcRenderer.invoke("aidas:report:preview-pdf", payload || {}),
+    ipcRenderer.invoke("flora:report:preview-pdf", payload || {}),
 });

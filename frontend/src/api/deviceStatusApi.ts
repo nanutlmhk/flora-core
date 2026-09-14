@@ -1,4 +1,4 @@
-const BASE = "http://localhost:3000";
+const BASE = "http://localhost:6789";
 
 export type DeviceStatusRow = {
   device_id: string | null;

@@ -1,8 +1,8 @@
-# AIDAS Troubleshooting Guide (A4)
+# FLORA Troubleshooting Guide (A4)
 
-## เมื่อข้อมูลจาก Patient Monitor หรือ Anesthesia Machine ไม่ขึ้นใน AIDAS
+## เมื่อข้อมูลจาก Patient Monitor หรือ Anesthesia Machine ไม่ขึ้นใน FLORA
 
-เอกสารนี้ใช้สำหรับหน้างานในห้องผ่าตัด เมื่อตัวเลขจาก `patient monitor` หรือ `anesthesia machine` ไม่แสดงใน AIDAS หรือหยุดอัปเดต
+เอกสารนี้ใช้สำหรับหน้างานในห้องผ่าตัด เมื่อตัวเลขจาก `patient monitor` หรือ `anesthesia machine` ไม่แสดงใน FLORA หรือหยุดอัปเดต
 
 ## 1. สังเกตอาการก่อน
 
@@ -17,7 +17,7 @@
 
 ### กรณีข้อมูลจาก Monitor หาย
 
-เช็กว่าใน AIDAS ยังมีค่าจากเครื่องดมยาสลบขึ้นอยู่หรือไม่
+เช็กว่าใน FLORA ยังมีค่าจากเครื่องดมยาสลบขึ้นอยู่หรือไม่
 
 - ถ้ามีเฉพาะ `anesthesia machine` แต่ไม่มี `monitor`
   - ให้สงสัยที่สายหรือ USB ของ `monitor`
@@ -26,7 +26,7 @@
 
 ### กรณีข้อมูลจาก Anesthesia Machine หาย
 
-เช็กว่าใน AIDAS ยังมีค่าจาก monitor ขึ้นอยู่หรือไม่
+เช็กว่าใน FLORA ยังมีค่าจาก monitor ขึ้นอยู่หรือไม่
 
 - ถ้ามีเฉพาะ `monitor` แต่ไม่มี `anesthesia machine`
   - ให้สงสัยที่สายหรือ USB ของ `anesthesia machine`
@@ -73,12 +73,12 @@
 - ดูว่าค่าบน chart หรือ data status กลับมาหรือยัง
 - ถ้าค่ากลับมาแล้ว สามารถใช้งานต่อได้
 
-### Step 4: Restart Hidro / AIDAS
+### Step 4: Restart Hidro / FLORA
 
 ถ้า toggle USB hub แล้วข้อมูลยังไม่กลับมา
 
 - ปิดและเปิด `Hidro`
-- ถ้ายังไม่กลับ ให้ปิดและเปิด `AIDAS`
+- ถ้ายังไม่กลับ ให้ปิดและเปิด `FLORA`
 
 ถ้าหน้างานมีผู้รับผิดชอบ IT / support ประจำ ให้แจ้งก่อนทำ restart หากเป็นนโยบายของหน่วยงาน
 
@@ -87,7 +87,7 @@
 ถ้ายังไม่กลับหลังจากทำข้างต้น
 
 - restart computer
-- หลังเปิดเครื่องใหม่ รอ `Hidro` และ `AIDAS` ทำงานครบก่อน
+- หลังเปิดเครื่องใหม่ รอ `Hidro` และ `FLORA` ทำงานครบก่อน
 - ตรวจสอบว่าข้อมูลจากอุปกรณ์กลับมาแล้วหรือไม่
 
 ## 4. ถ้ายังไม่หาย ให้แจ้ง support พร้อมข้อมูลนี้
@@ -106,7 +106,7 @@
   - เช็กสาย
   - toggle USB hub switch
   - restart Hidro
-  - restart AIDAS
+  - restart FLORA
   - restart computer
 
 ## 5. สิ่งที่ไม่ควรทำ
@@ -122,22 +122,22 @@
 1. เช็กสาย `monitor`
 2. toggle USB hub switch ของ `monitor`
 3. รอ `30-60 วินาที`
-4. ถ้ายังไม่กลับ ให้ restart `Hidro` / `AIDAS`
+4. ถ้ายังไม่กลับ ให้ restart `Hidro` / `FLORA`
 
 ### Anesthesia Machine หายอย่างเดียว
 
 1. เช็กสาย `anesthesia machine`
 2. toggle USB hub switch ของ `machine`
 3. รอ `30-60 วินาที`
-4. ถ้ายังไม่กลับ ให้ restart `Hidro` / `AIDAS`
+4. ถ้ายังไม่กลับ ให้ restart `Hidro` / `FLORA`
 
 ### ทั้ง 2 เครื่องหายพร้อมกัน
 
 1. เช็ก `Hidro` และการเชื่อมต่อที่ computer
 2. เช็ก USB hub
-3. ถ้าจำเป็นให้ restart `Hidro` / `AIDAS`
+3. ถ้าจำเป็นให้ restart `Hidro` / `FLORA`
 4. ถ้ายังไม่กลับ ให้ restart computer และแจ้ง support
 
 ## 7. หมายเหตุ
 
-AIDAS และ Hidro ถูกออกแบบให้ช่วยบันทึกข้อมูลอัตโนมัติ แต่หากเกิดปัญหาการเชื่อมต่อ ข้อมูลสำคัญทางคลินิกยังต้องอาศัยการสังเกตจากอุปกรณ์หลักและการดูแลผู้ป่วยเป็นสำคัญ
+FLORA และ Hidro ถูกออกแบบให้ช่วยบันทึกข้อมูลอัตโนมัติ แต่หากเกิดปัญหาการเชื่อมต่อ ข้อมูลสำคัญทางคลินิกยังต้องอาศัยการสังเกตจากอุปกรณ์หลักและการดูแลผู้ป่วยเป็นสำคัญ

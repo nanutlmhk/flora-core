@@ -67,8 +67,8 @@ const secondaryButton =
 const TITLE_TH_OPTIONS = ["", "นาย", "นาง", "น.ส.", "ด.ช.", "ด.ญ."];
 const TITLE_EN_OPTIONS = ["", "Mr.", "Mrs.", "Ms.", "Miss", "Master"];
 const ALLERGY_SEVERITY_OPTIONS = ["Mild", "Moderate", "Severe", "Fatal", "Unknown", "None"];
-const PRESTART_PATIENT_DRAFT_PREFIX = "aidas.prestartPatientDraft.";
-const PRESTART_HN_SYNC_EVENT = "aidas:prestart-hn-sync";
+const PRESTART_PATIENT_DRAFT_PREFIX = "flora.prestartPatientDraft.";
+const PRESTART_HN_SYNC_EVENT = "flora:prestart-hn-sync";
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -421,7 +421,7 @@ export default function PatientView({ caseStatus }: Props) {
   const emitAllergyChanged = () => {
     if (!caseId) return;
     window.dispatchEvent(
-      new CustomEvent("aidas:allergy-changed", {
+      new CustomEvent("flora:allergy-changed", {
         detail: { caseId },
       }),
     );
@@ -501,8 +501,8 @@ export default function PatientView({ caseStatus }: Props) {
       setForm(buildFormFromDraft(activeCase.hn, draft));
       setSaveNote("Updated from Form");
     };
-    window.addEventListener("aidas:form-storage-changed", onDraftChanged);
-    return () => window.removeEventListener("aidas:form-storage-changed", onDraftChanged);
+    window.addEventListener("flora:form-storage-changed", onDraftChanged);
+    return () => window.removeEventListener("flora:form-storage-changed", onDraftChanged);
   }, [activeCase, caseId]);
 
   // Focus HN input on mount (or when case clears, so user can type HN immediately)
@@ -669,8 +669,8 @@ export default function PatientView({ caseStatus }: Props) {
         }
       })();
     };
-    window.addEventListener("aidas:his-synced", onHisSynced);
-    return () => window.removeEventListener("aidas:his-synced", onHisSynced);
+    window.addEventListener("flora:his-synced", onHisSynced);
+    return () => window.removeEventListener("flora:his-synced", onHisSynced);
   }, [activeCase, applyHisFromCache, caseId, loadSupportData]);
 
   const getHis = useCallback(async (forcedHn?: string) => {
@@ -704,7 +704,7 @@ export default function PatientView({ caseStatus }: Props) {
       if (targetHn !== String(activeCase.hn || "").trim()) {
         await updateCasePatientInfo(caseId, { hn: targetHn });
         window.dispatchEvent(
-          new CustomEvent("aidas:case-hn-updated", {
+          new CustomEvent("flora:case-hn-updated", {
             detail: { caseId, hn: targetHn },
           }),
         );
@@ -780,8 +780,8 @@ export default function PatientView({ caseStatus }: Props) {
       setForm(prev => ({ ...prev, hn }));
       void getHis(hn);
     };
-    window.addEventListener("aidas:patient-gethis-request", onRequested);
-    return () => window.removeEventListener("aidas:patient-gethis-request", onRequested);
+    window.addEventListener("flora:patient-gethis-request", onRequested);
+    return () => window.removeEventListener("flora:patient-gethis-request", onRequested);
   }, [getHis]);
 
   const save = async () => {
@@ -850,12 +850,12 @@ export default function PatientView({ caseStatus }: Props) {
       ...patch,
     });
     window.dispatchEvent(
-      new CustomEvent("aidas:form-storage-changed", {
+      new CustomEvent("flora:form-storage-changed", {
         detail: { caseId, source: "patient" },
       }),
     );
     window.dispatchEvent(
-      new CustomEvent("aidas:case-hn-updated", {
+      new CustomEvent("flora:case-hn-updated", {
         detail: { caseId, hn: finalHn },
       }),
     );

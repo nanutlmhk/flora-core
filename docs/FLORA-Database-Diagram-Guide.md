@@ -1,12 +1,12 @@
-# AIDAS Database Diagram Guide
+# FLORA Database Diagram Guide
 
 Main Mermaid file:
 
-- [AIDAS-Database-Diagram.mmd](c:/Users/onlys/Aidas/docs/AIDAS-Database-Diagram.mmd)
+- [FLORA-Database-Diagram.mmd](c:/Users/onlys/Flora/docs/FLORA-Database-Diagram.mmd)
 
 ## What this diagram shows
 
-This is a simplified logical database diagram for AIDAS, based on the current schema in [floradb.js](c:/Users/onlys/Aidas/backend/floradb.js).
+This is a simplified logical database diagram for FLORA, based on the current schema in [floradb.js](c:/Users/onlys/Flora/backend/floradb.js).
 
 It focuses on the main groups:
 
@@ -72,7 +72,7 @@ It intentionally does **not** include every audit table, because that would make
 
 ## If you want a simpler slide version
 
-For presentation, you can describe AIDAS database in 5 blocks:
+For presentation, you can describe FLORA database in 5 blocks:
 
 1. `Case Core`
 2. `Clinical Documentation`
@@ -85,7 +85,7 @@ For presentation, you can describe AIDAS database in 5 blocks:
 If you want to create a polished diagram image using GPT or another design tool, use this prompt:
 
 ```text
-Create a clean dark-theme database architecture diagram for a medical anesthesia system called AIDAS.
+Create a clean dark-theme database architecture diagram for a medical anesthesia system called FLORA.
 
 Put "cases" at the center.
 

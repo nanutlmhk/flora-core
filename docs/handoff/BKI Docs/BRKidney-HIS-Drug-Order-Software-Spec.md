@@ -3,7 +3,7 @@
 
 Version: Draft 1.0  
 Date: 3 July 2026  
-Owner: Porjai / Aidas Team  
+Owner: Porjai / Flora Team
 Profile: BR Kidney / Abstract HIS Integration
 
 ---
@@ -148,7 +148,7 @@ Retrieve current patient and visit context from HIS by HN.
 #### External dependency
 
 Use the existing integration direction described in:
-[Porjai_Abstract_HIS_API_v5_draft.md](C:/Users/onlys/Aidas/docs/Porjai_Abstract_HIS_API_v5_draft.md)
+[Porjai_Abstract_HIS_API_v5_draft.md](C:/Users/onlys/Flora/docs/Porjai_Abstract_HIS_API_v5_draft.md)
 
 #### Request
 
@@ -295,7 +295,7 @@ Submit prepared drug order payload to HIS and record submission result.
 #### External dependency
 
 Use the API 2 contract from:
-[Porjai_Abstract_HIS_API_v5_draft.md](C:/Users/onlys/Aidas/docs/Porjai_Abstract_HIS_API_v5_draft.md)
+[Porjai_Abstract_HIS_API_v5_draft.md](C:/Users/onlys/Flora/docs/Porjai_Abstract_HIS_API_v5_draft.md)
 
 #### Functional behavior
 
@@ -549,6 +549,5 @@ The most critical implementation risks are:
 
 ## 15. Related Documents
 
-- [Porjai_Abstract_HIS_API_v5_draft.md](C:/Users/onlys/Aidas/docs/Porjai_Abstract_HIS_API_v5_draft.md)
-- [AIDAS-Next-Developer-Brief.md](C:/Users/onlys/Aidas/docs/AIDAS-Next-Developer-Brief.md)
-
+- [Porjai_Abstract_HIS_API_v5_draft.md](C:/Users/onlys/Flora/docs/Porjai_Abstract_HIS_API_v5_draft.md)
+- [FLORA-Next-Developer-Brief.md](C:/Users/onlys/Flora/docs/FLORA-Next-Developer-Brief.md)

@@ -10,6 +10,8 @@ export function useTimeAxis(
 ) {
   const [axis, setAxis] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
 
   useEffect(() => {
     if (caseId == null || status === "IDLE") {
@@ -24,8 +26,15 @@ export function useTimeAxis(
     async function fetchAxis(showLoading = false) {
       if (showLoading) setLoading(true);
       try {
-        const next = await getTimeAxis(activeCaseId, stepMin);
+        const receivedAt = Date.now();
+        const result = await getTimeAxis(activeCaseId, stepMin);
+        const next = result.axis;
         if (!alive) return;
+
+        if (Number.isFinite(result.serverTime)) {
+          setServerOffsetMs(result.serverTime - (receivedAt + Date.now()) / 2);
+        }
+        setLastSyncedAt(Date.now());
 
         setAxis(prev => {
           if (prev.length !== next.length) return next;
@@ -53,11 +62,11 @@ export function useTimeAxis(
         void fetchAxis(true);
       };
       const timer = setInterval(() => fetchAxis(false), 60_000);
-      window.addEventListener("aidas:case-start-time-updated", onStartTimeUpdated);
+      window.addEventListener("flora:case-start-time-updated", onStartTimeUpdated);
       return () => {
         alive = false;
         clearInterval(timer);
-        window.removeEventListener("aidas:case-start-time-updated", onStartTimeUpdated);
+        window.removeEventListener("flora:case-start-time-updated", onStartTimeUpdated);
       };
     }
 
@@ -66,5 +75,5 @@ export function useTimeAxis(
     };
   }, [caseId, status, stepMin]);
 
-  return { axis, loading };
+  return { axis, loading, serverOffsetMs, lastSyncedAt };
 }

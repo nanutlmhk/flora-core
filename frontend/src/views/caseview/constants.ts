@@ -14,8 +14,8 @@ import {
 
 type SvgIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
-export const AXIS_STEPS = [1, 3, 5, 15] as const;
-export type AxisStepMin = (typeof AXIS_STEPS)[number];
+export const AXIS_STEPS = [1, 120] as const;
+export type AxisStepMin = number;
 export const DEFAULT_AXIS_STEP: AxisStepMin = 1;
 export type RowGroup = "core" | "measured" | "set";
 

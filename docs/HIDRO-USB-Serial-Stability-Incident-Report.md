@@ -20,7 +20,7 @@ This issue is inconsistent across rooms and workstations, even when the same Hid
 
 ## 3. Operational Impact
 
-- reduced user confidence in Hidro and AIDAS
+- reduced user confidence in Hidro and FLORA
 - confusion between `status offline` and `actual data still flowing`
 - interruption risk in real clinical workflow
 - increased support burden during rollout
@@ -34,7 +34,7 @@ Typical environment:
 - USB-to-serial adapters
 - serial-connected medical devices
 - Hidro service running locally
-- AIDAS consuming data from Hidro local API
+- FLORA consuming data from Hidro local API
 
 Known real deployment context includes rooms such as:
 
@@ -165,7 +165,7 @@ Most likely contributing layers:
 This issue is probably not explained only by:
 
 - ordinary frontend bug
-- simple AIDAS workflow problem
+- simple FLORA workflow problem
 - one missing retry statement
 - one missing reconnect button
 
@@ -192,8 +192,8 @@ The next-step strategy should focus on isolation, not repeated superficial worka
 - create a dedicated middleware/service layer focused only on USB/serial connectivity reliability
 - keep connection alive
 - auto-recover transport safely
-- expose stable downstream output to Hidro/AIDAS
-- avoid direct modification of AIDAS clinical workflow layer
+- expose stable downstream output to Hidro/FLORA
+- avoid direct modification of FLORA clinical workflow layer
 
 ### Option C: Appliance / Hidro Box direction
 
@@ -211,7 +211,7 @@ If external technical help is considered, the cleanest scope is:
 
 The riskiest scope is:
 
-- direct uncontrolled modification of AIDAS/Hidro application core without clear ownership boundary
+- direct uncontrolled modification of FLORA/Hidro application core without clear ownership boundary
 
 ## 14. Information That Should Be Captured Going Forward
 

@@ -398,14 +398,14 @@ const REPORT_ACTIVE_TAIL_PAD_MS = REPORT_BUCKET_MS;
 
 function getReportPrefStorageKey(kind: "timelineLayout" | "chartSeries" | "timelineParams", username: string) {
   const scope = username.trim().toLowerCase();
-  return scope ? `aidas.report.${kind}.${scope}` : `aidas.report.${kind}`;
+  return scope ? `flora.report.${kind}.${scope}` : `flora.report.${kind}`;
 }
 
 function readStoredTimelineLayoutMode(username: string): TimelineLayoutMode {
   if (typeof window === "undefined") return "standard";
   try {
     const scoped = window.localStorage.getItem(getReportPrefStorageKey("timelineLayout", username));
-    const legacy = window.localStorage.getItem("aidas.report.timelineLayout");
+    const legacy = window.localStorage.getItem("flora.report.timelineLayout");
     const raw = scoped || legacy;
     if (raw === "detail" || raw === "smart_fit" || raw === "standard") return raw;
     if (raw === "fit_1" || raw === "fit_2") return "smart_fit";
@@ -421,7 +421,7 @@ function readStoredReportChartSeries(username: string): ReportChartVisibility {
   }
   try {
     const scoped = window.localStorage.getItem(getReportPrefStorageKey("chartSeries", username));
-    const legacy = window.localStorage.getItem("aidas.report.chartSeries");
+    const legacy = window.localStorage.getItem("flora.report.chartSeries");
     const raw = scoped || legacy;
     if (raw) {
       const parsed = JSON.parse(raw) as unknown;
@@ -518,7 +518,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
   const [previewBusy, setPreviewBusy] = useState(false);
   const [rowLimitAttention, setRowLimitAttention] = useState(false);
   const [previewBlobUrl, setPreviewBlobUrl] = useState("");
-  const [previewFileName, setPreviewFileName] = useState("aidas-report.pdf");
+  const [previewFileName, setPreviewFileName] = useState("flora-report.pdf");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
   const [data, setData] = useState<ReportData | null>(null);
@@ -699,7 +699,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
 
   const closePdfPreview = () => {
     setPrintError("");
-    setPreviewFileName("aidas-report.pdf");
+    setPreviewFileName("flora-report.pdf");
     setPreviewBlobUrl(prev => {
       if (prev) URL.revokeObjectURL(prev);
       return "";
@@ -735,11 +735,11 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
     }
     const desktop = (
       window as unknown as {
-        aidasDesktop?: {
+        floraDesktop?: {
           generateReportPdf?: (payload: { fileBaseName: string; report: ReportPdfModel }) => Promise<{ ok: boolean; fileName?: string; pdfBase64?: string }>;
         };
       }
-    ).aidasDesktop;
+    ).floraDesktop;
     if (!desktop?.generateReportPdf) {
       window.print();
       return;
@@ -749,7 +749,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       const caseIdForFileName = "case_id" in caseStatus ? caseStatus.case_id : undefined;
       const casePart = caseIdForFileName ? `case${caseIdForFileName}` : "case";
       const result = await desktop.generateReportPdf({
-        fileBaseName: `aidas-report-${casePart}-${Date.now()}`,
+        fileBaseName: `flora-report-${casePart}-${Date.now()}`,
         report: reportPdfModel,
       });
       const buffer = base64ToArrayBuffer(result?.pdfBase64 || "");
@@ -772,11 +772,11 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
     if (!previewBlobUrl) return;
     const desktop = (
       window as unknown as {
-        aidasDesktop?: {
+        floraDesktop?: {
           openReportPdfPreview?: (payload: { fileBaseName: string; report: ReportPdfModel }) => Promise<{ ok: boolean; path?: string }>;
         };
       }
-    ).aidasDesktop;
+    ).floraDesktop;
     if (!desktop?.openReportPdfPreview) {
       window.open(previewBlobUrl, "_blank", "noopener,noreferrer");
       return;
@@ -785,7 +785,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       const caseIdForFileName = "case_id" in caseStatus ? caseStatus.case_id : undefined;
       const casePart = caseIdForFileName ? `case${caseIdForFileName}` : "case";
       await desktop.openReportPdfPreview({
-        fileBaseName: `aidas-report-${casePart}-${Date.now()}`,
+        fileBaseName: `flora-report-${casePart}-${Date.now()}`,
         report: reportPdfModel,
       });
     } catch (err) {
@@ -1566,7 +1566,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
     if (loading) return;
     if (caseStatus.status !== "IDLE" && !data) return;
     const storageKey = getReportPrefStorageKey("timelineParams", preferenceUsername);
-    const legacyStorageKey = "aidas.report.timelineParams";
+    const legacyStorageKey = "flora.report.timelineParams";
     const available = new Set(
       selectableTimelineOptions.flatMap(option => option.memberIds),
     );
@@ -2680,7 +2680,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
             </div>
             <div className="min-h-0 flex-1 overflow-hidden bg-gray-200 p-4 dark:bg-gray-900">
               <iframe
-                title="AIDAS Report PDF Review"
+                title="FLORA Report PDF Review"
                 src={previewFrameUrl}
                 className="h-full w-full rounded border border-[var(--app-border)] bg-white"
               />

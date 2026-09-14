@@ -1,4 +1,4 @@
-# AIDAS Quick Troubleshooting (A5)
+# FLORA Quick Troubleshooting (A5)
 
 ## เมื่อข้อมูล Monitor หรือ Machine ไม่ขึ้น
 
@@ -29,7 +29,7 @@
 ### 4. ถ้ายังไม่กลับ
 
 - restart `Hidro`
-- restart `AIDAS`
+- restart `FLORA`
 - ถ้ายังไม่กลับ ให้ restart computer
 
 ### 5. ถ้าต้องแจ้ง support
@@ -58,5 +58,5 @@
 ### หายทั้งคู่
 
 1. เช็ก USB hub และ `Hidro`
-2. restart `Hidro` / `AIDAS`
+2. restart `Hidro` / `FLORA`
 3. ถ้ายังไม่กลับ restart computer

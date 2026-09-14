@@ -1,12 +1,12 @@
-# AIDAS Architecture and Technical Brief
+# FLORA Architecture and Technical Brief
 
 Prepared as speaker support material for RCAT committee discussion.
 
-This document is written for clinicians and decision-makers who want to understand how AIDAS works technically, without requiring a software engineering background.
+This document is written for clinicians and decision-makers who want to understand how FLORA works technically, without requiring a software engineering background.
 
-## 1. What AIDAS is
+## 1. What FLORA is
 
-AIDAS is a local anesthesia information and documentation system designed to support intraoperative anesthesia recording in real clinical workflow.
+FLORA is a local anesthesia information and documentation system designed to support intraoperative anesthesia recording in real clinical workflow.
 
 Its main purpose is to combine:
 
@@ -19,15 +19,15 @@ Its main purpose is to combine:
 - staff assignment
 - printable anesthesia report generation
 
-In simple terms, AIDAS is a digital anesthesia record platform built around the anesthesia case itself.
+In simple terms, FLORA is a digital anesthesia record platform built around the anesthesia case itself.
 
 ## 2. Core design philosophy
 
-The technical architecture of AIDAS follows a few practical principles:
+The technical architecture of FLORA follows a few practical principles:
 
 ### 2.1 Local-first
 
-AIDAS is designed to run on the workstation in the operating room.
+FLORA is designed to run on the workstation in the operating room.
 
 This means:
 
@@ -51,11 +51,11 @@ Every important data element belongs to one anesthesia case:
 - staff
 - final report
 
-This makes AIDAS easier to review clinically and easier to audit technically.
+This makes FLORA easier to review clinically and easier to audit technically.
 
 ### 2.3 Manual and automatic documentation must coexist
 
-AIDAS is not based on the assumption that all data can be automated.
+FLORA is not based on the assumption that all data can be automated.
 
 The system allows:
 
@@ -67,13 +67,13 @@ This is necessary because real operating room workflow is variable. Some rooms h
 
 ### 2.4 Fast clinical feedback loop
 
-AIDAS was built so that real-user feedback can quickly become a software improvement.
+FLORA was built so that real-user feedback can quickly become a software improvement.
 
 This is both a workflow principle and an architectural principle. The codebase is organized so that changes to forms, timeline behavior, report output, and local workflow can be adjusted without needing a large external vendor change cycle.
 
 ## 3. High-level architecture
 
-AIDAS desktop currently has four major layers:
+FLORA desktop currently has four major layers:
 
 ### 3.1 User interface layer
 
@@ -103,7 +103,7 @@ The desktop container is built with:
 
 Electron is used to:
 
-- run AIDAS as a Windows desktop application
+- run FLORA as a Windows desktop application
 - open the frontend in a controlled desktop environment
 - launch the backend together with the application
 - support packaging as a Windows installer
@@ -149,28 +149,28 @@ This database stores:
 
 ## 4. External integration role of Hidro
 
-Hidro is the device-integration companion service used by AIDAS.
+Hidro is the device-integration companion service used by FLORA.
 
-Its role is different from AIDAS:
+Its role is different from FLORA:
 
 - Hidro receives and normalizes device data
-- AIDAS records the anesthesia case and presents the clinical workflow
+- FLORA records the anesthesia case and presents the clinical workflow
 
 In practical terms:
 
 - monitor and machine data enter through Hidro
-- AIDAS reads the resulting observations
+- FLORA reads the resulting observations
 - the minute writer converts those observations into structured minute records for the active case
 
 This separation is useful because:
 
 - device integration changes more often than clinical documentation structure
 - vendor-specific parameter mapping can stay in the integration layer
-- AIDAS can remain focused on the anesthesia record
+- FLORA can remain focused on the anesthesia record
 
 ## 5. Minute writer and timeline model
 
-One of the most important technical components in AIDAS is the minute writer.
+One of the most important technical components in FLORA is the minute writer.
 
 Its role is to retrieve recent device observations and write structured minute-level case data into the local database.
 
@@ -186,7 +186,7 @@ This does not mean the system is intended as a real-time waveform monitor.
 
 Instead, it means:
 
-- AIDAS continuously checks for available observation data
+- FLORA continuously checks for available observation data
 - it converts device observations into case minute records
 - it backfills safely if the writer falls behind
 
@@ -200,7 +200,7 @@ This design supports the clinical reality that:
 
 ## 6. Data model overview
 
-The main AIDAS data model can be explained as several groups.
+The main FLORA data model can be explained as several groups.
 
 ### 6.1 Case table
 
@@ -245,7 +245,7 @@ Events are important because many clinically meaningful moments are not just num
 
 ### 6.4 Medication and fluid tables
 
-AIDAS separates:
+FLORA separates:
 
 - one-time entries such as bolus or output events
 - running entries such as drips
@@ -275,7 +275,7 @@ This has supported recent workflow changes such as:
 
 The current direction of the line form reflects user feedback from real cases.
 
-Instead of separating line concepts in a way that feels technical, AIDAS now treats them clinically under one Line tab with three sections:
+Instead of separating line concepts in a way that feels technical, FLORA now treats them clinically under one Line tab with three sections:
 
 - IV line
 - arterial line
@@ -300,12 +300,12 @@ The reason is that blood documentation has two roles:
 The current and proposed architecture discussions therefore separate:
 
 - official blood bank or HIS information
-- local AIDAS case status and documentation
+- local FLORA case status and documentation
 
 The architectural principle is:
 
 - HIS owns official bag identity and availability
-- AIDAS owns intraoperative case-level status and documentation
+- FLORA owns intraoperative case-level status and documentation
 
 This is particularly important in operating room workflow because:
 
@@ -315,7 +315,7 @@ This is particularly important in operating room workflow because:
 
 ## 9. Report generation architecture
 
-AIDAS generates the anesthesia report from structured local case data.
+FLORA generates the anesthesia report from structured local case data.
 
 Current report generation uses:
 
@@ -347,7 +347,7 @@ Recent practical improvements have included:
 
 ## 10. Authentication and user model
 
-AIDAS includes a local authentication layer.
+FLORA includes a local authentication layer.
 
 The system stores:
 
@@ -372,9 +372,9 @@ Current packaged deployment works as a Windows desktop application.
 
 Important practical notes from the current codebase:
 
-- AIDAS is packaged as an Electron installer
+- FLORA is packaged as an Electron installer
 - the frontend is bundled into the desktop application
-- the backend is started locally when AIDAS runs
+- the backend is started locally when FLORA runs
 - the backend default port is `3001`
 - the local database path in packaged mode is under the Porjai data folder, typically `C:\porjai\data\flora.db`
 
@@ -386,12 +386,12 @@ This is an important operational point and should be stated honestly in technica
 
 In other words:
 
-- the user experiences AIDAS as one desktop app
+- the user experiences FLORA as one desktop app
 - but internally, the Electron shell launches a local Node backend process
 
 ## 12. Why SQLite was chosen
 
-SQLite is suitable for the current local-first AIDAS model because:
+SQLite is suitable for the current local-first FLORA model because:
 
 - it is lightweight
 - it is easy to deploy in a single-room workstation model
@@ -448,7 +448,7 @@ Some workflows are still actively evolving based on real-world use, such as:
 
 ## 15. Why this architecture is strategically important
 
-From a technical and national perspective, AIDAS shows that a local anesthesia information platform can be designed with these characteristics:
+From a technical and national perspective, FLORA shows that a local anesthesia information platform can be designed with these characteristics:
 
 - local-first reliability
 - case-centered documentation
@@ -463,11 +463,11 @@ This matters because it demonstrates that Thai anesthesia digital infrastructure
 
 ### Short version
 
-AIDAS is a local-first anesthesia information system built around the anesthesia case. It uses a desktop architecture with React, Electron, Node.js, and SQLite, while using Hidro as a separate device-integration layer. Its main technical goal is not luxury enterprise complexity, but reliable case-centered documentation that can adapt quickly to Thai clinical workflow.
+FLORA is a local-first anesthesia information system built around the anesthesia case. It uses a desktop architecture with React, Electron, Node.js, and SQLite, while using Hidro as a separate device-integration layer. Its main technical goal is not luxury enterprise complexity, but reliable case-centered documentation that can adapt quickly to Thai clinical workflow.
 
 ### Slightly more technical version
 
-AIDAS separates the user interface, local backend, local case database, and device integration layer. The frontend is built in React and packaged with Electron. The backend is a local Node and Express service. The database is SQLite in WAL mode for workstation reliability. Hidro handles observation ingestion from devices, while AIDAS transforms that into minute-level case documentation, events, fluids, medications, forms, and final report output.
+FLORA separates the user interface, local backend, local case database, and device integration layer. The frontend is built in React and packaged with Electron. The backend is a local Node and Express service. The database is SQLite in WAL mode for workstation reliability. Hidro handles observation ingestion from devices, while FLORA transforms that into minute-level case documentation, events, fluids, medications, forms, and final report output.
 
 ## 17. Suggested committee message
 

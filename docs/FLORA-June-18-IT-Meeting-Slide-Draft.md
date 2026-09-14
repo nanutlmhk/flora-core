@@ -1,11 +1,11 @@
-# AIDAS June 18 IT Meeting Slide Draft
+# FLORA June 18 IT Meeting Slide Draft
 
 This draft is for the June 18 hospital IT meeting.
 
 Goal:
 
 - focus on current deployment and support needs
-- avoid re-explaining basic AIDAS background too much
+- avoid re-explaining basic FLORA background too much
 - show what is already working
 - show what is unstable
 - ask clearly for the exact support needed from hospital IT
@@ -16,7 +16,7 @@ Goal:
 
 Suggested title:
 
-`AIDAS Deployment Update and IT Support Discussion`
+`FLORA Deployment Update and IT Support Discussion`
 
 Suggested subtitle:
 
@@ -36,7 +36,7 @@ Suggested title:
 
 Suggested points:
 
-- update current AIDAS and Hidro status in real OR use
+- update current FLORA and Hidro status in real OR use
 - review current standalone deployment architecture
 - review next-step client-server architecture
 - summarize issues found during test in OR 508 and OR 701
@@ -44,7 +44,7 @@ Suggested points:
 
 Talk track:
 
-- this meeting is not to introduce the AIDAS idea from the beginning again
+- this meeting is not to introduce the FLORA idea from the beginning again
 - this meeting is to align operational support for real deployment
 
 ---
@@ -60,24 +60,24 @@ Suggested points:
 - Innovian is still the current reference environment in the hospital
 - daily workflow and maintenance constraints remain important during transition
 - existing device and workstation environment may still contain old integration settings
-- this can affect troubleshooting when AIDAS/Hidro is tested on the same client PCs
+- this can affect troubleshooting when FLORA/Hidro is tested on the same client PCs
 
 Talk track:
 
 - we are not discussing Innovian as a competitor here
-- we need to understand the current environment because leftover configuration may affect AIDAS/Hidro stability
+- we need to understand the current environment because leftover configuration may affect FLORA/Hidro stability
 
 ---
 
-## Slide 4. AIDAS Standalone Architecture
+## Slide 4. FLORA Standalone Architecture
 
 Suggested title:
 
-`AIDAS Standalone Architecture`
+`FLORA Standalone Architecture`
 
 Suggested points:
 
-- AIDAS runs locally on the OR workstation
+- FLORA runs locally on the OR workstation
 - Hidro runs locally to receive device data
 - local database stores the active case
 - report is generated locally from case data
@@ -102,7 +102,7 @@ Suggested title:
 
 Suggested points:
 
-- AIDAS and Hidro are already being tested in real OR use
+- FLORA and Hidro are already being tested in real OR use
 - current focus rooms: `OR 508` and `OR 701`
 - real case workflow has already provided useful feedback for forms, report output, patient page, and integration behavior
 - this is no longer lab-only testing
@@ -123,7 +123,7 @@ Suggested title:
 Suggested points:
 
 - overall test result is acceptable
-- AIDAS and Hidro can run and retrieve device data
+- FLORA and Hidro can run and retrieve device data
 - workflow feedback from users has already been incorporated into recent patches
 - this room currently represents the stronger reference site
 
@@ -185,7 +185,7 @@ Suggested points:
 - Hidro is the device integration layer
 - Hidro checks configured device connections
 - Hidro receives device data and stores/transfers observations
-- AIDAS reads and documents the case
+- FLORA reads and documents the case
 - service status and device data status should be separated clearly
 
 Suggested status model:
@@ -202,15 +202,15 @@ Talk track:
 
 ---
 
-## Slide 10. AIDAS Client-Server Next Step
+## Slide 10. FLORA Client-Server Next Step
 
 Suggested title:
 
-`Next-Step AIDAS Client-Server Architecture`
+`Next-Step FLORA Client-Server Architecture`
 
 Suggested points:
 
-- local AIDAS in each OR remains the working unit
+- local FLORA in each OR remains the working unit
 - central service/database can support delayed sync and remote view
 - real-time waveform architecture is not required for the current goal
 - 3 to 5 minute latency is acceptable for remote viewing use case
@@ -232,8 +232,8 @@ Suggested points:
 
 - used as gateway/service point for HIS-related requests
 - important for patient demographic retrieval and future hospital integration
-- access control and service availability directly affect AIDAS workflow
-- AIDAS needs stable access to this server from approved client IPs
+- access control and service availability directly affect FLORA workflow
+- FLORA needs stable access to this server from approved client IPs
 
 Talk track:
 
@@ -251,7 +251,7 @@ Suggested title:
 Suggested points:
 
 - current priority is stable patient information retrieval
-- gateway/service layer is used to isolate hospital-side integration details from AIDAS clients
+- gateway/service layer is used to isolate hospital-side integration details from FLORA clients
 - future scope may include staff sync, allergy, labs, and blood bank workflow
 - API behavior and access policy need close coordination with hospital IT and HIS team
 
@@ -271,7 +271,7 @@ Suggested title:
 Suggested points:
 
 - stable network path between OR clients and `10.35.202.6`
-- confirmed access/whitelist policy for AIDAS-related client IPs
+- confirmed access/whitelist policy for FLORA-related client IPs
 - support for service hosting and restart ownership on the HIS gateway VM/server
 - printer access for anesthesia report output
 - support for workstation standardization in target rooms
@@ -291,7 +291,7 @@ Suggested title:
 
 Suggested points:
 
-- define a standard AIDAS/Hidro client image or checklist
+- define a standard FLORA/Hidro client image or checklist
 - reduce leftover software/conflict from previous systems
 - standardize serial/USB adapter model where possible
 - standardize driver and startup behavior
@@ -311,7 +311,7 @@ Suggested title:
 
 Suggested points:
 
-- AIDAS generates anesthesia report locally
+- FLORA generates anesthesia report locally
 - printing must be easy and stable in bedside workflow
 - printer access and policy should be confirmed for target rooms
 - report output is a key user-facing deliverable, not a secondary feature
@@ -350,7 +350,7 @@ Suggested title:
 
 Suggested points:
 
-- stable and supportable AIDAS use in real OR workflow
+- stable and supportable FLORA use in real OR workflow
 - clear ownership between clinical team, Porjai, and hospital IT
 - reduced deployment variability between rooms
 - stronger path toward broader rollout and future client-server expansion
@@ -364,7 +364,7 @@ Talk track:
 
 ## Optional Backup Slides
 
-### Backup 1. AIDAS version timeline
+### Backup 1. FLORA version timeline
 
 - `1.0.0` first real clinical release
 - `1.1.0` installer packaging

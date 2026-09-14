@@ -7,7 +7,7 @@ This document separates hospital-specific operational knowledge from product cod
 KCMH is the most documented environment in the current material. Relevant topics include:
 
 - Innovian legacy server, database, and gateway environment.
-- AIDAS and Hidro client-room deployment.
+- FLORA and Hidro client-room deployment.
 - hospital HIS gateway and approved network access.
 - server and VM planning around `10.35.202.6`.
 - Innovian-related `10.39.226.x` environment and VLAN discussions.
@@ -19,7 +19,7 @@ The exact current IP, firewall, VLAN, printer, server-owner, and credential reco
 
 ## Vimut
 
-The current AIDAS repository does not contain enough verified Vimut-specific deployment evidence to write a reliable technical status. Before handoff, add:
+The current FLORA repository does not contain enough verified Vimut-specific deployment evidence to write a reliable technical status. Before handoff, add:
 
 - active products and versions
 - rooms and workstation identifiers
@@ -30,7 +30,7 @@ The current AIDAS repository does not contain enough verified Vimut-specific dep
 
 ## BKI
 
-The current AIDAS repository does not contain enough verified BKI-specific deployment evidence to write a reliable technical status. Before handoff, add the same room, device, network, server, support, and acceptance fields used for Vimut.
+The current FLORA repository does not contain enough verified BKI-specific deployment evidence to write a reliable technical status. Before handoff, add the same room, device, network, server, support, and acceptance fields used for Vimut.
 
 ## Shared Hospital Deployment Record
 
@@ -40,7 +40,7 @@ For every room, record:
 | --- | --- |
 | Hospital | customer/site name |
 | Room | OR or care unit |
-| Product | Innovian, AIDAS, Hidro, or combination |
+| Product | Innovian, FLORA, Hidro, or combination |
 | Version | installed application/service version |
 | Workstation/server | asset name and owner |
 | Device path | serial, TCP, HL7, gateway, or other |

@@ -165,7 +165,7 @@ function main() {
 
   const db = new Database(dbPath);
   const now = Date.now();
-  const DEFAULT_STAFF_AUTH_PASSWORD = "aidas";
+  const DEFAULT_STAFF_AUTH_PASSWORD = "flora";
 
   const selectStaffByHospitalId = db.prepare(
     `SELECT * FROM staff_directory WHERE hospital_id = ? LIMIT 1`,

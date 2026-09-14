@@ -95,8 +95,8 @@ export default function LabView({ caseStatus }: Props) {
         }
       })();
     };
-    window.addEventListener("aidas:his-synced", onHisSynced);
-    return () => window.removeEventListener("aidas:his-synced", onHisSynced);
+    window.addEventListener("flora:his-synced", onHisSynced);
+    return () => window.removeEventListener("flora:his-synced", onHisSynced);
   }, [caseId]);
 
   const onGetLab = async (overrideGroup?: string) => {

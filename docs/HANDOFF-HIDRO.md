@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Hidro is the device-integration middleware. It collects bedside device data, normalizes it, stores recent observations, and exposes a local HTTP API for AIDAS or another downstream application.
+Hidro is the device-integration middleware. It collects bedside device data, normalizes it, stores recent observations, and exposes a local HTTP API for FLORA or another downstream application.
 
 Hidro is not the anesthesia record and is not the HIS. Keeping that boundary clear is important for diagnosis and future replacement.
 
@@ -31,7 +31,7 @@ Do not infer production support from a driver merely existing in the repository.
 2. A Hidro driver receives and parses it.
 3. The driver maps raw values to normalized parameter keys.
 4. Hidro stores observations and exposes local APIs.
-5. AIDAS reads the observation stream and writes case-level data.
+5. FLORA reads the observation stream and writes case-level data.
 
 ## Important APIs
 
@@ -49,7 +49,7 @@ Always distinguish these states:
 - serial/TCP transport is connected
 - device protocol is responding
 - observations are being received
-- downstream AIDAS can read observations
+- downstream FLORA can read observations
 
 The user-facing status should not collapse all of these into one online/offline label.
 

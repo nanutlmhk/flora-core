@@ -21,8 +21,8 @@ backend/floradb.db
 *.db-wal
 
 # Dev runtime
-.aidas-profile/
-.aidas-runtime/
+.flora-profile/
+.flora-runtime/
 
 # Raw hospital, staff, commercial, and document exports are not public source.
 *.docx

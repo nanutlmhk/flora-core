@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Innovian is the legacy anesthesia information management system currently maintained or supported in hospital environments. It should be handed off as a legacy production system, not treated as a branch of AIDAS.
+Innovian is the legacy anesthesia information management system currently maintained or supported in hospital environments. It should be handed off as a legacy production system, not treated as a branch of FLORA.
 
 ## Responsibilities
 
@@ -30,7 +30,7 @@ Exact IP ownership, VM details, credentials, backup policy, and vendor responsib
 - PDF naming, staging, queue, and delivery workflow.
 - Existing Innovian client/server and expected-equipment documents.
 
-Relevant source material includes the Innovian documents under the AIDAS and Dancefloor `docs/` folders.
+Relevant source material includes the Innovian documents under the FLORA and Dancefloor `docs/` folders.
 
 ## Change Safety
 

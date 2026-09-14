@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import type { BootstrapStatus } from "../bootstrap/aidasDesktop";
-import aidasAppIcon from "../assets/aidas-app.png";
+import type { BootstrapStatus } from "../bootstrap/floraDesktop";
+import floraAppIcon from "../assets/flora-app.png";
 
 type Props = {
   onLogin: (username: string, password: string) => Promise<boolean> | boolean;
@@ -13,8 +13,8 @@ type Props = {
   sessionUserName?: string;
 };
 
-function AidasLogo() {
-  return <img src={aidasAppIcon} alt="" className="h-10 w-10 object-contain" />;
+function FloraLogo() {
+  return <img src={floraAppIcon} alt="" className="h-10 w-10 object-contain" />;
 }
 
 function StatusIcon({
@@ -142,7 +142,7 @@ export default function LoginPage({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEnabled) {
-      setError("AIDAS is still starting. Please wait until system status is healthy.");
+      setError("FLORA is still starting. Please wait until system status is healthy.");
       return;
     }
     setIsLoggingIn(true);
@@ -213,11 +213,11 @@ export default function LoginPage({
             <div className="mb-5">
               <div className="flex items-center gap-3">
                 <span className="inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-sky-400/10 text-sky-300 ring-1 ring-sky-300/20">
-                  <AidasLogo />
+                  <FloraLogo />
                 </span>
                 <div>
                   <div className="text-xl font-semibold text-[var(--app-text)]">
-                    Aidas
+                    Flora
                   </div>
                   <div className="text-xs text-[var(--app-muted)]">
                     Clinical desktop shell
@@ -277,8 +277,8 @@ export default function LoginPage({
             </form>
 
             <div className="mt-4 space-y-1 text-xs text-[var(--app-muted)]">
-              <div>Sign in with your AIDAS username and password.</div>
-              <div>Staff accounts use `firstname.l` and the default password is `aidas`.</div>
+              <div>Sign in with your FLORA username and password.</div>
+              <div>Staff accounts use `firstname.l` and the default password is `flora`.</div>
             </div>
 
             {!systemReady ? (

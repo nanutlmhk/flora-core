@@ -31,8 +31,8 @@ app.get("/debug/minute-writer", (req, res) => {
   res.json({
     server_ts: Date.now(),
     ivy_urls: [
-      process.env.IVY_READ_URL || "http://localhost:3000/api/observations",
-      "http://127.0.0.1:3000/api/observations",
+      process.env.IVY_READ_URL || "http://localhost:6789/api/observations",
+      "http://127.0.0.1:6789/api/observations",
     ].filter((value, index, array) => array.indexOf(value) === index),
     poll_ms: Number(process.env.MINUTE_WRITER_POLL_MS) || 1000,
     fetch_timeout_ms: Number(process.env.MINUTE_WRITER_FETCH_TIMEOUT_MS) || 5000,
@@ -177,7 +177,7 @@ server = app.listen(PORT, () => {
   console.log(`Flora backend running on http://localhost:${PORT}`);
   console.log(`[BOOT] FLORA_DB_PATH=${DB_PATH}`);
   console.log(
-    `[BOOT] IVY_READ_URL=${process.env.IVY_READ_URL || "http://127.0.0.1:3000/api/observations"}`,
+    `[BOOT] IVY_READ_URL=${process.env.IVY_READ_URL || "http://127.0.0.1:6789/api/observations"}`,
   );
   bootstrapActiveCases();
   if (reconcileTimer) clearInterval(reconcileTimer);

@@ -1,6 +1,6 @@
 flowchart TB
     classDef user fill:#D9ECFF,stroke:#1565C0,stroke-width:2px,color:#111,font-weight:bold;
-    classDef aidas fill:#DCF7DC,stroke:#2E7D32,stroke-width:2px,color:#111,font-weight:bold;
+    classDef flora fill:#DCF7DC,stroke:#2E7D32,stroke-width:2px,color:#111,font-weight:bold;
     classDef hidro fill:#FFF2CC,stroke:#B28704,stroke-width:2px,color:#111,font-weight:bold;
     classDef db fill:#F4D7FF,stroke:#8E24AA,stroke-width:2px,color:#111,font-weight:bold;
     classDef ext fill:#FFD7E5,stroke:#C2185B,stroke-width:2px,color:#111,font-weight:bold;
@@ -9,14 +9,14 @@ flowchart TB
     U1[Anesthetist / OR Staff]:::user
     U2[Manual Entry and Review]:::user
 
-    subgraph AIDAS [AIDAS Desktop]
+    subgraph FLORA [FLORA Desktop]
         direction TB
-        A1[React Frontend UI]:::aidas
-        A2[Chart / FluidMed / Form / Staff / Patient / Report]:::aidas
-        A3[Electron Desktop Shell]:::aidas
-        A4[Node.js + Express Backend]:::aidas
-        A5[Minute Writer]:::aidas
-        A6[Case Logic and APIs]:::aidas
+        A1[React Frontend UI]:::flora
+        A2[Chart / FluidMed / Form / Staff / Patient / Report]:::flora
+        A3[Electron Desktop Shell]:::flora
+        A4[Node.js + Express Backend]:::flora
+        A5[Minute Writer]:::flora
+        A6[Case Logic and APIs]:::flora
     end
 
     subgraph HIDRO [Hidro Integration Layer]

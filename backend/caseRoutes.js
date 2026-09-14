@@ -8300,7 +8300,7 @@ router.put("/:id/timeline", (req, res) => {
 ======================= */
 router.get("/:id/timeaxis", (req, res) => {
   const caseId = Number(req.params.id);
-  const stepMin = Math.max(1, Number(req.query.step) || 1);
+  const stepMin = Math.min(120, Math.max(1, Math.round(Number(req.query.step) || 1)));
   const ADVANCE_MIN = 5;
 
   const row = db
@@ -8325,7 +8325,7 @@ router.get("/:id/timeaxis", (req, res) => {
     axis.push(ts);
   }
 
-  res.json({ case_id: caseId, axis });
+  res.json({ case_id: caseId, axis, server_time: Date.now() });
 });
 
 /* =======================

@@ -62,6 +62,19 @@ function toTimeGridValues(
   return next;
 }
 
+function sameValues(left: TimeGridValues, right: TimeGridValues): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every(key => {
+    const a = left[key];
+    const b = right[key];
+    if (!b) return false;
+    const stamps = Object.keys(a);
+    return stamps.length === Object.keys(b).length && stamps.every(ts => a[Number(ts)] === b[Number(ts)]);
+  });
+}
+
 export function useVitalMinutes(
   caseId: number | null,
   status: CaseStatus,
@@ -95,7 +108,8 @@ export function useVitalMinutes(
       try {
         const rows = await getEffectiveTimeline(activeCaseId, fromTs, toTs);
         if (!alive) return;
-        setValues(toTimeGridValues(rows));
+        const nextValues = toTimeGridValues(rows);
+        setValues(previous => sameValues(previous, nextValues) ? previous : nextValues);
         setFetchedAxis(currentAxis);
       } catch (err) {
         console.error("[useVitalMinutes] fetch failed", err);
@@ -114,11 +128,11 @@ export function useVitalMinutes(
         void fetchVitals(true);
       };
       const timer = setInterval(() => fetchVitals(false), 15_000);
-      window.addEventListener("aidas:case-start-time-updated", onStartTimeUpdated);
+      window.addEventListener("flora:case-start-time-updated", onStartTimeUpdated);
       return () => {
         alive = false;
         clearInterval(timer);
-        window.removeEventListener("aidas:case-start-time-updated", onStartTimeUpdated);
+        window.removeEventListener("flora:case-start-time-updated", onStartTimeUpdated);
       };
     }
 

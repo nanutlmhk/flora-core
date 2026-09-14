@@ -1,5 +1,9 @@
+import { BACKEND_BASE } from "./backendBase";
+
 export type AuthThemeMode = "light" | "dark";
 export type AuthThemeColor =
+  | "esm"
+  | "nit"
   | "default"
   | "grey"
   | "green"
@@ -36,7 +40,7 @@ export type ManagedAuthUser = {
   lastLoginAt: number | null;
 };
 
-const BASE = "http://localhost:3001/api/auth";
+const BASE = `${BACKEND_BASE}/api/auth`;
 const SESSION_TOKEN_KEY = "flora_auth_token";
 
 export function readStoredAuthToken(): string {
@@ -63,7 +67,7 @@ function buildAuthHeaders(extra: Record<string, string> = {}) {
   const token = readStoredAuthToken();
   return {
     ...extra,
-    ...(token ? { "X-AIDAS-Session": token } : {}),
+    ...(token ? { "X-FLORA-Session": token } : {}),
   };
 }
 
@@ -80,6 +84,8 @@ function parseAuthUser(user: Partial<AuthApiUser> | undefined): AuthApiUser {
         ? user.themeMode
         : undefined,
     themeColor:
+      user.themeColor === "esm" ||
+      user.themeColor === "nit" ||
       user.themeColor === "default" ||
       user.themeColor === "grey" ||
       user.themeColor === "green" ||

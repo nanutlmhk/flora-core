@@ -47,7 +47,7 @@ const TEMP_COLOR = "var(--chart-temp)";
 const HR_COLOR = "var(--chart-hr)";
 const PR_COLOR = "var(--chart-pr, var(--chart-spo2))";
 const MINUTE_MS = 60_000;
-const LEGACY_STORAGE_KEY = "aidas.chartVisible";
+const LEGACY_STORAGE_KEY = "flora.chartVisible";
 const VITAL_LINE_STROKE = 1;
 const CONNECTOR_LINE_STROKE = 0.9;
 const DOT_RADIUS = 1.6;
@@ -262,6 +262,19 @@ export default function TimeChart({
   };
 
   if (axis.length === 0) return null;
+
+  const chartKeys = ["spo2", "hr", "pr", "nibp_sys", "nibp_map", "nibp_dia", "art_sys", "art_map", "art_dia", "cvp", "temperature"];
+  const hasChartReadings = chartKeys.some(key =>
+    Object.values(values[key] || {}).some(value => value !== "" && value != null && Number.isFinite(Number(value))),
+  );
+  if (!hasChartReadings) {
+    return (
+      <div className="flex h-12 items-center border-b border-gray-200 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400" style={{ width: labelColWidth + axis.length * colWidth }}>
+        <strong className="sticky left-0 z-40 shrink-0 border-r border-gray-200 px-3 py-4 text-gray-700 dark:border-gray-800 dark:text-gray-200" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
+        <span className="px-4">No vital readings in this time window</span>
+      </div>
+    );
+  }
 
   const stepMs = axis.length > 1 ? Math.max(1, axis[1] - axis[0]) : MINUTE_MS;
   const startTs = axis[0];

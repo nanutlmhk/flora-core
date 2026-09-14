@@ -1,8 +1,8 @@
-# AIDAS and Hidro Successor Handbook
+# FLORA and Hidro Successor Handbook
 
 ## Document purpose
 
-This is the engineering, deployment, and operational handoff for the team that will inherit AIDAS and Hidro.
+This is the engineering, deployment, and operational handoff for the team that will inherit FLORA and Hidro.
 
 It is intended to answer the questions that normally remain in the outgoing developer's head:
 
@@ -23,11 +23,11 @@ This handbook was prepared on `2026-07-29` from the local repositories:
 
 | Product | Repository | Branch / commit inspected | Package version |
 | --- | --- | --- | --- |
-| AIDAS | `https://github.com/nanutlmhk/Aidas.git` | `main` at `149319c` plus uncommitted worktree changes | `1.2.2` |
+| FLORA | `https://github.com/nanutlmhk/Flora.git` | `main` at `149319c` plus uncommitted worktree changes | `1.2.2` |
 | Hidro original | `https://github.com/nanutlmhk/Hidro.git` | local `master` | `1.2.2` |
 | Hidro successor copy | `https://github.com/nanutlmhk/Hidro-Porjai.git` | `master` at `a71f6fe` | `1.2.2` |
 
-Important: the AIDAS worktree contained substantial uncommitted changes when this document was written. A successor must not treat package version `1.2.2`, the latest Git commit, and the current local worktree as automatically identical. Before the final ownership transfer, create a clean release commit and tag, record the installer hash, and identify the exact database and configuration used for acceptance.
+Important: the FLORA worktree contained substantial uncommitted changes when this document was written. A successor must not treat package version `1.2.2`, the latest Git commit, and the current local worktree as automatically identical. Before the final ownership transfer, create a clean release commit and tag, record the installer hash, and identify the exact database and configuration used for acceptance.
 
 Use these confidence labels throughout future documentation:
 
@@ -38,7 +38,7 @@ Use these confidence labels throughout future documentation:
 
 ## 1. The shortest correct explanation
 
-AIDAS is a local-first anesthesia information and documentation application. It owns the clinical case, user workflow, manually entered information, automatic minute-level observations associated with that case, medication/fluid/event charting, forms, and the final anesthesia report.
+FLORA is a local-first anesthesia information and documentation application. It owns the clinical case, user workflow, manually entered information, automatic minute-level observations associated with that case, medication/fluid/event charting, forms, and the final anesthesia report.
 
 Hidro is local medical-device middleware. It owns physical/protocol connectivity to supported bedside devices, raw-message parsing, parameter normalization, short- to medium-term observation storage, device diagnostics, and a localhost REST API.
 
@@ -57,11 +57,11 @@ Hidro SQLite database: ivy.db
         |
         | HTTP on 127.0.0.1:3000
         v
-AIDAS minute writer
+FLORA minute writer
         |
         | one case-associated payload per minute
         v
-AIDAS SQLite database: flora.db
+FLORA SQLite database: flora.db
         |
         +--> bedside timeline and chart
         +--> forms, events, medication/fluid records
@@ -71,13 +71,13 @@ AIDAS SQLite database: flora.db
 The most important ownership boundary is:
 
 - Hidro answers, "Did the device produce a usable observation?"
-- AIDAS answers, "Which clinical case does that observation belong to, and how is it documented?"
+- FLORA answers, "Which clinical case does that observation belong to, and how is it documented?"
 
-Do not move device-specific serial handling into AIDAS. Do not move clinical case semantics into Hidro.
+Do not move device-specific serial handling into FLORA. Do not move clinical case semantics into Hidro.
 
 ## 2. Product boundaries
 
-### 2.1 AIDAS owns
+### 2.1 FLORA owns
 
 - local user authentication and preferences
 - case start, discharge, archive, and history
@@ -117,7 +117,7 @@ Do not move device-specific serial handling into AIDAS. Do not move clinical cas
 
 ## 3. Repository map and source-of-truth rules
 
-### 3.1 AIDAS repository
+### 3.1 FLORA repository
 
 | Path | Responsibility |
 | --- | --- |
@@ -139,7 +139,7 @@ Do not move device-specific serial handling into AIDAS. Do not move clinical cas
 | `electron/main.cjs` | desktop bootstrap, backend process lifecycle, recovery, PDF IPC, packaging runtime paths |
 | `electron/preload.cjs` | safe renderer-to-Electron bridge |
 | `electron/reportPdf.cjs` | direct PDF generation using `pdf-lib` |
-| `shared/aidasParamMap.js` | normalized Hidro-to-AIDAS parameter keys |
+| `shared/floraParamMap.js` | normalized Hidro-to-FLORA parameter keys |
 | `scripts/` | packaging, startup, recovery, database creation/check/sync tools |
 | `docs/RELEASE_NOTES.md` | product release history |
 
@@ -164,7 +164,7 @@ Do not move device-specific serial handling into AIDAS. Do not move clinical cas
 | `service/serialHardReset.js` | Windows/PnP-assisted serial reset path |
 | `electron/main.cjs` | tray lifecycle, service child process, config UI, status polling, reconnect/reset |
 | `electron/frontend/` | tray dashboard, diagnostics, and settings UI |
-| `shared/aidasParamMap.js` | parameter-map copy shared with AIDAS |
+| `shared/floraParamMap.js` | parameter-map copy shared with FLORA |
 | `shared/diagnostics.js` | structured diagnostics logger |
 | `scripts/Reset-HidroPorts.ps1` | elevated Windows COM-device restart helper |
 
@@ -180,7 +180,7 @@ When documentation and behavior disagree, use this order:
 
 Never declare a device supported only because a driver folder exists.
 
-## 4. AIDAS architecture in detail
+## 4. FLORA architecture in detail
 
 ### 4.1 Technology stack
 
@@ -213,28 +213,28 @@ At startup it:
 
 The backend child process is hidden on Windows and is normally owned by the Electron parent. A PID file is used to identify the backend process. The app also attempts to reuse an already healthy backend on the configured port.
 
-Do not blindly kill every process on port `3001` during support. Confirm whether it is the AIDAS backend and preserve database integrity.
+Do not blindly kill every process on port `3001` during support. Confirm whether it is the FLORA backend and preserve database integrity.
 
 ### 4.3 Runtime ports and URLs
 
 | Component | Default |
 | --- | --- |
-| AIDAS backend | `http://127.0.0.1:3001` |
+| FLORA backend | `http://127.0.0.1:3001` |
 | Backend health | `GET /health` |
 | Minute-writer debug | `GET /debug/minute-writer` |
 | End-to-end flow debug | `GET /debug/flow` |
-| Hidro observation API used by AIDAS | `http://127.0.0.1:3000/api/observations` |
-| Hidro bulk API used by AIDAS | `http://127.0.0.1:3000/api/observations/bulk` |
+| Hidro observation API used by FLORA | `http://127.0.0.1:3000/api/observations` |
+| Hidro bulk API used by FLORA | `http://127.0.0.1:3000/api/observations/bulk` |
 
 The minute writer also tries `localhost` candidates, reducing IPv4/IPv6 localhost-resolution problems.
 
 ### 4.4 Database path resolution
 
-The effective AIDAS database path depends on how the app starts:
+The effective FLORA database path depends on how the app starts:
 
 1. `FLORA_DB_PATH`, if explicitly set
-2. `AIDAS_DB_PATH`, if explicitly set
-3. development Electron: `<AIDAS repo>\data\flora.db`
+2. `FLORA_DB_PATH`, if explicitly set
+3. development Electron: `<FLORA repo>\data\flora.db`
 4. packaged Electron: `<PORJAI_ROOT>\data\flora.db`
 5. packaged default: `C:\porjai\data\flora.db`
 
@@ -302,16 +302,16 @@ Do not simplify or remove overlap handling without testing:
 - discharge followed immediately by a new case
 - report end-time adjustment
 
-### 4.8 Minute writer: the AIDAS/Hidro bridge
+### 4.8 Minute writer: the FLORA/Hidro bridge
 
-For every active case, AIDAS starts a minute-writer state machine.
+For every active case, FLORA starts a minute-writer state machine.
 
 Normal behavior:
 
 1. determine the next complete minute required by the case
 2. call Hidro with `from` and `to` timestamps in milliseconds
-3. normalize each `ivy_param` using `shared/aidasParamMap.js`
-4. select one effective value for each AIDAS key
+3. normalize each `ivy_param` using `shared/floraParamMap.js`
+4. select one effective value for each FLORA key
 5. write a JSON payload into `vital_minutes`
 6. write an ingest-audit row with status `ok`, `empty`, or `failed`
 7. continue polling while the case remains active
@@ -342,7 +342,7 @@ For `et_co2` and `fi_co2`, the minute writer currently assigns priority:
 
 The higher-priority observation wins when multiple unit forms exist in the same selection set.
 
-Any change to CO2 conversion must be clinically reviewed and tested against raw device output, Hidro rows, AIDAS minute payloads, and the printed report.
+Any change to CO2 conversion must be clinically reviewed and tested against raw device output, Hidro rows, FLORA minute payloads, and the printed report.
 
 ### 4.10 Manual timeline versus automatic timeline
 
@@ -359,7 +359,7 @@ The UI and report use effective timeline APIs to combine the two. A successor mu
 
 ### 4.11 Authentication and local users
 
-AIDAS implements local password authentication with:
+FLORA implements local password authentication with:
 
 - salted password hashes
 - hashed session tokens
@@ -369,9 +369,9 @@ AIDAS implements local password authentication with:
 - self-service password and preference changes
 - authentication audit records
 
-Default session TTL is 30 days unless `AIDAS_AUTH_SESSION_TTL_MS` is set.
+Default session TTL is 30 days unless `FLORA_AUTH_SESSION_TTL_MS` is set.
 
-The current bootstrap/sync code has a fallback staff password of `aidas` unless `AIDAS_DEFAULT_STAFF_PASSWORD` is set. Treat this as a deployment security risk:
+The current bootstrap/sync code has a fallback staff password of `flora` unless `FLORA_DEFAULT_STAFF_PASSWORD` is set. Treat this as a deployment security risk:
 
 - set a non-default deployment policy
 - require password change
@@ -403,7 +403,7 @@ Current backend paths include:
 
 Blood-product endpoints support real and mock/local modes controlled by environment flags. Do not assume a UI demo or mock result proves a live blood-bank integration.
 
-The gateway IP and paths are KCMH-specific evidence, not a universal AIDAS contract. Every hospital requires an interface sheet containing:
+The gateway IP and paths are KCMH-specific evidence, not a universal FLORA contract. Every hospital requires an interface sheet containing:
 
 - service owner
 - base URL
@@ -462,7 +462,7 @@ The code recognizes:
 - `rcat`
 - `eforl`
 
-Edition selection comes from `AIDAS_EDITION` or package metadata.
+Edition selection comes from `FLORA_EDITION` or package metadata.
 
 Edition behavior includes:
 
@@ -618,7 +618,7 @@ Main tables:
 
 Important timestamps:
 
-- `system_ts`: time Hidro received/processed the observation; used by AIDAS queries
+- `system_ts`: time Hidro received/processed the observation; used by FLORA queries
 - `device_ts`: timestamp provided by the source device when available
 - `created_at`: insertion time
 
@@ -651,9 +651,9 @@ If no mapping exists:
 
 Parameter-map changes must be synchronized between:
 
-- Hidro `shared/aidasParamMap.js`
-- AIDAS `shared/aidasParamMap.js`
-- AIDAS timeline metadata
+- Hidro `shared/floraParamMap.js`
+- FLORA `shared/floraParamMap.js`
+- FLORA timeline metadata
 - report metadata
 - edition allowlists
 
@@ -715,8 +715,8 @@ Do not collapse these into one "online/offline" label:
 3. COM/TCP transport connected or connecting
 4. protocol exchange functioning
 5. observations received recently
-6. AIDAS successfully fetched observations
-7. AIDAS wrote a case minute
+6. FLORA successfully fetched observations
+7. FLORA wrote a case minute
 
 The tray intentionally separates port/transport status from data status. A transport may report an unexpected state while recent data still exists, and the opposite may also occur.
 
@@ -735,11 +735,11 @@ Known recovery paths include:
 
 Use the least disruptive action that matches the failed layer. Do not restart the whole workstation first unless local clinical policy or the observed failure requires it.
 
-## 6. Exact AIDAS-Hidro data contract
+## 6. Exact FLORA-Hidro data contract
 
 ### 6.1 Observation shape
 
-AIDAS expects Hidro observation rows containing at least:
+FLORA expects Hidro observation rows containing at least:
 
 ```json
 {
@@ -754,7 +754,7 @@ AIDAS expects Hidro observation rows containing at least:
 
 ### 6.2 Time windows
 
-AIDAS queries complete minute windows:
+FLORA queries complete minute windows:
 
 ```text
 from = minute floor
@@ -769,11 +769,11 @@ The database uniqueness rule is:
 
 ### 6.3 Supported-key behavior
 
-Rows not recognized by `toAidasParamKey` are ignored for AIDAS minute payloads. They may still exist in Hidro.
+Rows not recognized by `toFloraParamKey` are ignored for FLORA minute payloads. They may still exist in Hidro.
 
 This means:
 
-- Hidro receiving data does not guarantee AIDAS displays it
+- Hidro receiving data does not guarantee FLORA displays it
 - an unknown parameter can be a mapping problem rather than a transport problem
 - adding a parameter requires end-to-end changes, not only a driver edit
 
@@ -785,8 +785,8 @@ For one test parameter, collect all of:
 2. driver parser output
 3. `ivy_observations` row
 4. response from `/api/observations`
-5. AIDAS `case_device_ingest_audit` row
-6. AIDAS `vital_minutes.payload`
+5. FLORA `case_device_ingest_audit` row
+6. FLORA `vital_minutes.payload`
 7. visible timeline value
 8. generated PDF value
 
@@ -805,10 +805,10 @@ Only then is the integration proven.
 
 Lock files are committed and should be used.
 
-### 7.2 AIDAS install and build
+### 7.2 FLORA install and build
 
 ```powershell
-Set-Location C:\Users\onlys\Aidas
+Set-Location C:\Users\onlys\Flora
 npm install
 
 Set-Location frontend
@@ -842,7 +842,7 @@ npm run desktop:package:win
 Output:
 
 ```text
-dist-electron\Aidas-Setup-<version>.exe
+dist-electron\Flora-Setup-<version>.exe
 ```
 
 Packaging rebuilds the native `better-sqlite3` module for Electron and retries transient installer-lock failures.
@@ -884,7 +884,7 @@ dist-hidro\Hidro-Setup-<version>.exe
 
 ### 7.4 Existing test commands
 
-AIDAS:
+FLORA:
 
 - frontend build: `npm run desktop:build:web`
 - frontend lint: run `npm run lint` from `frontend`
@@ -909,7 +909,7 @@ Hidro has no single top-level automated `npm test`.
 
 Prepare:
 
-- exact AIDAS and Hidro installer versions
+- exact FLORA and Hidro installer versions
 - SHA-256 hashes
 - release notes
 - known-good database backup
@@ -934,13 +934,13 @@ Prepare:
 8. Start Hidro and verify `/health`.
 9. Verify transport and data status separately.
 10. Verify raw and normalized observations.
-11. Install AIDAS.
+11. Install FLORA.
 12. Place the approved `flora.db` in `C:\porjai\data\flora.db`.
-13. Start AIDAS and confirm the bootstrap screen reports the expected DB path.
+13. Start FLORA and confirm the bootstrap screen reports the expected DB path.
 14. Verify login and force replacement of any default password.
 15. Verify master data.
 16. Start a controlled test case.
-17. Confirm Hidro-to-AIDAS minute flow.
+17. Confirm Hidro-to-FLORA minute flow.
 18. Enter a manual event, medication, fluid, and required form data.
 19. Discharge the test case.
 20. Generate and print a report.
@@ -950,14 +950,14 @@ Prepare:
 
 1. Identify currently installed versions and room configuration.
 2. Stop active clinical use; never upgrade during an active case.
-3. Record the effective AIDAS DB path and Hidro data/config paths.
+3. Record the effective FLORA DB path and Hidro data/config paths.
 4. Copy `flora.db`, `flora.db-wal`, and `flora.db-shm` only after controlled shutdown/checkpoint.
 5. Back up `ivy.db` and its WAL/SHM after Hidro shutdown.
 6. Back up `config.local.json`.
 7. Hash and timestamp backups.
 8. Install the new Hidro version.
 9. Verify device connectivity and observations.
-10. Install the new AIDAS version.
+10. Install the new FLORA version.
 11. Allow schema bootstrap only against a disposable restored copy first when the change is significant.
 12. Verify login, active-case state, timeline, IO, forms, HIS, report, and printer.
 13. Keep rollback installer and pre-upgrade database copies until acceptance.
@@ -1002,15 +1002,15 @@ Minimum:
 Preferred order:
 
 1. stop clinical writes
-2. close AIDAS/Hidro normally
+2. close FLORA/Hidro normally
 3. verify processes stopped
 4. copy the main DB
 5. retain WAL/SHM if shutdown status is uncertain
 6. test the backup by opening a copy
 
-Never delete WAL/SHM from a live or uncertain database simply to make a lock error disappear. The AIDAS recovery script removes WAL/SHM only as part of its specific startup-recovery workflow; use it with full awareness of the risk and a prior backup.
+Never delete WAL/SHM from a live or uncertain database simply to make a lock error disappear. The FLORA recovery script removes WAL/SHM only as part of its specific startup-recovery workflow; use it with full awareness of the risk and a prior backup.
 
-### 9.3 AIDAS retention
+### 9.3 FLORA retention
 
 Current code prunes `vital_minutes` older than `FLORA_RETENTION_DAYS`, default 360 days. Set `0` to disable.
 
@@ -1026,13 +1026,13 @@ Inspect:
 
 ```powershell
 $env:FLORA_DB_PATH = "C:\porjai\data\flora.db"
-node scripts\repair-aidas-db.js status
+node scripts\repair-flora-db.js status
 ```
 
 Force all active cases to archived:
 
 ```powershell
-node scripts\repair-aidas-db.js force-idle
+node scripts\repair-flora-db.js force-idle
 ```
 
 `force-idle` is clinically meaningful and destructive to current workflow state. Use only after confirming there is no legitimate active case, making a backup, and recording approval.
@@ -1052,10 +1052,10 @@ Invoke-RestMethod http://127.0.0.1:3001/debug/flow
 
 Then:
 
-- confirm the correct AIDAS database path
+- confirm the correct FLORA database path
 - confirm an active case only when clinically expected
 - confirm recent observations have plausible timestamps
-- confirm AIDAS recently wrote minute rows
+- confirm FLORA recently wrote minute rows
 - inspect the UI timeline
 - generate a report when validating a deployment
 
@@ -1071,9 +1071,9 @@ Physical device output
   -> Hidro parser
   -> ivy.db observation
   -> Hidro REST response
-  -> AIDAS minute writer
+  -> FLORA minute writer
   -> flora.db minute row
-  -> AIDAS UI
+  -> FLORA UI
   -> PDF / printer
 ```
 
@@ -1126,20 +1126,20 @@ Check:
 - device-side export mode
 - long-running adapter/driver failure
 
-### 11.4 Data exists in Hidro but not AIDAS
+### 11.4 Data exists in Hidro but not FLORA
 
 Check:
 
 1. `/api/observations` for the exact minute
-2. `ivy_param` is recognized by `shared/aidasParamMap.js`
-3. AIDAS active case and start time
+2. `ivy_param` is recognized by `shared/floraParamMap.js`
+3. FLORA active case and start time
 4. `/debug/minute-writer`
 5. `/debug/flow`
 6. `case_device_ingest_audit`
 7. `vital_minutes`
 8. manual/effective timeline selection
 
-### 11.5 AIDAS backend fails
+### 11.5 FLORA backend fails
 
 Check:
 
@@ -1153,7 +1153,7 @@ Check:
 - stale PID file
 - unclean-shutdown marker and recovery state
 
-### 11.6 AIDAS UI opens but data is wrong or missing
+### 11.6 FLORA UI opens but data is wrong or missing
 
 Check:
 
@@ -1224,7 +1224,7 @@ See [HIDRO-USB-Serial-Stability-Incident-Report.md](HIDRO-USB-Serial-Stability-I
 11. test reconnect and long-running behavior.
 12. test Hidro API.
 13. update both shared parameter maps.
-14. update AIDAS timeline/report metadata and edition allowlists.
+14. update FLORA timeline/report metadata and edition allowlists.
 15. verify end-to-end with a test case and PDF.
 16. document device configuration and acceptance evidence.
 
@@ -1237,7 +1237,7 @@ See [HIDRO-USB-Serial-Stability-Incident-Report.md](HIDRO-USB-Serial-Stability-I
 5. restart or reconnect.
 6. verify raw data.
 7. verify normalized rows.
-8. verify AIDAS minutes.
+8. verify FLORA minutes.
 9. verify report output.
 10. update the room inventory.
 
@@ -1263,7 +1263,7 @@ A release is not complete until all are recorded:
 
 ### 13.2 Minimum regression set
 
-AIDAS:
+FLORA:
 
 - login/logout and password change
 - new case, overlap handling, discharge, archive
@@ -1321,8 +1321,8 @@ but that must not be assumed.
 
 Additional current facts:
 
-- AIDAS enables open CORS.
-- AIDAS authentication routes protect user-management operations, but the
+- FLORA enables open CORS.
+- FLORA authentication routes protect user-management operations, but the
   `/api/case` router does not have blanket session-authentication middleware.
 - Several case audit paths accept actor identity from the request body.
 - Hidro restricts `/api/admin/*` to localhost by default.
@@ -1346,13 +1346,13 @@ internet as though it were a secured server product.
 
 1. USB/serial stability varies by workstation, adapter, and room.
 2. Device transport status can disagree with actual data flow.
-3. AIDAS lacks a comprehensive automated clinical regression suite.
+3. FLORA lacks a comprehensive automated clinical regression suite.
 4. Hidro driver maturity differs widely.
-5. AIDAS startup performs lightweight schema migrations without a formal migration ledger.
+5. FLORA startup performs lightweight schema migrations without a formal migration ledger.
 6. Existing databases may contain duplicate/inconsistent staff identities.
 7. Report correctness depends on many frontend and backend data paths.
 8. Hospital integrations are site-specific and can fail outside Porjai code.
-9. Current AIDAS worktree includes uncommitted features and fixes.
+9. Current FLORA worktree includes uncommitted features and fixes.
 10. Documentation and code disagree on Hidro retention settings.
 
 ### Medium risk
@@ -1388,9 +1388,9 @@ Code cannot answer the following. The outgoing owner, hospital IT, biomedical te
 | Porjai support owner | |
 | Workstation asset/name/IP | |
 | Windows version/image date | |
-| AIDAS version/commit/hash | |
+| FLORA version/commit/hash | |
 | Hidro version/commit/hash | |
-| AIDAS DB path | |
+| FLORA DB path | |
 | Hidro data/config/log paths | |
 | Patient monitor model/firmware | |
 | Anesthesia machine model/firmware | |
@@ -1416,10 +1416,10 @@ Keep sensitive values in the hospital-approved system of record and reference th
 | COM/USB missing | Hospital IT/biomedical | Device Manager, hardware ID, adapter path |
 | Hidro driver/parsing | Hidro engineering | raw frame, driver log, config, version |
 | Hidro API/database | Hidro engineering | health, logs, `ivy.db`, endpoint response |
-| AIDAS minute capture | AIDAS engineering | Hidro response, writer status, ingest audit |
-| Case workflow | AIDAS engineering + clinical owner | case ID, steps, DB copy, screenshots |
-| HIS data | Hospital interface owner + AIDAS engineering | request/response, endpoint, upstream logs |
-| Report clinical content | AIDAS engineering + clinical owner | case data, PDF, expected result |
+| FLORA minute capture | FLORA engineering | Hidro response, writer status, ingest audit |
+| Case workflow | FLORA engineering + clinical owner | case ID, steps, DB copy, screenshots |
+| HIS data | Hospital interface owner + FLORA engineering | request/response, endpoint, upstream logs |
+| Report clinical content | FLORA engineering + clinical owner | case data, PDF, expected result |
 | Printer/network | Hospital IT | queue, driver, connectivity, Windows logs |
 | Security/access | Hospital security/IT | account, policy, audit, access record |
 
@@ -1431,7 +1431,7 @@ Keep sensitive values in the hospital-approved system of record and reference th
 - verify access to installers, private deployment records, and secure secrets
 - build both products
 - run Hidro mock data
-- run AIDAS against a disposable test DB
+- run FLORA against a disposable test DB
 - trace one mock observation end-to-end
 
 ### First week
@@ -1458,7 +1458,7 @@ Keep sensitive values in the hospital-approved system of record and reference th
 
 The successor should receive:
 
-- AIDAS repository and full history
+- FLORA repository and full history
 - Hidro repository and full history
 - exact release tags
 - latest known-good installers and hashes
@@ -1477,23 +1477,23 @@ The successor should receive:
 
 ## 20. Configuration reference
 
-### 20.1 AIDAS environment variables
+### 20.1 FLORA environment variables
 
 | Variable | Current default / behavior | Purpose |
 | --- | --- | --- |
 | `PORJAI_ROOT` | `C:\porjai` in packaged Electron | base for packaged runtime data |
 | `FLORA_DB_PATH` | explicit override | primary database-path override |
-| `AIDAS_DB_PATH` | secondary override | alternate database-path override |
-| `AIDAS_BACKEND_PORT` | `3001` | Electron health and backend port |
+| `FLORA_DB_PATH` | secondary override | alternate database-path override |
+| `FLORA_BACKEND_PORT` | `3001` | Electron health and backend port |
 | `PORT` | `3001` when backend starts alone | Express listen port |
-| `AIDAS_EDITION` | package metadata or `full` | `full`, `rcat`, or `eforl` |
-| `AIDAS_FRONTEND_URL` | none | load a development frontend URL |
+| `FLORA_EDITION` | package metadata or `full` | `full`, `rcat`, or `eforl` |
+| `FLORA_FRONTEND_URL` | none | load a development frontend URL |
 | `VITE_DEV_SERVER_URL` | none | alternate development frontend URL |
-| `AIDAS_NODE_BIN` | runtime-resolved | override Node executable for backend |
-| `AIDAS_USER_DATA_DIR` | edition-specific `%LOCALAPPDATA%` directory | Electron profile and PID fallback |
-| `AIDAS_SESSION_DATA_DIR` | `<user-data>\Session` | Electron session data |
-| `AIDAS_CACHE_DIR` | `<user-data>\Cache` | Chromium disk cache |
-| `AIDAS_BACKEND_PID_FILE` | `<user-data>\aidas-backend.pid` | child-backend ownership record |
+| `FLORA_NODE_BIN` | runtime-resolved | override Node executable for backend |
+| `FLORA_USER_DATA_DIR` | edition-specific `%LOCALAPPDATA%` directory | Electron profile and PID fallback |
+| `FLORA_SESSION_DATA_DIR` | `<user-data>\Session` | Electron session data |
+| `FLORA_CACHE_DIR` | `<user-data>\Cache` | Chromium disk cache |
+| `FLORA_BACKEND_PID_FILE` | `<user-data>\flora-backend.pid` | child-backend ownership record |
 | `IVY_READ_URL` | `http://127.0.0.1:3000/api/observations` | Hidro minute endpoint |
 | `IVY_BULK_READ_URL` | localhost bulk endpoint | Hidro catch-up endpoint |
 | `MINUTE_WRITER_POLL_MS` | `1000` | writer polling interval |
@@ -1502,8 +1502,8 @@ The successor should receive:
 | `MINUTE_WRITER_BULK_THRESHOLD_MS` | `300000` | switch to bulk after five minutes |
 | `MINUTE_WRITER_STALL_RESTART_MS` | `45000`, minimum `30000` | writer reconciliation threshold |
 | `FLORA_RETENTION_DAYS` | `360` | automatic minute retention; `0` disables |
-| `AIDAS_AUTH_SESSION_TTL_MS` | 30 days | local session lifetime |
-| `AIDAS_DEFAULT_STAFF_PASSWORD` | `aidas` | bootstrap/sync fallback; replace in production |
+| `FLORA_AUTH_SESSION_TTL_MS` | 30 days | local session lifetime |
+| `FLORA_DEFAULT_STAFF_PASSWORD` | `flora` | bootstrap/sync fallback; replace in production |
 | `HIS_GATEWAY_BASE_URL` | `http://10.35.202.6:8590` | hospital gateway |
 | `HIS_GATEWAY_TIMEOUT_MS` | `45000` | hospital request timeout |
 | `HIS_BLOOD_PRODUCT_LIST_PATH` | `/api/blood-product-list` | blood-product list path |
@@ -1517,9 +1517,9 @@ Edition-specific default user-data directories:
 
 | Edition | Directory |
 | --- | --- |
-| full | `%LOCALAPPDATA%\AidasDesktop` |
-| RCAT | `%LOCALAPPDATA%\AidasDesktopRCAT` |
-| EforL | `%LOCALAPPDATA%\AidasDesktopEforL` |
+| full | `%LOCALAPPDATA%\FloraDesktop` |
+| RCAT | `%LOCALAPPDATA%\FloraDesktopRCAT` |
+| EforL | `%LOCALAPPDATA%\FloraDesktopEforL` |
 
 ### 20.2 Hidro tray/service environment variables
 
@@ -1570,15 +1570,15 @@ variables for controlled deployment overrides.
 ## 21. Related documents
 
 - [HANDOFF.md](HANDOFF.md)
-- [HANDOFF-AIDAS.md](HANDOFF-AIDAS.md)
+- [HANDOFF-FLORA.md](HANDOFF-FLORA.md)
 - [HANDOFF-HIDRO.md](HANDOFF-HIDRO.md)
 - [HANDOFF-HOSPITAL-CONTEXT.md](HANDOFF-HOSPITAL-CONTEXT.md)
 - [HANDOFF-SHARED-ASSETS-AND-OPERATIONS.md](HANDOFF-SHARED-ASSETS-AND-OPERATIONS.md)
 - [HANDOFF-RISKS-AND-OPEN-QUESTIONS.md](HANDOFF-RISKS-AND-OPEN-QUESTIONS.md)
 - [Medical-Device-Integration-Handover-Checklist-Response.md](Medical-Device-Integration-Handover-Checklist-Response.md)
-- [AIDAS-Next-Developer-Brief.md](AIDAS-Next-Developer-Brief.md)
-- [AIDAS-Architecture-Flow-Diagram-Guide.md](AIDAS-Architecture-Flow-Diagram-Guide.md)
-- [AIDAS-Database-Diagram-Guide.md](AIDAS-Database-Diagram-Guide.md)
+- [FLORA-Next-Developer-Brief.md](FLORA-Next-Developer-Brief.md)
+- [FLORA-Architecture-Flow-Diagram-Guide.md](FLORA-Architecture-Flow-Diagram-Guide.md)
+- [FLORA-Database-Diagram-Guide.md](FLORA-Database-Diagram-Guide.md)
 - [HIDRO-USB-Serial-Stability-Incident-Report.md](HIDRO-USB-Serial-Stability-Incident-Report.md)
 - [RELEASE_NOTES.md](RELEASE_NOTES.md)
 

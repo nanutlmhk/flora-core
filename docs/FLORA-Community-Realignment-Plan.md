@@ -1,13 +1,13 @@
 # Flora Community Realignment Plan
 
-This document defines how `Flora` should be positioned relative to private `AIDAS`.
+This document defines how `Flora` should be positioned relative to private `FLORA`.
 
-The goal is not to make Flora a random cut-down copy of AIDAS.
+The goal is not to make Flora a random cut-down copy of FLORA.
 The goal is to make Flora a clean public community product that is technically close to the current `EforL` edition baseline, but branded and governed as `Flora`.
 
 ## 1. Product decision
 
-### AIDAS
+### FLORA
 
 - private commercial product owned by Porjai
 - hospital deployment product
@@ -29,11 +29,11 @@ Flora should be:
 - technically close to current `EforL` edition behavior
 - visually branded as `Flora`
 - cleaned for public release
-- independent from `AIDAS` commercial branding
+- independent from `FLORA` commercial branding
 
 In short:
 
-- `Flora = EforL-like baseline - EforL branding - AIDAS commercial identity + Flora identity`
+- `Flora = EforL-like baseline - EforL branding - FLORA commercial identity + Flora identity`
 
 ## 3. Why EforL is the right baseline
 
@@ -43,13 +43,13 @@ Compared with the older RCAT/community draft, current `EforL` already has a bett
 - cleaner modern theme behavior
 - stronger blood workflow showcase
 - better monitor / ventilator flexibility
-- still clearly limited compared with full AIDAS
+- still clearly limited compared with full FLORA
 
 That makes it a better starting point for a public community product.
 
 ## 4. Target Flora identity
 
-Flora should have its own product identity, not “Aidas public edition”.
+Flora should have its own product identity, not “Flora public edition”.
 
 Recommended identity:
 
@@ -88,7 +88,7 @@ Optional wording:
 ### Parameter scope
 
 - use the same limited public-safe monitor / ventilator parameter strategy as EforL
-- keep full AIDAS advanced expansion out of Flora by default
+- keep full FLORA advanced expansion out of Flora by default
 
 ### Report options
 
@@ -111,7 +111,7 @@ These parts are acceptable in a partner edition, but should not define the publi
 ### Partner branding
 
 - `EforL` logo
-- `Aidas EforL` product title
+- `Flora EforL` product title
 - partner-only wording in report or top bar
 
 ### Commercial license mockup
@@ -193,11 +193,11 @@ Ask:
 3. Is this free from private commercial branding?
 4. Is this safe to publish as open/public code?
 
-If the answer is not clearly yes, it should stay in AIDAS, not Flora.
+If the answer is not clearly yes, it should stay in FLORA, not Flora.
 
 ## 10. Practical migration strategy
 
-Do not mirror AIDAS blindly into Flora.
+Do not mirror FLORA blindly into Flora.
 
 Use this order:
 
@@ -205,7 +205,7 @@ Use this order:
 
 - rename product identity to `Flora`
 - replace top-bar and report branding with Flora logo
-- remove `Aidas EforL` naming
+- remove `Flora EforL` naming
 
 ### Phase 2. Feature baseline lock
 
@@ -228,9 +228,9 @@ Use this order:
 - remove private deployment data
 - verify branding and README
 
-## 11. Recommended sync policy between AIDAS and Flora
+## 11. Recommended sync policy between FLORA and Flora
 
-### AIDAS -> Flora
+### FLORA -> Flora
 
 Allowed when:
 
@@ -245,7 +245,7 @@ Examples:
 - better manual charting UX
 - form workflow improvements
 
-### AIDAS -> Flora not allowed directly
+### FLORA -> Flora not allowed directly
 
 Examples:
 
@@ -254,7 +254,7 @@ Examples:
 - partner branding
 - deployment scripts for private sites
 
-### Flora -> AIDAS
+### Flora -> FLORA
 
 Allowed when:
 

@@ -1,9 +1,11 @@
-const BASE = "http://localhost:3001/api/case";
+import { BACKEND_BASE } from "./backendBase";
+
+const BASE = `${BACKEND_BASE}/api/case`;
 
 export async function getTimeAxis(
   caseId: number,
   stepMin = 1,
-): Promise<number[]> {
+): Promise<{ axis: number[]; serverTime: number }> {
   const params = new URLSearchParams({
     step: String(Math.max(1, stepMin)),
   });
@@ -14,5 +16,5 @@ export async function getTimeAxis(
   }
 
   const data = await res.json();
-  return data.axis;
+  return { axis: data.axis, serverTime: Number(data.server_time) };
 }

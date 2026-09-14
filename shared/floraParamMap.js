@@ -101,12 +101,12 @@ const PARAM_KEY_MAP = {
   "unknown::measured end tidal anesthetic agent conc etaa": "et_agent",
 };
 
-function toAidasParamKey(ivyParam) {
+function toFloraParamKey(ivyParam) {
   const key = String(ivyParam ?? "").trim().toLowerCase();
   return PARAM_KEY_MAP[key] || null;
 }
 
 module.exports = {
   PARAM_KEY_MAP,
-  toAidasParamKey,
+  toFloraParamKey,
 };

@@ -1,5 +1,5 @@
 const { db, recordCaseDeviceIngestAudit } = require("./floradb");
-const { toAidasParamKey } = require("../shared/aidasParamMap");
+const { toFloraParamKey } = require("../shared/floraParamMap");
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -7,8 +7,8 @@ const IVY_URLS = Array.from(
   new Set(
     [
       process.env.IVY_READ_URL || "",
-      "http://localhost:3000/api/observations",
-      "http://127.0.0.1:3000/api/observations",
+      "http://localhost:6789/api/observations",
+      "http://127.0.0.1:6789/api/observations",
     ]
       .map((v) => String(v || "").trim())
       .filter(Boolean),
@@ -19,8 +19,8 @@ const IVY_BULK_URLS = Array.from(
   new Set(
     [
       process.env.IVY_BULK_READ_URL || "",
-      "http://localhost:3000/api/observations/bulk",
-      "http://127.0.0.1:3000/api/observations/bulk",
+      "http://localhost:6789/api/observations/bulk",
+      "http://127.0.0.1:6789/api/observations/bulk",
     ]
       .map((v) => String(v || "").trim())
       .filter(Boolean),
@@ -68,7 +68,7 @@ function formatLogTs(ts) {
 // For CO2 params, a higher priority value means a more trustworthy unit:
 //   3 = mmHg (best), 2 = kPa (converted), 1 = % (converted from volume fraction)
 function normalizeTimelineObservation(row) {
-  const key = toAidasParamKey(row?.ivy_param);
+  const key = toFloraParamKey(row?.ivy_param);
   if (!key) return null;
 
   let value   = row?.value;

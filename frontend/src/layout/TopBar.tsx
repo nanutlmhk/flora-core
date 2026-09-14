@@ -2,6 +2,7 @@ import type { AuthUser } from "../auth/useAuth";
 import { useTheme, type ThemeColor } from "../context/ThemeContext";
 import { getEditionInfo } from "../edition/config";
 import eforlLogo from "../assets/eforllogo.png";
+import floraLogo from "../assets/flora-app.png";
 
 interface TopBarProps {
   activeView:
@@ -44,31 +45,7 @@ function BrandLogo({ editionCode }: { editionCode: "full" | "rcat" | "eforl" }) 
       />
     );
   }
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      className="h-7 w-7 text-sky-500"
-      fill="none"
-      aria-hidden="true"
-    >
-      <g
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M9 12 L21 18 L9 24 Z" fill="currentColor" opacity="0.35" />
-        <path d="M55 12 L43 18 L55 24 Z" fill="currentColor" opacity="0.35" />
-        <path d="M24 13 L32 8 L40 13" />
-        <path d="M26 13 L24 40" />
-        <path d="M38 13 L40 40" />
-        <path d="M24 22 H40" />
-        <path d="M23 33 H41" />
-        <path d="M27 58 H37 L39 48 H25 Z" />
-        <path d="M21 48 H27 L30 42 L34 52 L37 48 H43" />
-      </g>
-    </svg>
-  );
+  return <img src={floraLogo} alt="" className="h-8 w-8 object-contain" />;
 }
 
 function ChartIcon() {
@@ -277,20 +254,10 @@ export default function TopBar({
   const { mode, color, toggleMode, setColor } = useTheme();
   const edition = getEditionInfo();
 
-  const colorOptions =
-    mode === "dark"
-      ? [
-          { label: "Default", value: "default" },
-          { label: "Grey", value: "grey" },
-          { label: "Green", value: "green" },
-          { label: "Black Pink", value: "blackpink" },
-        ]
-      : [
-          { label: "Default", value: "default" },
-          { label: "Old Rose", value: "oldrose" },
-          { label: "Pink", value: "pink" },
-          { label: "RCAT", value: "rcat" },
-        ];
+  const colorOptions = [
+    { label: "ESM · Blue", value: "esm" },
+    { label: "NIT · Orange / Blue", value: "nit" },
+  ] as const;
 
   const navItemClass = (view: TopBarProps["activeView"]) =>
     `app-nav-item inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-l border-[var(--app-nav-border)] ${
@@ -300,21 +267,10 @@ export default function TopBar({
     0,
     colorOptions.findIndex(opt => opt.value === color),
   );
-  const nextColor = colorOptions[(colorIndex + 1) % colorOptions.length]?.value ?? "default";
-  const colorSwatchClass =
-    color === "grey"
-      ? "bg-neutral-400"
-      : color === "green"
-      ? "bg-emerald-400"
-      : color === "blackpink"
-      ? "bg-[linear-gradient(135deg,#050505_0%,#171717_52%,#ff4fa3_100%)]"
-      : color === "oldrose"
-      ? "bg-rose-300"
-      : color === "pink"
-      ? "bg-pink-400"
-      : color === "rcat"
-      ? "bg-[linear-gradient(135deg,#0d3b7a_0%,#173f73_65%,#d3a327_100%)]"
-      : "bg-sky-400";
+  const nextColor = colorOptions[(colorIndex + 1) % colorOptions.length]?.value ?? "esm";
+  const colorSwatchClass = color === "nit"
+    ? "bg-[linear-gradient(135deg,#2f48a3_0%,#2f48a3_50%,#f69a1c_50%,#f69a1c_100%)]"
+    : "bg-[#2f48a3]";
   const sessionLabel = sessionUser?.username || sessionUser?.name || "Current User";
 
   return (
@@ -331,8 +287,8 @@ export default function TopBar({
         <div className="flex items-center gap-2">
           <BrandLogo editionCode={edition.code} />
           <div className="flex items-center gap-2">
-            <div className="font-semibold tracking-wide text-[var(--app-text)]">
-              {edition.code === "eforl" ? "Aidas EforL" : "Aidas"}
+            <div className="hidden font-semibold tracking-wide text-[var(--app-text)] sm:block">
+              {edition.code === "eforl" ? "Flora EforL" : "Flora"}
             </div>
             {edition.shortBadge ? (
               <div className="rounded-full border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--app-muted)]">
@@ -343,7 +299,7 @@ export default function TopBar({
         </div>
 
         <select
-          className="md:hidden rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] px-2 py-1 text-xs text-[var(--app-text)]"
+          className="min-w-0 max-w-[128px] flex-1 rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] px-2 py-1 text-xs text-[var(--app-text)] 2xl:hidden"
           value={activeView}
           onChange={event =>
             setActiveView(
@@ -359,10 +315,10 @@ export default function TopBar({
                 | "history",
             )
           }
-          aria-label="Select view"
+          aria-label="Choose page"
         >
           <option value="case">Chart</option>
-          <option value="drug">Fluid&Med</option>
+          <option value="drug">I/O</option>
           <option value="diagnosis">Diag/Ops</option>
           <option value="form">Form</option>
           <option value="staff">Staff</option>
@@ -372,9 +328,10 @@ export default function TopBar({
           <option value="history">History</option>
         </select>
 
-        <div className="app-nav-shell ml-1 hidden min-w-0 flex-1 md:inline-flex rounded-md border overflow-x-auto overflow-y-hidden whitespace-nowrap">
+        <nav className="app-nav-shell ml-1 hidden min-w-0 flex-1 rounded-md border overflow-x-auto overflow-y-hidden whitespace-nowrap 2xl:inline-flex" aria-label="Main navigation">
           <button
             onClick={() => setActiveView("case")}
+            aria-current={activeView === "case" ? "page" : undefined}
             className={`app-nav-item shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] ${
               activeView === "case" ? "app-nav-item-active" : ""
             }`}
@@ -384,13 +341,15 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("drug")}
+            aria-current={activeView === "drug" ? "page" : undefined}
             className={`${navItemClass("drug")} shrink-0`}
           >
             <FluidMedIcon />
-            Fluid&Med
+            I/O
           </button>
           <button
             onClick={() => setActiveView("diagnosis")}
+            aria-current={activeView === "diagnosis" ? "page" : undefined}
             className={`${navItemClass("diagnosis")} shrink-0`}
           >
             <DiagnosisIcon />
@@ -398,6 +357,7 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("form")}
+            aria-current={activeView === "form" ? "page" : undefined}
             className={`${navItemClass("form")} shrink-0`}
           >
             <FormIcon />
@@ -405,6 +365,7 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("staff")}
+            aria-current={activeView === "staff" ? "page" : undefined}
             className={`${navItemClass("staff")} shrink-0`}
           >
             <StaffIcon />
@@ -412,6 +373,7 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("patient")}
+            aria-current={activeView === "patient" ? "page" : undefined}
             className={`${navItemClass("patient")} shrink-0`}
           >
             <PatientIcon />
@@ -419,6 +381,7 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("report")}
+            aria-current={activeView === "report" ? "page" : undefined}
             className={`${navItemClass("report")} shrink-0`}
           >
             <ReportIcon />
@@ -426,6 +389,7 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("master")}
+            aria-current={activeView === "master" ? "page" : undefined}
             className={`${navItemClass("master")} shrink-0`}
           >
             <MasterIcon />
@@ -433,12 +397,13 @@ export default function TopBar({
           </button>
           <button
             onClick={() => setActiveView("history")}
+            aria-current={activeView === "history" ? "page" : undefined}
             className={`${navItemClass("history")} shrink-0`}
           >
             <HistoryIcon />
             History
           </button>
-        </div>
+        </nav>
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
@@ -454,6 +419,7 @@ export default function TopBar({
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             onClick={toggleMode}
+            aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`}
             className="inline-flex h-8 w-8 items-center justify-center rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] text-[var(--app-text)] transition-all hover:bg-[var(--app-nav-hover)]"
             title={`Switch to ${mode === "light" ? "Dark" : "Light"} mode`}
           >
@@ -464,6 +430,7 @@ export default function TopBar({
             <button
               type="button"
               onClick={() => setColor(nextColor as ThemeColor)}
+              aria-label={`Theme: ${colorOptions[colorIndex]?.label || color}. Switch theme`}
               title={`Theme color: ${colorOptions[colorIndex]?.label || color}. Click to change.`}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] text-[var(--app-text)] transition-all hover:bg-[var(--app-nav-hover)]"
             >
@@ -480,6 +447,7 @@ export default function TopBar({
         </div>
         <button
           onClick={onLogout}
+          aria-label="Logout"
           className="inline-flex h-8 w-8 items-center justify-center rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] text-[var(--app-text)] transition-all hover:bg-[var(--app-nav-hover)]"
           title="Logout"
         >
@@ -487,8 +455,9 @@ export default function TopBar({
         </button>
         <button
           onClick={onShutdown}
+          aria-label="Shut down Flora"
           className="inline-flex h-8 w-8 items-center justify-center rounded border border-amber-400/35 bg-amber-500/10 text-amber-200 transition-all hover:bg-amber-500/16"
-          title="Shutdown AIDAS"
+          title="Shutdown FLORA"
         >
           <PowerIcon />
         </button>

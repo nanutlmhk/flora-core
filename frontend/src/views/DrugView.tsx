@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useRef } from "react";
 import type { CaseStatus } from "../api/caseApi";
@@ -864,10 +864,10 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   );
   const notifyIoAndEventChanged = (targetCaseId: number) => {
     window.dispatchEvent(
-      new CustomEvent("aidas:case-io-changed", { detail: { caseId: targetCaseId } }),
+      new CustomEvent("flora:case-io-changed", { detail: { caseId: targetCaseId } }),
     );
     window.dispatchEvent(
-      new CustomEvent("aidas:case-events-changed", { detail: { caseId: targetCaseId } }),
+      new CustomEvent("flora:case-events-changed", { detail: { caseId: targetCaseId } }),
     );
   };
   const tab = mode;
@@ -1981,9 +1981,9 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       if (custom.detail?.caseId !== caseId) return;
       applyWeight();
     };
-    window.addEventListener("aidas:form-storage-changed", onFormStorageChanged);
+    window.addEventListener("flora:form-storage-changed", onFormStorageChanged);
     return () => {
-      window.removeEventListener("aidas:form-storage-changed", onFormStorageChanged);
+      window.removeEventListener("flora:form-storage-changed", onFormStorageChanged);
     };
   }, [caseId, caseStatus.status]);
 
@@ -3526,7 +3526,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                                 >
                                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0.02))]" />
                                   {!snapshot.isStopped ? (
-                                    <div className="absolute inset-y-0 -left-6 w-4 rotate-12 bg-white/30 blur-[1px] animate-[aidas-fluid-shift_1.8s_linear_infinite]" />
+                                    <div className="absolute inset-y-0 -left-6 w-4 rotate-12 bg-white/30 blur-[1px] animate-[flora-fluid-shift_1.8s_linear_infinite]" />
                                   ) : null}
                                 </div>
                                 <div className="absolute inset-x-2 top-1 h-1 rounded bg-cyan-100/70" />
@@ -3544,7 +3544,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                                 >
                                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.26),rgba(255,255,255,0.02))]" />
                                   {!snapshot.isStopped ? (
-                                    <div className="absolute inset-y-0 -left-6 w-4 rotate-12 bg-white/30 blur-[1px] animate-[aidas-fluid-shift_2s_linear_infinite]" />
+                                    <div className="absolute inset-y-0 -left-6 w-4 rotate-12 bg-white/30 blur-[1px] animate-[flora-fluid-shift_2s_linear_infinite]" />
                                   ) : null}
                                 </div>
                                 {!snapshot.isStopped ? (
@@ -3594,7 +3594,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                           </div>
                         </div>
                         <style>{`
-                          @keyframes aidas-fluid-shift {
+                          @keyframes flora-fluid-shift {
                             0% { transform: translateX(0) rotate(12deg); opacity: 0.18; }
                             50% { opacity: 0.38; }
                             100% { transform: translateX(44px) rotate(12deg); opacity: 0.18; }

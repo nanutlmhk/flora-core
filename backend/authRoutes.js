@@ -15,7 +15,7 @@ const {
 const router = express.Router();
 
 function getSessionToken(req) {
-  const explicit = String(req.get("x-aidas-session") || "").trim();
+  const explicit = String(req.get("x-flora-session") || "").trim();
   if (explicit) return explicit;
   const auth = String(req.get("authorization") || "").trim();
   const match = /^Bearer\s+(.+)$/i.exec(auth);
@@ -23,7 +23,7 @@ function getSessionToken(req) {
 }
 
 function getClientLabel(req) {
-  return String(req.get("x-aidas-client") || req.get("user-agent") || "").trim();
+  return String(req.get("x-flora-client") || req.get("user-agent") || "").trim();
 }
 
 function requireAuth(req, res, next) {

@@ -1,4 +1,6 @@
-const BASE = "http://localhost:3001/api/ephis";
+import { BACKEND_BASE } from "./backendBase";
+
+const BASE = `${BACKEND_BASE}/api/ephis`;
 
 export type EphisImportStatus = {
   total_rows: number;

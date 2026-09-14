@@ -44,7 +44,7 @@ export function useAuth() {
 
     writeStoredAuthToken(session.sessionToken);
     localStorage.setItem("flora_user", JSON.stringify(session.user));
-    window.dispatchEvent(new Event("aidas:auth-changed"));
+    window.dispatchEvent(new Event("flora:auth-changed"));
     setUser(session.user);
     return true;
   }, []);
@@ -55,7 +55,7 @@ export function useAuth() {
     });
     clearStoredAuthToken();
     localStorage.removeItem("flora_user");
-    window.dispatchEvent(new Event("aidas:auth-changed"));
+    window.dispatchEvent(new Event("flora:auth-changed"));
     setUser(null);
   }, []);
 
@@ -70,13 +70,13 @@ export function useAuth() {
     try {
       const sessionUser = await whoAmI();
       localStorage.setItem("flora_user", JSON.stringify(sessionUser));
-      window.dispatchEvent(new Event("aidas:auth-changed"));
+      window.dispatchEvent(new Event("flora:auth-changed"));
       setUser(sessionUser);
       return sessionUser;
     } catch {
       clearStoredAuthToken();
       localStorage.removeItem("flora_user");
-      window.dispatchEvent(new Event("aidas:auth-changed"));
+      window.dispatchEvent(new Event("flora:auth-changed"));
       setUser(null);
       return null;
     }

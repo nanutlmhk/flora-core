@@ -132,9 +132,9 @@ export default function RightRail({ caseStatus, sessionUser }: Props) {
       : { status: "IDLE" };
 
   const prefScope = sessionUser?.username || "guest";
-  const staffPrefKey = `aidas.rightRail.${prefScope}.staffMinimized`;
-  const timelinePrefKey = `aidas.rightRail.${prefScope}.timelineMinimized`;
-  const ioPrefKey = `aidas.rightRail.${prefScope}.ioMinimized`;
+  const staffPrefKey = `flora.rightRail.${prefScope}.staffMinimized`;
+  const timelinePrefKey = `flora.rightRail.${prefScope}.timelineMinimized`;
+  const ioPrefKey = `flora.rightRail.${prefScope}.ioMinimized`;
   const [isStaffMinimized, setIsStaffMinimized] = useState(() =>
     readSectionPref(staffPrefKey, false),
   );
@@ -228,11 +228,11 @@ export default function RightRail({ caseStatus, sessionUser }: Props) {
       void loadStaff();
     }, 20_000);
 
-    window.addEventListener("aidas:case-staff-changed", onStaffChanged);
+    window.addEventListener("flora:case-staff-changed", onStaffChanged);
     return () => {
       alive = false;
       clearInterval(timer);
-      window.removeEventListener("aidas:case-staff-changed", onStaffChanged);
+      window.removeEventListener("flora:case-staff-changed", onStaffChanged);
     };
   }, [caseId]);
 
@@ -276,12 +276,12 @@ export default function RightRail({ caseStatus, sessionUser }: Props) {
       if (Number.isFinite(changedCaseId) && changedCaseId !== activeCaseId) return;
       void load();
     };
-    window.addEventListener("aidas:case-events-changed", onEventsChanged);
+    window.addEventListener("flora:case-events-changed", onEventsChanged);
 
     return () => {
       alive = false;
       clearInterval(timer);
-      window.removeEventListener("aidas:case-events-changed", onEventsChanged);
+      window.removeEventListener("flora:case-events-changed", onEventsChanged);
     };
   }, [activeCase]);
 
@@ -334,12 +334,12 @@ export default function RightRail({ caseStatus, sessionUser }: Props) {
       void loadIo();
     };
 
-    window.addEventListener("aidas:case-io-changed", onIoChanged);
+    window.addEventListener("flora:case-io-changed", onIoChanged);
 
     return () => {
       alive = false;
       clearInterval(timer);
-      window.removeEventListener("aidas:case-io-changed", onIoChanged);
+      window.removeEventListener("flora:case-io-changed", onIoChanged);
     };
   }, [activeCase]);
 
@@ -356,7 +356,7 @@ export default function RightRail({ caseStatus, sessionUser }: Props) {
       );
       setEvents(prev => prev.filter(e => e.id !== pendingDeleteEvent.id));
       window.dispatchEvent(
-        new CustomEvent("aidas:case-events-changed", {
+        new CustomEvent("flora:case-events-changed", {
           detail: { caseId },
         }),
       );

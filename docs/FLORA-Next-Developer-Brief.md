@@ -1,13 +1,13 @@
-# AIDAS Next Developer Brief
+# FLORA Next Developer Brief
 
-This brief is intended for the next developer or software team who will continue AIDAS after handoff.
+This brief is intended for the next developer or software team who will continue FLORA after handoff.
 
 Unlike the RCAT brief, this document is not presentation material.
-It is a practical engineering overview of what AIDAS is, how it is structured, where the risks are, and what should be understood before modifying the system.
+It is a practical engineering overview of what FLORA is, how it is structured, where the risks are, and what should be understood before modifying the system.
 
-## 1. What AIDAS is
+## 1. What FLORA is
 
-AIDAS is a local-first anesthesia information and documentation system used in operating-room workflow.
+FLORA is a local-first anesthesia information and documentation system used in operating-room workflow.
 
 Its responsibilities include:
 
@@ -21,23 +21,23 @@ Its responsibilities include:
 - staff assignment
 - report generation
 
-AIDAS is not the device-capture middleware.
+FLORA is not the device-capture middleware.
 That responsibility belongs to `Hidro`.
 
-## 2. Relationship Between AIDAS and Hidro
+## 2. Relationship Between FLORA and Hidro
 
 Current architecture boundary:
 
 - `Hidro` captures and normalizes device observations
-- `AIDAS` consumes those observations and documents them inside a case workflow
+- `FLORA` consumes those observations and documents them inside a case workflow
 
 Practical flow:
 
 1. bedside devices send data to Hidro
 2. Hidro exposes observations through a local API
-3. AIDAS reads those observations
-4. AIDAS stores case-level documentation in `flora.db`
-5. AIDAS generates reports from case data
+3. FLORA reads those observations
+4. FLORA stores case-level documentation in `flora.db`
+5. FLORA generates reports from case data
 
 This boundary should be preserved unless there is a strong architectural reason to change it.
 
@@ -97,7 +97,7 @@ Packaged runtime path typically used:
 
 ## 4. Local-First Architecture Principle
 
-The most important architecture decision in AIDAS is:
+The most important architecture decision in FLORA is:
 
 > The local OR client must still be able to function as the foundation of the workflow.
 
@@ -111,7 +111,7 @@ This principle should guide future design decisions.
 
 ## 5. Main Data Domains
 
-AIDAS is centered around the `case`.
+FLORA is centered around the `case`.
 
 Major data groups:
 
@@ -158,23 +158,23 @@ Major data groups:
 
 See also:
 
-- [HANDOFF.md](c:/Users/onlys/Aidas/docs/HANDOFF.md)
-- [AIDAS-Database-Diagram.mmd](c:/Users/onlys/Aidas/docs/AIDAS-Database-Diagram.mmd)
+- [HANDOFF.md](c:/Users/onlys/Flora/docs/HANDOFF.md)
+- [FLORA-Database-Diagram.mmd](c:/Users/onlys/Flora/docs/FLORA-Database-Diagram.mmd)
 
 ## 6. Important Entry Points
 
 New developer should read these first:
 
-- [README.md](c:/Users/onlys/Aidas/README.md)
-- [backend/floradb.js](c:/Users/onlys/Aidas/backend/floradb.js)
-- [backend/caseRoutes.js](c:/Users/onlys/Aidas/backend/caseRoutes.js)
-- [backend/server.js](c:/Users/onlys/Aidas/backend/server.js)
-- [electron/main.cjs](c:/Users/onlys/Aidas/electron/main.cjs)
-- [electron/reportPdf.cjs](c:/Users/onlys/Aidas/electron/reportPdf.cjs)
-- [frontend/src/views/CaseView.tsx](c:/Users/onlys/Aidas/frontend/src/views/CaseView.tsx)
-- [frontend/src/views/PatientView.tsx](c:/Users/onlys/Aidas/frontend/src/views/PatientView.tsx)
-- [frontend/src/views/FormView.tsx](c:/Users/onlys/Aidas/frontend/src/views/FormView.tsx)
-- [frontend/src/views/ReportView.tsx](c:/Users/onlys/Aidas/frontend/src/views/ReportView.tsx)
+- [README.md](c:/Users/onlys/Flora/README.md)
+- [backend/floradb.js](c:/Users/onlys/Flora/backend/floradb.js)
+- [backend/caseRoutes.js](c:/Users/onlys/Flora/backend/caseRoutes.js)
+- [backend/server.js](c:/Users/onlys/Flora/backend/server.js)
+- [electron/main.cjs](c:/Users/onlys/Flora/electron/main.cjs)
+- [electron/reportPdf.cjs](c:/Users/onlys/Flora/electron/reportPdf.cjs)
+- [frontend/src/views/CaseView.tsx](c:/Users/onlys/Flora/frontend/src/views/CaseView.tsx)
+- [frontend/src/views/PatientView.tsx](c:/Users/onlys/Flora/frontend/src/views/PatientView.tsx)
+- [frontend/src/views/FormView.tsx](c:/Users/onlys/Flora/frontend/src/views/FormView.tsx)
+- [frontend/src/views/ReportView.tsx](c:/Users/onlys/Flora/frontend/src/views/ReportView.tsx)
 
 ## 7. Clinical Workflow Reality
 
@@ -256,9 +256,9 @@ Main next-step directions discussed so far:
 
 ### Preserve local-first behavior
 
-Do not redesign AIDAS into a network-dependent-only workflow unless the hospital explicitly accepts that operational risk.
+Do not redesign FLORA into a network-dependent-only workflow unless the hospital explicitly accepts that operational risk.
 
-### Preserve clear AIDAS/Hidro boundary
+### Preserve clear FLORA/Hidro boundary
 
 Avoid mixing device transport instability with case workflow logic.
 
@@ -286,14 +286,14 @@ Before making big changes:
 1. read the root README
 2. read the handoff docs
 3. understand `flora.db` schema
-4. run local AIDAS with a known test DB
+4. run local FLORA with a known test DB
 5. trace one full case path:
    - patient
    - case
    - event
    - fluid/med
    - report
-6. trace one Hidro observation path into AIDAS
+6. trace one Hidro observation path into FLORA
 
 Only after that should large refactors begin.
 
@@ -309,14 +309,14 @@ If the new team has time, create:
 
 ## 14. Bottom-Line Message
 
-AIDAS is not just a desktop app.
+FLORA is not just a desktop app.
 It is a local-first clinical workflow system with a real operating-room deployment context.
 
 The next developer should not only read the code.
 They should understand:
 
 - the case-centered model
-- the AIDAS/Hidro boundary
+- the FLORA/Hidro boundary
 - the local-first principle
 - the real clinical workflow pressures
 - the deployment environment reality

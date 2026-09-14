@@ -43,6 +43,8 @@ function readStoredUserTheme() {
           ? parsed.themeMode
           : undefined,
       color:
+        parsed.themeColor === "esm" ||
+        parsed.themeColor === "nit" ||
         parsed.themeColor === "default" ||
         parsed.themeColor === "grey" ||
         parsed.themeColor === "green" ||
@@ -90,7 +92,8 @@ function readStoredColor(username: string): ThemeColor {
   const userTheme = readStoredUserTheme().color as ThemeColor | undefined;
   const scoped = localStorage.getItem(getThemeStorageKey("color", username)) as ThemeColor | null;
   const legacy = localStorage.getItem("theme-color") as ThemeColor | null;
-  return userTheme || scoped || legacy || "default";
+  const saved = userTheme || scoped || legacy;
+  return saved === "nit" ? "nit" : "esm";
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -113,10 +116,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     syncThemeScope();
     window.addEventListener("storage", syncThemeScope);
-    window.addEventListener("aidas:auth-changed", syncThemeScope as EventListener);
+    window.addEventListener("flora:auth-changed", syncThemeScope as EventListener);
     return () => {
       window.removeEventListener("storage", syncThemeScope);
-      window.removeEventListener("aidas:auth-changed", syncThemeScope as EventListener);
+      window.removeEventListener("flora:auth-changed", syncThemeScope as EventListener);
     };
   }, [lockedThemeColor]);
 
@@ -125,7 +128,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     
     // Clean up
     root.classList.remove("light", "dark");
-    ["default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"].forEach(c => root.classList.remove(`theme-${c}`));
+    ["esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"].forEach(c => root.classList.remove(`theme-${c}`));
 
     // Add classes
     root.classList.add(mode);
@@ -147,7 +150,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     void updateOwnThemePreferences(mode, color)
       .then((nextUser) => {
         window.localStorage.setItem("flora_user", JSON.stringify(nextUser));
-        window.dispatchEvent(new Event("aidas:auth-changed"));
+        window.dispatchEvent(new Event("flora:auth-changed"));
       })
       .catch(() => {
         // keep local preference even if backend persistence is unavailable for the moment
@@ -156,13 +159,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setMode = (m: ThemeMode) => {
     setModeState(m);
-    // Compatibility check: if color doesn't exist in the new mode, reset to default
     if (lockedThemeColor) {
       setColorState(lockedThemeColor);
-    } else if (m === "dark" && (color === "oldrose" || color === "pink" || color === "rcat")) {
-      setColorState("default");
-    } else if (m === "light" && (color === "grey" || color === "blackpink")) {
-      setColorState("default");
     }
   };
 
@@ -171,7 +169,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setColorState(lockedThemeColor);
       return;
     }
-    setColorState(c);
+    setColorState(c === "nit" ? "nit" : "esm");
   };
 
   const toggleMode = () => {

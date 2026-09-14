@@ -15,15 +15,18 @@ if (!gotSingleInstanceLock) {
 // Enable Chrome-style print preview
 app.commandLine.appendSwitch("enable-print-browser");
 
-const BACKEND_PORT = Number(process.env.AIDAS_BACKEND_PORT || 3001);
+const BACKEND_PORT = Number(process.env.FLORA_BACKEND_PORT || 3001);
 const BACKEND_HEALTH_URLS = [
   `http://127.0.0.1:${BACKEND_PORT}/health`,
   `http://localhost:${BACKEND_PORT}/health`,
 ];
-const PORJAI_ROOT = String(process.env.PORJAI_ROOT || "C:\\porjai").trim();
+const INSTALL_ROOT = app.isPackaged
+  ? path.dirname(process.execPath)
+  : path.resolve(__dirname, "..");
+const PORJAI_ROOT = String(process.env.PORJAI_ROOT || INSTALL_ROOT).trim();
 
 function resolveEditionCode() {
-  const raw = String(process.env.AIDAS_EDITION || packageJson.aidasEdition || "full")
+  const raw = String(process.env.FLORA_EDITION || packageJson.floraEdition || "full")
     .trim()
     .toLowerCase();
   if (raw === "rcat") return "rcat";
@@ -34,39 +37,39 @@ function resolveEditionCode() {
 const EDITION_CODE = resolveEditionCode();
 const EDITION_CONFIG = {
   full: {
-    productName: "Aidas",
-    windowTitle: "Aidas",
-    appUserModelId: "com.aidas.desktop",
-    appDirBasename: "AidasDesktop",
+    productName: "Flora",
+    windowTitle: "Flora",
+    appUserModelId: "com.flora.desktop",
+    appDirBasename: "FloraDesktop",
   },
   rcat: {
-    productName: "Aidas RCAT",
-    windowTitle: "Aidas RCAT",
-    appUserModelId: "com.aidas.rcat.desktop",
-    appDirBasename: "AidasDesktopRCAT",
+    productName: "Flora RCAT",
+    windowTitle: "Flora RCAT",
+    appUserModelId: "com.flora.rcat.desktop",
+    appDirBasename: "FloraDesktopRCAT",
   },
   eforl: {
-    productName: "Aidas EforL",
-    windowTitle: "Aidas EforL",
-    appUserModelId: "com.aidas.eforl.desktop",
-    appDirBasename: "AidasDesktopEforL",
+    productName: "Flora EforL",
+    windowTitle: "Flora EforL",
+    appUserModelId: "com.flora.eforl.desktop",
+    appDirBasename: "FloraDesktopEforL",
   },
 }[EDITION_CODE];
 const APP_DIR_BASENAME = EDITION_CONFIG.appDirBasename;
 
-// Force AIDAS to use dedicated writable profile/cache paths.
+// Force FLORA to use dedicated writable profile/cache paths.
 // This avoids cache lock/permission collisions with shared Electron defaults.
 try {
   const localBase =
     process.env.LOCALAPPDATA || process.env.APPDATA || path.resolve(__dirname, "..");
   const forcedUserData = String(
-    process.env.AIDAS_USER_DATA_DIR || path.join(localBase, APP_DIR_BASENAME),
+    process.env.FLORA_USER_DATA_DIR || path.join(localBase, APP_DIR_BASENAME),
   ).trim();
   const forcedSessionData = String(
-    process.env.AIDAS_SESSION_DATA_DIR || path.join(forcedUserData, "Session"),
+    process.env.FLORA_SESSION_DATA_DIR || path.join(forcedUserData, "Session"),
   ).trim();
   const forcedCacheDir = String(
-    process.env.AIDAS_CACHE_DIR || path.join(forcedUserData, "Cache"),
+    process.env.FLORA_CACHE_DIR || path.join(forcedUserData, "Cache"),
   ).trim();
 
   fs.mkdirSync(forcedUserData, { recursive: true });
@@ -77,7 +80,7 @@ try {
   app.setPath("sessionData", forcedSessionData);
   app.commandLine.appendSwitch("disk-cache-dir", forcedCacheDir);
 } catch (err) {
-  console.warn(`[AIDAS] failed to set dedicated cache/userData paths: ${err.message}`);
+  console.warn(`[FLORA] failed to set dedicated cache/userData paths: ${err.message}`);
 }
 
 // Resolve assets dir — when packaged (asar), assets are unpacked next to the
@@ -88,8 +91,8 @@ const APP_ASSETS_DIR = path.join(
     : __dirname,
   "assets"
 );
-const APP_ICON_ICO_PATH = path.join(APP_ASSETS_DIR, "aidas-app.ico");
-const APP_ICON_PNG_PATH = path.join(APP_ASSETS_DIR, "aidas-app.png");
+const APP_ICON_ICO_PATH = path.join(APP_ASSETS_DIR, "flora-app.ico");
+const APP_ICON_PNG_PATH = path.join(APP_ASSETS_DIR, "flora-app.png");
 const APP_ICON_PATH = fs.existsSync(APP_ICON_ICO_PATH)
   ? APP_ICON_ICO_PATH
   : APP_ICON_PNG_PATH;
@@ -411,7 +414,7 @@ function appendBootstrapLog(line) {
 }
 
 function resolveIvyReadUrl() {
-  return process.env.IVY_READ_URL || "http://127.0.0.1:3000/api/observations";
+  return process.env.IVY_READ_URL || "http://127.0.0.1:6789/api/observations";
 }
 
 function resolveIvyHealthUrl() {
@@ -494,8 +497,8 @@ async function getBootstrapStatus() {
 
 function sanitizeFileBaseName(value) {
   const raw = String(value || "").trim();
-  if (!raw) return "aidas-report-preview";
-  return raw.replace(/[^a-z0-9_\-\.]+/gi, "_").slice(0, 80) || "aidas-report-preview";
+  if (!raw) return "flora-report-preview";
+  return raw.replace(/[^a-z0-9_\-\.]+/gi, "_").slice(0, 80) || "flora-report-preview";
 }
 
 function cleanupGeneratedPreviewFiles() {
@@ -510,9 +513,9 @@ function cleanupGeneratedPreviewFiles() {
 }
 
 function resolveBackendPidFile() {
-  const explicit = String(process.env.AIDAS_BACKEND_PID_FILE || "").trim();
+  const explicit = String(process.env.FLORA_BACKEND_PID_FILE || "").trim();
   if (explicit) return explicit;
-  return path.join(app.getPath("userData"), "aidas-backend.pid");
+  return path.join(app.getPath("userData"), "flora-backend.pid");
 }
 
 function readRecordedBackendPid() {
@@ -529,7 +532,7 @@ function writeRecordedBackendPid(pid) {
   try {
     fs.writeFileSync(resolveBackendPidFile(), String(pid));
   } catch (err) {
-    console.warn(`[AIDAS] failed to persist backend pid: ${err.message}`);
+    console.warn(`[FLORA] failed to persist backend pid: ${err.message}`);
   }
 }
 
@@ -542,7 +545,7 @@ function clearRecordedBackendPid() {
 }
 
 function resolveUncleanShutdownMarkerFile() {
-  return path.join(app.getPath("userData"), "aidas-unclean-shutdown.json");
+  return path.join(app.getPath("userData"), "flora-unclean-shutdown.json");
 }
 
 function markUncleanStartup() {
@@ -552,7 +555,7 @@ function markUncleanStartup() {
       JSON.stringify({ startedAt: Date.now(), pid: process.pid }, null, 2),
     );
   } catch (err) {
-    console.warn(`[AIDAS] failed to write unclean-shutdown marker: ${err.message}`);
+    console.warn(`[FLORA] failed to write unclean-shutdown marker: ${err.message}`);
   }
 }
 
@@ -579,13 +582,13 @@ function clearDirectoryContentsSafe(dirPath) {
     }
     fs.mkdirSync(dirPath, { recursive: true });
   } catch (err) {
-    console.warn(`[AIDAS] failed to clear directory ${dirPath}: ${err.message}`);
+    console.warn(`[FLORA] failed to clear directory ${dirPath}: ${err.message}`);
   }
 }
 
 async function runUncleanStartupRecovery() {
   if (!hadUncleanShutdown()) return false;
-  console.warn("[AIDAS] previous run ended unexpectedly; applying startup recovery");
+  console.warn("[FLORA] previous run ended unexpectedly; applying startup recovery");
   appendBootstrapLog("Detected previous unclean shutdown; applying startup recovery");
   bootstrapBackendState = "recovering";
   bootstrapRecoveryApplied = true;
@@ -594,7 +597,7 @@ async function runUncleanStartupRecovery() {
   terminatePortListeners(BACKEND_PORT);
   clearDirectoryContentsSafe(app.getPath("sessionData"));
   clearDirectoryContentsSafe(
-    String(process.env.AIDAS_CACHE_DIR || path.join(app.getPath("userData"), "Cache")),
+    String(process.env.FLORA_CACHE_DIR || path.join(app.getPath("userData"), "Cache")),
   );
   await new Promise(resolve => setTimeout(resolve, 400));
   return true;
@@ -620,7 +623,7 @@ async function terminateRecordedBackendIfNeeded() {
   try {
     process.kill(pid);
   } catch (err) {
-    console.warn(`[AIDAS] failed to stop recorded backend pid=${pid}: ${err.message}`);
+    console.warn(`[FLORA] failed to stop recorded backend pid=${pid}: ${err.message}`);
     return false;
   }
 
@@ -661,7 +664,7 @@ function terminatePortListeners(port) {
 }
 
 function resolveBackendRuntime() {
-  const configured = String(process.env.AIDAS_NODE_BIN || "").trim();
+  const configured = String(process.env.FLORA_NODE_BIN || "").trim();
   if (configured) {
     return {
       command: configured,
@@ -732,7 +735,7 @@ async function recoverIfBackendAlreadyHealthy(reason) {
   bootstrapLastError = "";
   lastBackendExitDetail = "";
   appendBootstrapLog(`Backend already healthy; reusing existing service (${reason})`);
-  console.warn(`[AIDAS] backend already healthy; reusing existing service (${reason})`);
+  console.warn(`[FLORA] backend already healthy; reusing existing service (${reason})`);
   return true;
 }
 
@@ -757,9 +760,23 @@ function resolveFrontendIndex() {
 
 function resolveDbPath() {
   if (process.env.FLORA_DB_PATH) return process.env.FLORA_DB_PATH;
-  if (process.env.AIDAS_DB_PATH) return process.env.AIDAS_DB_PATH;
   if (!app.isPackaged) return path.join(resolveProjectRoot(), "data", "flora.db");
-  return path.join(PORJAI_ROOT, "data", "flora.db");
+  return path.join(INSTALL_ROOT, "flora.db");
+}
+
+function ensurePackagedDb() {
+  if (!app.isPackaged || process.env.FLORA_DB_PATH) return;
+
+  const dbPath = resolveDbPath();
+  if (fs.existsSync(dbPath)) return;
+
+  const seedPath = path.join(process.resourcesPath, "seed", "flora.db");
+  if (!fs.existsSync(seedPath)) {
+    throw new Error(`Bundled database seed not found: ${seedPath}`);
+  }
+
+  fs.copyFileSync(seedPath, dbPath, fs.constants.COPYFILE_EXCL);
+  console.log(`[FLORA] installed database seed: ${dbPath}`);
 }
 
 async function startBackend() {
@@ -769,11 +786,11 @@ async function startBackend() {
     bootstrapBackendState = "running";
     bootstrapLastError = "";
     appendBootstrapLog(`Backend already running on port ${BACKEND_PORT}; reusing existing process`);
-    console.log(`[AIDAS] backend already running on port ${BACKEND_PORT}; reusing existing process`);
+    console.log(`[FLORA] backend already running on port ${BACKEND_PORT}; reusing existing process`);
     return;
   }
   if (false && await isBackendRunning()) {
-    console.log(`[AIDAS] backend already running on port ${BACKEND_PORT} — reusing orphaned process`);
+    console.log(`[FLORA] backend already running on port ${BACKEND_PORT} — reusing orphaned process`);
     return;
   }
   const backendRoot = resolveBackendRoot();
@@ -788,7 +805,7 @@ async function startBackend() {
     PORT: String(BACKEND_PORT),
     PORJAI_ROOT,
     FLORA_DB_PATH: resolveDbPath(),
-    IVY_READ_URL: process.env.IVY_READ_URL || "http://127.0.0.1:3000/api/observations",
+    IVY_READ_URL: process.env.IVY_READ_URL || "http://127.0.0.1:6789/api/observations",
   };
 
   backendProcess = spawn(
@@ -802,7 +819,7 @@ async function startBackend() {
     });
 
   console.log(
-    `[AIDAS] backend spawn mode=${runtime.mode} command=${runtime.command}`,
+    `[FLORA] backend spawn mode=${runtime.mode} command=${runtime.command}`,
   );
   appendBootstrapLog(`Spawning backend (${runtime.mode}) using ${runtime.command}`);
   bootstrapBackendState = "starting";
@@ -840,6 +857,7 @@ async function startBackend() {
 }
 
 async function ensureBackendReady() {
+  ensurePackagedDb();
   await startBackend();
   if (await waitForBackend()) {
     bootstrapBackendState = "running";
@@ -848,7 +866,7 @@ async function ensureBackendReady() {
     return true;
   }
 
-  console.warn("[AIDAS] backend did not become ready on first attempt; retrying once");
+  console.warn("[FLORA] backend did not become ready on first attempt; retrying once");
   appendBootstrapLog("Backend did not become ready on first attempt; retrying once");
   stopBackend();
   await terminateRecordedBackendIfNeeded();
@@ -896,7 +914,7 @@ async function runSafeRecoveryAndBootstrap() {
   terminatePortListeners(BACKEND_PORT);
   clearDirectoryContentsSafe(app.getPath("sessionData"));
   clearDirectoryContentsSafe(
-    String(process.env.AIDAS_CACHE_DIR || path.join(app.getPath("userData"), "Cache")),
+    String(process.env.FLORA_CACHE_DIR || path.join(app.getPath("userData"), "Cache")),
   );
   await new Promise(resolve => setTimeout(resolve, 500));
   return triggerBootstrap("safe-recovery");
@@ -943,13 +961,13 @@ function showCloseConfirmWindow(parentWindow) {
     }
     const script = `
       (() => {
-        const existing = document.getElementById('__aidas-close-overlay');
+        const existing = document.getElementById('__flora-close-overlay');
         if (existing) return Promise.resolve(false);
         return new Promise((resolve) => {
           const style = document.createElement('style');
-          style.id = '__aidas-close-overlay-style';
+          style.id = '__flora-close-overlay-style';
           style.textContent = \`
-            #__aidas-close-overlay {
+            #__flora-close-overlay {
               position: fixed;
               inset: 0;
               z-index: 999999;
@@ -960,7 +978,7 @@ function showCloseConfirmWindow(parentWindow) {
               backdrop-filter: blur(2px);
               font-family: "Segoe UI", "Noto Sans Thai", Tahoma, Arial, sans-serif;
             }
-            #__aidas-close-panel {
+            #__flora-close-panel {
               width: min(520px, calc(100vw - 32px));
               border: 1px solid #335b89;
               border-radius: 18px;
@@ -969,26 +987,26 @@ function showCloseConfirmWindow(parentWindow) {
               box-shadow: 0 20px 48px rgba(0, 10, 24, 0.38);
               padding: 22px 22px 18px;
             }
-            #__aidas-close-panel * { box-sizing: border-box; }
-            #__aidas-close-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-            #__aidas-close-icon {
+            #__flora-close-panel * { box-sizing: border-box; }
+            #__flora-close-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+            #__flora-close-icon {
               width: 46px; height: 46px; border-radius: 14px;
               border: 1px solid rgba(105, 201, 255, 0.28);
               background: linear-gradient(180deg, rgba(34, 87, 141, 0.9), rgba(20, 56, 97, 0.9));
               display: inline-flex; align-items: center; justify-content: center;
               color: #69c9ff; font-size: 22px; flex: 0 0 auto;
             }
-            #__aidas-close-title { font-size: 26px; font-weight: 700; line-height: 1.05; }
-            #__aidas-close-subtitle { margin-top: 4px; color: #adc3e3; font-size: 14px; }
-            #__aidas-close-body {
+            #__flora-close-title { font-size: 26px; font-weight: 700; line-height: 1.05; }
+            #__flora-close-subtitle { margin-top: 4px; color: #adc3e3; font-size: 14px; }
+            #__flora-close-body {
               border: 1px solid rgba(51, 91, 137, 0.6);
               background: rgba(11, 31, 55, 0.64);
               border-radius: 14px;
               padding: 15px 16px;
             }
-            #__aidas-close-message { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-            #__aidas-close-detail { color: #adc3e3; font-size: 14px; line-height: 1.45; }
-            #__aidas-close-progress {
+            #__flora-close-message { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+            #__flora-close-detail { color: #adc3e3; font-size: 14px; line-height: 1.45; }
+            #__flora-close-progress {
               display: none;
               margin-top: 18px;
               border: 1px solid rgba(51, 91, 137, 0.6);
@@ -996,68 +1014,68 @@ function showCloseConfirmWindow(parentWindow) {
               background: rgba(11, 31, 55, 0.64);
               padding: 14px 16px;
             }
-            #__aidas-close-progress.is-visible { display: block; }
-            .__aidas-progress-title {
+            #__flora-close-progress.is-visible { display: block; }
+            .__flora-progress-title {
               font-size: 14px; font-weight: 700; color: #adc3e3; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px;
             }
-            .__aidas-progress-row {
+            .__flora-progress-row {
               display: flex; align-items: center; justify-content: space-between; gap: 12px;
               font-size: 15px; padding: 8px 0; border-top: 1px solid rgba(51, 91, 137, 0.36);
             }
-            .__aidas-progress-row:first-of-type { border-top: 0; padding-top: 0; }
-            .__aidas-progress-label { color: #e8f1ff; font-weight: 600; }
-            .__aidas-progress-value { color: #adc3e3; }
-            .__aidas-progress-value.is-done { color: #8ff3c3; }
-            #__aidas-close-actions {
+            .__flora-progress-row:first-of-type { border-top: 0; padding-top: 0; }
+            .__flora-progress-label { color: #e8f1ff; font-weight: 600; }
+            .__flora-progress-value { color: #adc3e3; }
+            .__flora-progress-value.is-done { color: #8ff3c3; }
+            #__flora-close-actions {
               margin-top: 18px; display: flex; justify-content: flex-end; gap: 10px;
             }
-            #__aidas-close-actions button {
+            #__flora-close-actions button {
               appearance: none; border-radius: 12px; border: 1px solid #335b89; min-width: 122px;
               padding: 11px 16px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
               color: #e8f1ff; background: rgba(17, 43, 75, 0.92);
             }
-            #__aidas-close-confirm {
+            #__flora-close-confirm {
               border-color: rgba(255, 123, 123, 0.45) !important;
               color: #ffd0d0 !important;
             }
-            #__aidas-close-actions button:disabled { opacity: .6; cursor: not-allowed; }
+            #__flora-close-actions button:disabled { opacity: .6; cursor: not-allowed; }
           \`;
           document.head.appendChild(style);
           const overlay = document.createElement('div');
-          overlay.id = '__aidas-close-overlay';
+          overlay.id = '__flora-close-overlay';
           overlay.innerHTML = \`
-            <div id="__aidas-close-panel" role="dialog" aria-modal="true" aria-labelledby="__aidas-close-title">
-              <div id="__aidas-close-head">
-                <div id="__aidas-close-icon">⚠</div>
+            <div id="__flora-close-panel" role="dialog" aria-modal="true" aria-labelledby="__flora-close-title">
+              <div id="__flora-close-head">
+                <div id="__flora-close-icon">⚠</div>
                 <div>
-                  <div id="__aidas-close-title">Close AIDAS?</div>
-                  <div id="__aidas-close-subtitle">Protect the workstation from accidental close.</div>
+                  <div id="__flora-close-title">Close FLORA?</div>
+                  <div id="__flora-close-subtitle">Protect the workstation from accidental close.</div>
                 </div>
               </div>
-              <div id="__aidas-close-body">
-                <div id="__aidas-close-message">This will close AIDAS on this workstation.</div>
-                <div id="__aidas-close-detail">Use Cancel to keep working. Choose Close AIDAS only if you really want to exit.</div>
+              <div id="__flora-close-body">
+                <div id="__flora-close-message">This will close FLORA on this workstation.</div>
+                <div id="__flora-close-detail">Use Cancel to keep working. Choose Close FLORA only if you really want to exit.</div>
               </div>
-              <div id="__aidas-close-progress">
-                <div class="__aidas-progress-title">Closing AIDAS</div>
-                <div class="__aidas-progress-row">
-                  <div class="__aidas-progress-label">Backend</div>
-                  <div id="__aidas-close-backend" class="__aidas-progress-value">Waiting</div>
+              <div id="__flora-close-progress">
+                <div class="__flora-progress-title">Closing FLORA</div>
+                <div class="__flora-progress-row">
+                  <div class="__flora-progress-label">Backend</div>
+                  <div id="__flora-close-backend" class="__flora-progress-value">Waiting</div>
                 </div>
-                <div class="__aidas-progress-row">
-                  <div class="__aidas-progress-label">Database</div>
-                  <div id="__aidas-close-database" class="__aidas-progress-value">Waiting</div>
+                <div class="__flora-progress-row">
+                  <div class="__flora-progress-label">Database</div>
+                  <div id="__flora-close-database" class="__flora-progress-value">Waiting</div>
                 </div>
               </div>
-              <div id="__aidas-close-actions">
-                <button id="__aidas-close-cancel" type="button">Cancel</button>
-                <button id="__aidas-close-confirm" type="button">Close AIDAS</button>
+              <div id="__flora-close-actions">
+                <button id="__flora-close-cancel" type="button">Cancel</button>
+                <button id="__flora-close-confirm" type="button">Close FLORA</button>
               </div>
             </div>
           \`;
           const cleanup = (value) => {
             document.removeEventListener('keydown', onKeyDown, true);
-            window.__aidasUpdateCloseOverlay = undefined;
+            window.__floraUpdateCloseOverlay = undefined;
             overlay.remove();
             style.remove();
             resolve(value);
@@ -1073,22 +1091,22 @@ function showCloseConfirmWindow(parentWindow) {
             }
           };
           const startClosing = () => {
-            const progress = overlay.querySelector('#__aidas-close-progress');
+            const progress = overlay.querySelector('#__flora-close-progress');
             progress.classList.add('is-visible');
-            overlay.querySelector('#__aidas-close-cancel').disabled = true;
-            overlay.querySelector('#__aidas-close-confirm').disabled = true;
+            overlay.querySelector('#__flora-close-cancel').disabled = true;
+            overlay.querySelector('#__flora-close-confirm').disabled = true;
             cleanup(true);
           };
-          overlay.querySelector('#__aidas-close-cancel').addEventListener('click', () => cleanup(false));
-          overlay.querySelector('#__aidas-close-confirm').addEventListener('click', startClosing);
+          overlay.querySelector('#__flora-close-cancel').addEventListener('click', () => cleanup(false));
+          overlay.querySelector('#__flora-close-confirm').addEventListener('click', startClosing);
           document.addEventListener('keydown', onKeyDown, true);
-          window.__aidasUpdateCloseOverlay = (payload) => {
-            const progress = overlay.querySelector('#__aidas-close-progress');
+          window.__floraUpdateCloseOverlay = (payload) => {
+            const progress = overlay.querySelector('#__flora-close-progress');
             progress.classList.add('is-visible');
-            overlay.querySelector('#__aidas-close-cancel').disabled = true;
-            overlay.querySelector('#__aidas-close-confirm').disabled = true;
-            const backend = overlay.querySelector('#__aidas-close-backend');
-            const database = overlay.querySelector('#__aidas-close-database');
+            overlay.querySelector('#__flora-close-cancel').disabled = true;
+            overlay.querySelector('#__flora-close-confirm').disabled = true;
+            const backend = overlay.querySelector('#__flora-close-backend');
+            const database = overlay.querySelector('#__flora-close-database');
             if (payload && payload.backend) {
               backend.textContent = payload.backend;
               backend.classList.toggle('is-done', /stopped/i.test(payload.backend));
@@ -1111,8 +1129,8 @@ function sendCloseProgress(payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const script = `
     (() => {
-      if (typeof window.__aidasUpdateCloseOverlay === "function") {
-        window.__aidasUpdateCloseOverlay(${JSON.stringify(payload || {})});
+      if (typeof window.__floraUpdateCloseOverlay === "function") {
+        window.__floraUpdateCloseOverlay(${JSON.stringify(payload || {})});
       }
     })();
   `;
@@ -1126,7 +1144,7 @@ function requestRendererShutdownPrompt() {
   mainWindow.focus();
   setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send("aidas:app:shutdown-request");
+    mainWindow.webContents.send("flora:app:shutdown-request");
   }, 0);
 }
 
@@ -1169,16 +1187,20 @@ async function performGracefulAppShutdown({ confirm = true } = {}) {
   }
 }
 
-ipcMain.on("aidas:app:get-edition-code", (event) => {
+ipcMain.on("flora:app:get-edition-code", (event) => {
   event.returnValue = EDITION_CODE;
 });
 
-ipcMain.on("aidas:app:get-product-name", (event) => {
+ipcMain.on("flora:app:get-product-name", (event) => {
   event.returnValue = EDITION_CONFIG.productName;
 });
 
-ipcMain.on("aidas:app:get-version", (event) => {
+ipcMain.on("flora:app:get-version", (event) => {
   event.returnValue = app.getVersion();
+});
+
+ipcMain.on("flora:app:get-backend-base-url", (event) => {
+  event.returnValue = `http://127.0.0.1:${BACKEND_PORT}`;
 });
 
 app.on("second-instance", () => {
@@ -1226,14 +1248,14 @@ async function createMainWindow() {
   win.webContents.once("did-fail-load", showWindowOnce);
   setTimeout(showWindowOnce, 8000);
 
-  const devUrl = process.env.AIDAS_FRONTEND_URL || process.env.VITE_DEV_SERVER_URL;
+  const devUrl = process.env.FLORA_FRONTEND_URL || process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     await win.loadURL(devUrl);
   } else {
     const indexFile = resolveFrontendIndex();
     if (!fs.existsSync(indexFile)) {
       await dialog.showErrorBox(
-        "AIDAS Frontend Not Built",
+        "FLORA Frontend Not Built",
         `Cannot find frontend build:\n${indexFile}\n\nRun: npm run desktop:build:web`,
       );
     }
@@ -1257,21 +1279,21 @@ app.whenReady().then(async () => {
   if (previousRunWasUnclean) {
     await runUncleanStartupRecovery();
   }
-  ipcMain.handle("aidas:bootstrap:get-status", async () => getBootstrapStatus());
-  ipcMain.handle("aidas:bootstrap:retry-start", async () => {
+  ipcMain.handle("flora:bootstrap:get-status", async () => getBootstrapStatus());
+  ipcMain.handle("flora:bootstrap:retry-start", async () => {
     await triggerBootstrap("manual-retry");
     return getBootstrapStatus();
   });
-  ipcMain.handle("aidas:bootstrap:safe-recovery", async () => {
+  ipcMain.handle("flora:bootstrap:safe-recovery", async () => {
     await runSafeRecoveryAndBootstrap();
     return getBootstrapStatus();
   });
-  ipcMain.handle("aidas:bootstrap:stop-backend", async () => {
+  ipcMain.handle("flora:bootstrap:stop-backend", async () => {
     stopBackend();
     return getBootstrapStatus();
   });
-  ipcMain.handle("aidas:app:shutdown", async () => performGracefulAppShutdown({ confirm: false }));
-  ipcMain.handle("aidas:report:print-dialog", async (event) => {
+  ipcMain.handle("flora:app:shutdown", async () => performGracefulAppShutdown({ confirm: false }));
+  ipcMain.handle("flora:report:print-dialog", async (event) => {
     const webContents = event.sender;
     let cssKey = null;
     try {
@@ -1305,7 +1327,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.handle("aidas:report:generate-pdf", async (event, payload) => {
+  ipcMain.handle("flora:report:generate-pdf", async (event, payload) => {
     const base = sanitizeFileBaseName(payload && payload.fileBaseName);
     const pdfBuffer = await buildReportPdfBuffer(payload && payload.report);
     return {
@@ -1315,7 +1337,7 @@ app.whenReady().then(async () => {
     };
   });
 
-  ipcMain.handle("aidas:report:preview-pdf", async (event, payload) => {
+  ipcMain.handle("flora:report:preview-pdf", async (event, payload) => {
     const base = sanitizeFileBaseName(payload && payload.fileBaseName);
     const outPath = path.join(
       os.tmpdir(),

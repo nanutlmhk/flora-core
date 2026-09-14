@@ -1,10 +1,10 @@
-# AIDAS Edition Architecture Plan
+# FLORA Edition Architecture Plan
 
 Goal:
 
-- keep one shared AIDAS codebase
+- keep one shared FLORA codebase
 - support multiple editions
-- build a separate installer such as `Aidas-EforL`
+- build a separate installer such as `Flora-EforL`
 
 ## 1. Editions
 
@@ -20,8 +20,8 @@ These are editions of the same product, not separate repos.
 
 We should build E for L separately as:
 
-- application name: `Aidas EforL`
-- installer name: `Aidas-EforL-Setup-<version>.exe`
+- application name: `Flora EforL`
+- installer name: `Flora-EforL-Setup-<version>.exe`
 
 But internally it should still use the same:
 
@@ -39,7 +39,7 @@ Add one edition config layer:
 Example shape:
 
 ```ts
-export type AidasEdition = "full" | "rcat" | "eforl";
+export type FloraEdition = "full" | "rcat" | "eforl";
 
 export type EditionCapabilities = {
   brandName: string;
@@ -71,9 +71,9 @@ Then define:
 
 Edition should come from environment/config first, for example:
 
-- `AIDAS_EDITION=full`
-- `AIDAS_EDITION=rcat`
-- `AIDAS_EDITION=eforl`
+- `FLORA_EDITION=full`
+- `FLORA_EDITION=rcat`
+- `FLORA_EDITION=eforl`
 
 That value should be read once at startup and exposed to:
 
@@ -128,18 +128,18 @@ Likely approach:
 
 Examples:
 
-- `scripts/build-aidas-full.ps1`
-- `scripts/build-aidas-rcat.ps1`
-- `scripts/build-aidas-eforl.ps1`
+- `scripts/build-flora-full.ps1`
+- `scripts/build-flora-rcat.ps1`
+- `scripts/build-flora-eforl.ps1`
 
 These scripts can set environment variables before calling the existing package flow.
 
 Example:
 
 ```powershell
-$env:AIDAS_EDITION='eforl'
-$env:AIDAS_PRODUCT_NAME='Aidas EforL'
-$env:AIDAS_INSTALLER_BASENAME='Aidas-EforL-Setup'
+$env:FLORA_EDITION='eforl'
+$env:FLORA_PRODUCT_NAME='Flora EforL'
+$env:FLORA_INSTALLER_BASENAME='Flora-EforL-Setup'
 npm run desktop:package:win
 ```
 
@@ -170,9 +170,9 @@ npm run desktop:package:win
 ### Phase 4
 
 - add separate installer outputs
-  - `Aidas-Setup`
-  - `Aidas-RCAT-Setup`
-  - `Aidas-EforL-Setup`
+  - `Flora-Setup`
+  - `Flora-RCAT-Setup`
+  - `Flora-EforL-Setup`
 
 ## 9. Why this is the right architecture
 
@@ -195,9 +195,9 @@ Avoid:
 
 First practical target:
 
-- implement `AIDAS_EDITION`
+- implement `FLORA_EDITION`
 - add `eforl` build identity
 - hide/limit a few high-visibility features first
 
-That is enough to produce the first separate `Aidas-EforL` installer while keeping the rest of the system shared.
+That is enough to produce the first separate `Flora-EforL` installer while keeping the rest of the system shared.
 

@@ -419,7 +419,7 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
       setSavedStaff(saved);
       setNote(`Saved ${saved.length} case staff`);
       window.dispatchEvent(
-        new CustomEvent("aidas:case-staff-changed", {
+        new CustomEvent("flora:case-staff-changed", {
           detail: { caseId },
         }),
       );

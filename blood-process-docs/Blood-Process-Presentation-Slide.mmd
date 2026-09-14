@@ -1,7 +1,7 @@
 flowchart TB
     classDef his fill:#FFD7E5,stroke:#C2185B,stroke-width:2px,color:#111,font-weight:bold;
     classDef clinical fill:#D9ECFF,stroke:#1565C0,stroke-width:2px,color:#111,font-weight:bold;
-    classDef aidas fill:#DCF7DC,stroke:#2E7D32,stroke-width:2px,color:#111,font-weight:bold;
+    classDef flora fill:#DCF7DC,stroke:#2E7D32,stroke-width:2px,color:#111,font-weight:bold;
     classDef decision fill:#FFF8D6,stroke:#B28704,stroke-width:2px,color:#111,font-weight:bold;
     classDef startEnd fill:#FFFFFF,stroke:#444,stroke-width:2px,color:#111,font-weight:bold,stroke-dasharray: 5 5;
 
@@ -23,19 +23,19 @@ flowchart TB
         C14([END CASE]):::startEnd
     end
 
-    subgraph AD [AIDAS]
+    subgraph AD [FLORA]
         direction TB
-        A1[Fetch HIS List]:::aidas
-        A2[Show Bag List]:::aidas
-        A3[Match HIS Data]:::aidas
-        A4[Record Verify]:::aidas
-        A5[Record Warming]:::aidas
-        A6[Record Start and Amount]:::aidas
-        A7[Record End Stop Reaction]:::aidas
-        A8[Update Blood Board]:::aidas
-        A9[Refresh HIS List]:::aidas
-        A10[Append New Bags]:::aidas
-        A11[Generate Summary]:::aidas
+        A1[Fetch HIS List]:::flora
+        A2[Show Bag List]:::flora
+        A3[Match HIS Data]:::flora
+        A4[Record Verify]:::flora
+        A5[Record Warming]:::flora
+        A6[Record Start and Amount]:::flora
+        A7[Record End Stop Reaction]:::flora
+        A8[Update Blood Board]:::flora
+        A9[Refresh HIS List]:::flora
+        A10[Append New Bags]:::flora
+        A11[Generate Summary]:::flora
     end
 
     subgraph HIS [HIS AND BLOOD BANK]

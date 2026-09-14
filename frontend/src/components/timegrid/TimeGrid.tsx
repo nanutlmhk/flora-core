@@ -44,6 +44,7 @@ interface Props {
   eventMarkersByTs?: Record<number, TimeGridEventMarker[]>;
   preparedMarkersByTs?: Record<number, TimeGridPreparedMarker[]>;
   includeSystemRows?: boolean;
+  displaySection?: "all" | "events-io" | "vitals";
   nowTs: number;
   scrollLeft?: number;
   viewportWidth?: number;
@@ -193,6 +194,7 @@ export default function TimeGrid({
   eventMarkersByTs = {},
   preparedMarkersByTs = {},
   includeSystemRows = true,
+  displaySection = "all",
   nowTs,
   scrollLeft = 0,
   viewportWidth = 0,
@@ -218,9 +220,13 @@ export default function TimeGrid({
 
   if (columns.length === 0) return null;
 
-  const baseRows = includeSystemRows
-    ? [SYSTEM_ROWS[0], ...rowsAfterEvent, SYSTEM_ROWS[1], ...ivyRows]
-    : ivyRows;
+  const baseRows = !includeSystemRows
+    ? ivyRows
+    : displaySection === "events-io"
+      ? [SYSTEM_ROWS[0], ...rowsAfterEvent.filter(row => row.id !== "__vital_agent_header__")]
+      : displaySection === "vitals"
+        ? [rowsAfterEvent.find(row => row.id === "__vital_agent_header__"), SYSTEM_ROWS[1], ...ivyRows].filter((row): row is TimeGridRow => Boolean(row))
+        : [SYSTEM_ROWS[0], ...rowsAfterEvent, SYSTEM_ROWS[1], ...ivyRows];
   const rows = baseRows.filter(row => {
     if (sectionCollapseState?.ioCollapsed && row.type === "io" && row.id.startsWith("io_run_")) {
       return false;
@@ -938,7 +944,7 @@ export default function TimeGrid({
                   <td
                     key={ts}
                     style={{ width: colWidth, minWidth: colWidth }}
-                    className={`app-tooltip ${cellClass} px-0.5 cursor-pointer hover:bg-emerald-500/10`}
+                    className={`app-tooltip group ${cellClass} px-0.5 cursor-pointer hover:bg-emerald-500/10`}
                     onClick={() => onIoCellClick?.(row.id, ts)}
                     data-tooltip={tooltipText}
                   >
@@ -961,7 +967,7 @@ export default function TimeGrid({
                       ) : displayValue ? (
                         <span className="relative z-10">{displayValue}</span>
                       ) : !hasDrip ? (
-                        <span className="relative z-10">+</span>
+                        <span className="relative z-10 opacity-0 group-hover:opacity-70 group-focus-within:opacity-70">+</span>
                       ) : null}
                     </div>
                   </td>

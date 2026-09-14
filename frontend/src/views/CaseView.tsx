@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { CaseStatus } from "../api/caseApi";
 import TimeAxis from "../components/timeaxis/TimeAxis";
@@ -11,6 +11,7 @@ import TimeChart from "../components/vitals/TimeChart";
 import { useTimeAxis } from "../hooks/useTimeAxis";
 import { useVitalMinutes } from "../hooks/useVitalMinutes";
 import { useCaseEvents } from "../hooks/useCaseEvents";
+import { getCaseDiagnosis, getCaseProcedures } from "../api/caseClinicalApi";
 import type { AuthUser } from "../auth/useAuth";
 import type { TimelineChange } from "../api/vitalMinutesApi";
 import { putTimelineChanges } from "../api/vitalMinutesApi";
@@ -291,7 +292,7 @@ const CASEVIEW_UOM_OPTIONS = [
 ] as const;
 
 function getGe750VisibleRowsMigrationKey(username: string) {
-  return `aidas.visibleRows.migration.ge750.v2.${username}`;
+  return `flora.visibleRows.migration.ge750.v2.${username}`;
 }
 
 function formatDDMMYYYY(ts: number): string {
@@ -398,6 +399,22 @@ function readWeightFromSavedForm(caseId: number): string {
   } catch {
     return "";
   }
+}
+
+function formatKronosClock(ts: number): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(ts);
+}
+
+function formatKronosElapsed(durationMs: number): string {
+  const totalMinutes = Math.max(0, Math.floor(durationMs / 60_000));
+  return `${Math.floor(totalMinutes / 60)} hr ${totalMinutes % 60} min`;
 }
 
 function pickSavedFormText(payload: Record<string, unknown>, keys: string[]): string {
@@ -844,25 +861,6 @@ function medDripGroupTone(category: unknown): string {
   return "other";
 }
 
-function buildQuickActionStyle(accent: string): CSSProperties {
-  return {
-    ["--quick-action-accent" as string]: accent,
-    borderColor: `color-mix(in srgb, ${accent} 42%, var(--app-border))`,
-    background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 8%, var(--app-control-bg)) 0%, color-mix(in srgb, ${accent} 4%, var(--app-panel-bg)) 100%)`,
-    color: "var(--app-text)",
-    boxShadow: `0 8px 22px color-mix(in srgb, ${accent} 10%, transparent), inset 0 1px 0 color-mix(in srgb, white 5%, transparent)`,
-  };
-}
-
-function buildQuickActionIconStyle(accent: string): CSSProperties {
-  return {
-    background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 24%, transparent) 0%, color-mix(in srgb, ${accent} 12%, transparent) 100%)`,
-    borderColor: `color-mix(in srgb, ${accent} 34%, var(--app-border))`,
-    boxShadow: `inset 0 1px 0 color-mix(in srgb, white 10%, transparent)`,
-    color: accent,
-  };
-}
-
 export default function CaseView({
   caseStatus,
   sessionUser,
@@ -876,10 +874,10 @@ export default function CaseView({
   const caseId = caseStatus.status !== "IDLE" ? caseStatus.case_id : null;
   const notifyIoAndEventChanged = (targetCaseId: number) => {
     window.dispatchEvent(
-      new CustomEvent("aidas:case-io-changed", { detail: { caseId: targetCaseId } }),
+      new CustomEvent("flora:case-io-changed", { detail: { caseId: targetCaseId } }),
     );
     window.dispatchEvent(
-      new CustomEvent("aidas:case-events-changed", { detail: { caseId: targetCaseId } }),
+      new CustomEvent("flora:case-events-changed", { detail: { caseId: targetCaseId } }),
     );
   };
   const scopeUsername = sessionUser?.username || readStoredUsername();
@@ -890,16 +888,32 @@ export default function CaseView({
       availableAxisSteps,
     ),
   );
+  const [scaleDraft, setScaleDraft] = useState(String(axisStepMin));
+  const minimumScale = Math.min(...availableAxisSteps);
+  const maximumScale = Math.max(...availableAxisSteps);
+  const changeScale = (value: number) => {
+    const next = clampEditionTimelineScale(value, availableAxisSteps);
+    setAxisStepMin(next);
+    setScaleDraft(String(next));
+  };
+  const commitScaleDraft = () => {
+    if (!scaleDraft.trim() || !Number.isFinite(Number(scaleDraft))) {
+      setScaleDraft(String(axisStepMin));
+      return;
+    }
+    changeScale(Number(scaleDraft));
+  };
+  useEffect(() => setScaleDraft(String(axisStepMin)), [axisStepMin]);
   const [preferredVisibleRowIds, setPreferredVisibleRowIds] = useState<
     string[] | null
   >(() => readVisibleRowsForUser(scopeUsername));
   const [hiddenRowIds, setHiddenRowIds] = useState<string[]>(() =>
     readHiddenRowsForUser(scopeUsername),
   );
-  const [isIoSectionCollapsed, setIsIoSectionCollapsed] = useState(false);
+  const [isIoSectionCollapsed, setIsIoSectionCollapsed] = useState(true);
   const [isVitalSectionCollapsed, setIsVitalSectionCollapsed] = useState(false);
   const [isParamMenuOpen, setIsParamMenuOpen] = useState(false);
-  const { axis, loading: axisLoading } = useTimeAxis(caseId, caseStatus.status, axisStepMin);
+  const { axis, loading: axisLoading, serverOffsetMs, lastSyncedAt } = useTimeAxis(caseId, caseStatus.status, axisStepMin);
   const {
     values: liveValues,
     loading: vitalsLoading,
@@ -914,26 +928,42 @@ export default function CaseView({
     return true;
   }, [axis, vitalsAxis]);
   const rawTimelineLoading = axisLoading || vitalsLoading || !isAxisInSync;
-  const [isTimelineLoading, setIsTimelineLoading] = useState(true);
 
+  const [clinicalContext, setClinicalContext] = useState<{
+    caseId: number | null;
+    diagnosis: string[];
+    operations: string[];
+  }>({ caseId: null, diagnosis: [], operations: [] });
   useEffect(() => {
-    if (rawTimelineLoading) {
-      setIsTimelineLoading(true);
-      return;
-    }
-    let rafId: number | null = null;
-    const timerId = window.setTimeout(() => {
-      rafId = window.requestAnimationFrame(() => {
-        setIsTimelineLoading(false);
-      });
-    }, 120);
-    return () => {
-      window.clearTimeout(timerId);
-      if (rafId != null) {
-        window.cancelAnimationFrame(rafId);
+    if (caseId == null) return;
+    const activeCaseId = caseId;
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const [diagnosis, operations] = await Promise.all([
+          getCaseDiagnosis(activeCaseId),
+          getCaseProcedures(activeCaseId),
+        ]);
+        if (!alive) return;
+        setClinicalContext({
+          caseId: activeCaseId,
+          diagnosis: diagnosis.map(row => row.diagnosis_text).filter(Boolean),
+          operations: operations.map(row => row.procedure_text).filter(Boolean),
+        });
+      } catch {
+        if (alive) setClinicalContext({ caseId: activeCaseId, diagnosis: [], operations: [] });
       }
     };
-  }, [rawTimelineLoading]);
+    const onClinicalChanged = (event: Event) => {
+      if ((event as CustomEvent<{ caseId?: number }>).detail?.caseId === activeCaseId) void refresh();
+    };
+    void refresh();
+    window.addEventListener("flora:clinical-changed", onClinicalChanged);
+    return () => {
+      alive = false;
+      window.removeEventListener("flora:clinical-changed", onClinicalChanged);
+    };
+  }, [caseId]);
 
   const caseEvents = useCaseEvents(caseId, caseStatus.status, axis);
   const [caseEventsAll, setCaseEventsAll] = useState<CaseEvent[]>([]);
@@ -991,6 +1021,7 @@ export default function CaseView({
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [followLatest, setFollowLatest] = useState(true);
   const [ioRuns, setIoRuns] = useState<CaseIoRun[]>([]);
   const [ioEvents, setIoEvents] = useState<CaseIoEvent[]>([]);
   const [ioPreparedModal, setIoPreparedModal] = useState<IoPreparedModalState | null>(null);
@@ -1182,20 +1213,20 @@ export default function CaseView({
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setNowTs(Date.now());
+      setNowTs(Date.now() + serverOffsetMs);
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [serverOffsetMs]);
 
   useEffect(() => {
-    if (!scrollRef.current || axis.length === 0) return;
+    if (!scrollRef.current || axis.length === 0 || !followLatest) return;
 
     requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (!el) return;
       el.scrollLeft = el.scrollWidth - el.clientWidth;
     });
-  }, [axis.length, axisStepMin]);
+  }, [axis.length, axisStepMin, followLatest]);
 
   useEffect(() => {
     setEditValues({});
@@ -1229,7 +1260,7 @@ export default function CaseView({
       getTimelineScaleStorageKey(scopeUsername),
       String(axisStepMin),
     );
-    localStorage.setItem("aidas.timelineScale", String(axisStepMin));
+    localStorage.setItem("flora.timelineScale", String(axisStepMin));
   }, [axisStepMin, loadedPrefsScope, scopeUsername]);
 
   useEffect(() => {
@@ -1390,12 +1421,12 @@ export default function CaseView({
     const timer = setInterval(() => {
       void loadCaseEventsAll();
     }, 15_000);
-    window.addEventListener("aidas:case-events-changed", onEventsChanged);
+    window.addEventListener("flora:case-events-changed", onEventsChanged);
 
     return () => {
       alive = false;
       clearInterval(timer);
-      window.removeEventListener("aidas:case-events-changed", onEventsChanged);
+      window.removeEventListener("flora:case-events-changed", onEventsChanged);
     };
   }, [caseId, caseStatus]);
 
@@ -1440,12 +1471,12 @@ export default function CaseView({
     const timer = setInterval(() => {
       void loadIoData();
     }, 15000);
-    window.addEventListener("aidas:case-io-changed", onIoChanged);
+    window.addEventListener("flora:case-io-changed", onIoChanged);
 
     return () => {
       alive = false;
       clearInterval(timer);
-      window.removeEventListener("aidas:case-io-changed", onIoChanged);
+      window.removeEventListener("flora:case-io-changed", onIoChanged);
     };
   }, [caseId, caseStatus]);
 
@@ -1570,7 +1601,7 @@ export default function CaseView({
 
   const ioRowsWithHeader = useMemo<TimeGridRow[]>(
     () => [
-      { id: "__io_header__", label: "Fluid&Med", type: "event" },
+      { id: "__io_header__", label: "I/O", type: "event" },
       ...ioPreparedRows,
       { id: "__vital_agent_header__", label: "Vital&Agent", type: "event" },
     ],
@@ -2086,15 +2117,15 @@ export default function CaseView({
     mode: "api" | "manual" | "registered" | null,
   ) => {
     if (!verified && mode !== "manual") return null;
-    const aidasHn = caseStatus.status === "IDLE" ? "" : caseStatus.hn;
-    const aidasAn = patientDocumentSummary.an;
-    const aidasName = patientDocumentSummary.name;
+    const floraHn = caseStatus.status === "IDLE" ? "" : caseStatus.hn;
+    const floraAn = patientDocumentSummary.an;
+    const floraName = patientDocumentSummary.name;
     const hisHn = String(verified?.hn || "").trim();
     const hisAn = String(verified?.an || "").trim();
     const hisName = String(verified?.patient_name || "").trim();
-    const hnOk = Boolean(aidasHn && hisHn && aidasHn === hisHn);
-    const hasAnCompare = Boolean(aidasAn || hisAn);
-    const anOk = Boolean(aidasAn && hisAn && aidasAn === hisAn);
+    const hnOk = Boolean(floraHn && hisHn && floraHn === hisHn);
+    const hasAnCompare = Boolean(floraAn || hisAn);
+    const anOk = Boolean(floraAn && hisAn && floraAn === hisAn);
     const borderClass =
       mode === "manual"
         ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
@@ -2112,19 +2143,19 @@ export default function CaseView({
         </div>
         <div className="grid grid-cols-[80px_1fr_1fr_70px] gap-x-2 gap-y-1">
           <div />
-          <div className="font-semibold">AIDAS</div>
+          <div className="font-semibold">FLORA</div>
           <div className="font-semibold">HIS</div>
           <div className="font-semibold">Match</div>
           <div>HN</div>
-          <div>{aidasHn || "-"}</div>
+          <div>{floraHn || "-"}</div>
           <div>{hisHn || "-"}</div>
           <div>{mode === "manual" ? "-" : hnOk ? "OK" : "No"}</div>
           <div>AN</div>
-          <div>{aidasAn || "-"}</div>
+          <div>{floraAn || "-"}</div>
           <div>{hisAn || "-"}</div>
           <div>{mode === "manual" ? "-" : hasAnCompare ? anOk ? "OK" : "No" : "-"}</div>
           <div>Name</div>
-          <div>{aidasName || "-"}</div>
+          <div>{floraName || "-"}</div>
           <div>{hisName || "-"}</div>
           <div>-</div>
         </div>
@@ -4738,7 +4769,7 @@ export default function CaseView({
         });
       }
       window.dispatchEvent(
-        new CustomEvent("aidas:case-events-changed", { detail: { caseId } }),
+        new CustomEvent("flora:case-events-changed", { detail: { caseId } }),
       );
       setEventModalTs(null);
       setEventModalEditingId(null);
@@ -4764,7 +4795,7 @@ export default function CaseView({
         "caseview timeline event clear modal",
       );
       window.dispatchEvent(
-        new CustomEvent("aidas:case-events-changed", { detail: { caseId } }),
+        new CustomEvent("flora:case-events-changed", { detail: { caseId } }),
       );
       setEventModalTs(null);
       setEventModalEditingId(null);
@@ -5694,21 +5725,96 @@ export default function CaseView({
     return <div className="p-6 text-gray-400">No active case</div>;
   }
 
+  const caseEndTs = caseStatus.status === "ACTIVE"
+    ? nowTs
+    : caseStatus.discharge_time || nowTs;
+  const caseElapsed = Math.max(0, caseEndTs - caseStatus.start_time);
+  const caseDiagnosis = clinicalContext.caseId === caseId
+    ? clinicalContext.diagnosis.join(" · ")
+    : "Loading…";
+  const caseOperations = clinicalContext.caseId === caseId
+    ? clinicalContext.operations.join(" · ")
+    : "Loading…";
+  const renderTimeGrid = (displaySection: "events-io" | "vitals") => (
+    <TimeGrid
+      displaySection={displaySection}
+      columns={axis}
+      ivyRows={visibleIvyRows}
+      rowsAfterEvent={rowsAfterEvent}
+      values={combinedGridValues}
+      ioDripRateByRowTs={ioDripRateByRowTs}
+      eventMarkersByTs={eventMarkersByTs}
+      preparedMarkersByTs={ioPreparedMarkersByTs}
+      nowTs={nowTs}
+      scrollLeft={scrollLeft}
+      viewportWidth={viewportWidth}
+      onChange={handleCellChange}
+      onIoCellClick={handleIoCellClick}
+      onPreparedMarkerClick={handlePreparedMarkerClick}
+      onIoRowRemove={rowId => {
+        const run = ioRunByRowId.get(rowId);
+        if (!run) return;
+        const runName = run.item_name || run.item_code || `Item ${run.item_id}`;
+        setPendingIoRemove({ runId: run.id, itemName: runName });
+      }}
+      sectionCollapseState={{
+        ioCollapsed: isIoSectionCollapsed,
+        vitalCollapsed: isVitalSectionCollapsed,
+      }}
+      onSectionCollapseToggle={section => {
+        if (section === "io") {
+          setIsIoSectionCollapsed(prev => !prev);
+          return;
+        }
+        setIsVitalSectionCollapsed(prev => !prev);
+      }}
+      onEventCellClick={openEventModalAtTs}
+      onEventMarkerClick={openEventModalForMarker}
+    />
+  );
+
   return (
     <div className="relative h-full min-h-0 p-2 bg-gray-50 dark:bg-gray-900 flex flex-col">
-      <div className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-        <span>Timeline scale:</span>
-        <select
-          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1"
-          value={axisStepMin}
-          onChange={e => setAxisStepMin(Number(e.target.value) as AxisStepMin)}
-        >
-            {availableAxisSteps.map(step => (
-              <option key={step} value={step}>
-                {step} min
-              </option>
-          ))}
-        </select>
+      <div className="case-kronos mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+        <div className="case-kronos__clock">
+          <span className="case-kronos__eyebrow">KRONOS · {caseStatus.status === "ACTIVE" ? "LIVE" : "COMPLETED"}</span>
+          <strong className="case-kronos__elapsed">{formatKronosElapsed(caseElapsed)}</strong>
+          <span className="case-kronos__sub">Started {formatKronosClock(caseStatus.start_time)} · Now {formatKronosClock(nowTs)}</span>
+        </div>
+
+        <div className="case-kronos__clinical" aria-label="Clinical context">
+          <span title={caseDiagnosis || "Not recorded"}><b>Diagnosis</b> {caseDiagnosis || "Not recorded"}</span>
+          <span title={caseOperations || "Not recorded"}><b>Operation</b> {caseOperations || "Not recorded"}</span>
+        </div>
+
+        <div className="case-kronos__controls">
+          <label className="case-kronos__eyebrow" htmlFor="case-timeline-scale">TIME SCALE</label>
+          <div className="case-kronos__stepper">
+            <button type="button" aria-label="Decrease time scale" disabled={axisStepMin <= minimumScale} onClick={() => changeScale(axisStepMin - 1)}>−</button>
+            <input
+              id="case-timeline-scale"
+              type="number"
+              min={minimumScale}
+              max={maximumScale}
+              step="1"
+              value={scaleDraft}
+              onChange={event => setScaleDraft(event.target.value)}
+              onBlur={commitScaleDraft}
+              onKeyDown={event => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") { setScaleDraft(String(axisStepMin)); event.currentTarget.blur(); }
+              }}
+            />
+            <span>min</span>
+            <button type="button" aria-label="Increase time scale" disabled={axisStepMin >= maximumScale} onClick={() => changeScale(axisStepMin + 1)}>+</button>
+          </div>
+          <span className="case-kronos__sync" role="status" aria-live="polite">
+            {rawTimelineLoading ? "Updating…" : lastSyncedAt ? "Synced" : "Connecting…"}
+          </span>
+          {!followLatest && caseStatus.status === "ACTIVE" ? (
+            <button type="button" className="case-kronos__latest" onClick={() => setFollowLatest(true)}>Return to latest</button>
+          ) : null}
+        </div>
 
         <div className="relative">
           <button
@@ -5788,101 +5894,6 @@ export default function CaseView({
           ) : null}
         </div>
 
-      <div className="case-quick-actions ml-auto flex items-center gap-2 rounded-2xl border px-2 py-2">
-          <button
-            type="button"
-            onClick={() => openEventModalAtTs(Date.now())}
-            className="case-quick-action inline-flex min-w-[98px] items-center justify-start gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5"
-            style={buildQuickActionStyle("#14b8a6")}
-          >
-            <span
-              className="case-quick-action__icon inline-flex h-8 w-8 items-center justify-center rounded-lg border"
-              style={buildQuickActionIconStyle("#14b8a6")}
-            >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path
-                d="M12 8v4l2.5 2.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            </span>
-            <span className="case-quick-action__label">Event</span>
-          </button>
-          <button
-            type="button"
-            onClick={openQuickMed}
-            className="case-quick-action inline-flex min-w-[98px] items-center justify-start gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5"
-            style={buildQuickActionStyle("#60a5fa")}
-          >
-            <span
-              className="case-quick-action__icon inline-flex h-8 w-8 items-center justify-center rounded-lg border"
-              style={buildQuickActionIconStyle("#60a5fa")}
-            >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path
-                d="M4 20l4-1 9-9-3-3-9 9-1 4zM13 5l3 3M15 3l6 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            </span>
-            <span className="case-quick-action__label">Bolus</span>
-          </button>
-          <button
-            type="button"
-            onClick={openQuickMedDrip}
-            className="case-quick-action inline-flex min-w-[98px] items-center justify-start gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5"
-            style={buildQuickActionStyle("#a78bfa")}
-          >
-            <span
-              className="case-quick-action__icon inline-flex h-8 w-8 items-center justify-center rounded-lg border"
-              style={buildQuickActionIconStyle("#a78bfa")}
-            >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path d="M12 3v7m0 0l-3-3m3 3l3-3M8 21h8M7 14h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            </span>
-            <span className="case-quick-action__label">Drip</span>
-          </button>
-          <button
-            type="button"
-            className="case-quick-action inline-flex min-w-[98px] items-center justify-start gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5"
-            style={buildQuickActionStyle("#fb923c")}
-            onClick={openQuickFluid}
-          >
-            <span
-              className="case-quick-action__icon inline-flex h-8 w-8 items-center justify-center rounded-lg border"
-              style={buildQuickActionIconStyle("#fb923c")}
-            >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path d="M12 3C9 7 7 10 7 13a5 5 0 0010 0c0-3-2-6-5-10z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            </span>
-            <span className="case-quick-action__label">Fluid</span>
-          </button>
-          <button
-            type="button"
-            className="case-quick-action inline-flex min-w-[98px] items-center justify-start gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5"
-            style={buildQuickActionStyle("#f87171")}
-            onClick={openBloodProductWorkflow}
-          >
-            <span
-              className="case-quick-action__icon inline-flex h-8 w-8 items-center justify-center rounded-lg border"
-              style={buildQuickActionIconStyle("#f87171")}
-            >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path d="M12 3l5 8a5 5 0 11-10 0l5-8zM9 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            </span>
-            <span className="case-quick-action__label">Blood</span>
-          </button>
-        </div>
-
         {quickIoError ? (
           <div className="w-full text-xs text-red-600 dark:text-red-400">
             {quickIoError}
@@ -5892,7 +5903,11 @@ export default function CaseView({
 
       <div
         ref={scrollRef}
-        onScroll={e => setScrollLeft(e.currentTarget.scrollLeft)}
+        onScroll={e => {
+          const el = e.currentTarget;
+          setScrollLeft(el.scrollLeft);
+          setFollowLatest(el.scrollWidth - el.clientWidth - el.scrollLeft < 100);
+        }}
         className="
           flex-1 min-h-0
           overflow-x-auto overflow-y-hidden
@@ -5903,6 +5918,9 @@ export default function CaseView({
       >
         <div className="min-w-max h-full flex flex-col">
           <TimeAxis axis={axis} nowTs={nowTs} scrollLeft={scrollLeft} viewportWidth={viewportWidth} />
+          <div className="case-kronos__entries max-h-[30vh] overflow-y-auto">
+            {renderTimeGrid("events-io")}
+          </div>
           <TimeChart
             axis={axis}
             values={values}
@@ -5912,40 +5930,7 @@ export default function CaseView({
             viewportWidth={viewportWidth}
           />
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <TimeGrid
-              columns={axis}
-              ivyRows={visibleIvyRows}
-              rowsAfterEvent={rowsAfterEvent}
-              values={combinedGridValues}
-              ioDripRateByRowTs={ioDripRateByRowTs}
-              eventMarkersByTs={eventMarkersByTs}
-              preparedMarkersByTs={ioPreparedMarkersByTs}
-              nowTs={nowTs}
-              scrollLeft={scrollLeft}
-              viewportWidth={viewportWidth}
-              onChange={handleCellChange}
-              onIoCellClick={handleIoCellClick}
-              onPreparedMarkerClick={handlePreparedMarkerClick}
-              onIoRowRemove={rowId => {
-                const run = ioRunByRowId.get(rowId);
-                if (!run) return;
-                const runName = run.item_name || run.item_code || `Item ${run.item_id}`;
-                setPendingIoRemove({ runId: run.id, itemName: runName });
-              }}
-              sectionCollapseState={{
-                ioCollapsed: isIoSectionCollapsed,
-                vitalCollapsed: isVitalSectionCollapsed,
-              }}
-              onSectionCollapseToggle={section => {
-                if (section === "io") {
-                  setIsIoSectionCollapsed(prev => !prev);
-                  return;
-                }
-                setIsVitalSectionCollapsed(prev => !prev);
-              }}
-              onEventCellClick={openEventModalAtTs}
-              onEventMarkerClick={openEventModalForMarker}
-            />
+            {renderTimeGrid("vitals")}
           </div>
         </div>
       </div>
@@ -7117,7 +7102,7 @@ export default function CaseView({
                   <div>
                     <div className="text-base font-semibold">Blood Board</div>
                     <div className="text-xs text-[var(--app-muted)]">
-                      Available bags from {bloodBoardSource === "MOCK" ? "mock HIS data" : "HIS / Blood Bank"} with AIDAS case status
+                      Available bags from {bloodBoardSource === "MOCK" ? "mock HIS data" : "HIS / Blood Bank"} with FLORA case status
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -7299,7 +7284,7 @@ export default function CaseView({
                         <th className="px-3 py-2">Product</th>
                         <th className="px-3 py-2">Group</th>
                         <th className="px-3 py-2">Rh</th>
-                        <th className="px-3 py-2">AIDAS Status</th>
+                        <th className="px-3 py-2">FLORA Status</th>
                         <th className="px-3 py-2"></th>
                       </tr>
                     </thead>
@@ -8798,19 +8783,6 @@ export default function CaseView({
         onConfirm={confirmRemoveIoRun}
       />
 
-      {isTimelineLoading && (
-        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-[1px]">
-          <div className="flex flex-col items-center gap-3 rounded-xl bg-white/90 dark:bg-gray-800/90 p-6 shadow-2xl border border-gray-200 dark:border-gray-700">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-            <div className="text-sm font-medium text-gray-800 dark:text-gray-100">
-              Updating Timeline...
-            </div>
-            <div className="text-[10px] text-gray-500 dark:text-gray-400">
-              {axisStepMin} min scale
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -21,7 +21,7 @@ Track these separately from source code:
 | --- | --- | --- |
 | Innovian clinical workflow | Anesthesia / hospital | Porjai support |
 | Innovian server and SQL | Hospital IT | Porjai / vendor |
-| AIDAS application | Porjai development | Anesthesia users |
+| FLORA application | Porjai development | Anesthesia users |
 | Hidro device middleware | Porjai development | Hospital IT / device vendor |
 | Network, VLAN, firewall, VM | Hospital IT | Porjai |
 | Device cable and adapter path | Hospital biomedical/OR support | Porjai |

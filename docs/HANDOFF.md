@@ -1,11 +1,11 @@
-# AIDAS / HIDRO Handoff Guide
+# FLORA / HIDRO Handoff Guide
 
 > For the complete successor-facing engineering, deployment, configuration,
 > recovery, troubleshooting, security, and ownership guide, start with
-> [AIDAS and Hidro Successor Handbook](./AIDAS-HIDRO-SUCCESSOR-HANDBOOK.md).
+> [FLORA and Hidro Successor Handbook](./FLORA-HIDRO-SUCCESSOR-HANDBOOK.md).
 > This file remains the concise overview.
 
-This document is intended as a practical handoff guide for a new software team taking over support, debugging, enhancement, or deployment of `AIDAS` and `Hidro`.
+This document is intended as a practical handoff guide for a new software team taking over support, debugging, enhancement, or deployment of `FLORA` and `Hidro`.
 
 It is not a legal or product brochure document.
 It is an engineering and operations starting point.
@@ -14,7 +14,7 @@ It is an engineering and operations starting point.
 
 The current system has two main software parts:
 
-### AIDAS
+### FLORA
 
 - desktop anesthesia information and documentation system
 - used for case recording, patient details, staff, diagnosis/procedure, forms, fluids/medications, blood product workflow, and report generation
@@ -29,7 +29,7 @@ The current system has two main software parts:
 - device integration middleware
 - captures data from patient monitors / anesthesia machines
 - normalizes and stores device observations
-- exposes local HTTP API for downstream consumers such as AIDAS
+- exposes local HTTP API for downstream consumers such as FLORA
 - built as:
   - `Node.js` service
   - `Electron` tray UI
@@ -41,17 +41,17 @@ Typical current local deployment:
 
 1. medical devices send data to `Hidro`
 2. `Hidro` stores normalized observations and exposes them by local API
-3. `AIDAS` reads those observations and writes case-level documentation into `flora.db`
-4. AIDAS generates local reports from `flora.db`
+3. `FLORA` reads those observations and writes case-level documentation into `flora.db`
+4. FLORA generates local reports from `flora.db`
 
 Important principle:
 
-- `AIDAS local standalone workflow` is the foundation
+- `FLORA local standalone workflow` is the foundation
 - network integration is an extension layer, not the replacement of local workflow
 
 ## 3. Repository Map
 
-### AIDAS repo
+### FLORA repo
 
 Main folders:
 
@@ -94,15 +94,15 @@ Expected main folders:
   - Node service
   - device drivers and APIs
 - `shared/`
-  - normalized parameter map shared with AIDAS
+  - normalized parameter map shared with FLORA
 - `scripts/`
   - build helpers
 
-## 4. AIDAS Runtime Flow
+## 4. FLORA Runtime Flow
 
 ### Local app flow
 
-1. user opens AIDAS desktop app
+1. user opens FLORA desktop app
 2. Electron shell starts frontend and backend
 3. backend opens local SQLite DB
 4. user works in case-based workflow
@@ -137,16 +137,16 @@ Expected main folders:
 3. data is received over serial / TCP / HL7 depending on device
 4. raw protocol values are normalized to internal parameter keys
 5. observations are stored locally and exposed via local HTTP API
-6. AIDAS consumes Hidro data through local integration path
+6. FLORA consumes Hidro data through local integration path
 
 ### Current practical boundary
 
 - Hidro owns device connectivity and normalized observation output
-- AIDAS owns case workflow and clinical documentation
+- FLORA owns case workflow and clinical documentation
 
 ## 6. Database
 
-### Main AIDAS database
+### Main FLORA database
 
 - file name: `flora.db`
 - packaged runtime path:
@@ -154,7 +154,7 @@ Expected main folders:
 
 Schema source:
 
-- [backend/floradb.js](c:/Users/onlys/Aidas/backend/floradb.js)
+- [backend/floradb.js](c:/Users/onlys/Flora/backend/floradb.js)
 
 Main table groups:
 
@@ -194,8 +194,8 @@ Main table groups:
 
 Database diagram files:
 
-- [AIDAS-Database-Diagram.mmd](c:/Users/onlys/Aidas/docs/AIDAS-Database-Diagram.mmd)
-- [AIDAS-Database-Diagram-Guide.md](c:/Users/onlys/Aidas/docs/AIDAS-Database-Diagram-Guide.md)
+- [FLORA-Database-Diagram.mmd](c:/Users/onlys/Flora/docs/FLORA-Database-Diagram.mmd)
+- [FLORA-Database-Diagram-Guide.md](c:/Users/onlys/Flora/docs/FLORA-Database-Diagram-Guide.md)
 
 ## 7. New Client vs Existing Client Deployment
 
@@ -203,7 +203,7 @@ Database diagram files:
 
 Normal expectation:
 
-1. install AIDAS package
+1. install FLORA package
 2. place prepared `flora.db` at:
    - `C:\porjai\data\flora.db`
 
@@ -234,7 +234,7 @@ Important operational rule:
 
 Related files:
 
-- [scripts/build-client-db.js](c:/Users/onlys/Aidas/scripts/build-client-db.js)
+- [scripts/build-client-db.js](c:/Users/onlys/Flora/scripts/build-client-db.js)
 - `deploy-artifacts/`
 
 Known documentation problem:
@@ -244,11 +244,11 @@ Known documentation problem:
 
 ## 9. Build and Packaging
 
-### AIDAS
+### FLORA
 
 Root package file:
 
-- [package.json](c:/Users/onlys/Aidas/package.json)
+- [package.json](c:/Users/onlys/Flora/package.json)
 
 Main commands:
 
@@ -279,13 +279,13 @@ Typical expectations:
 - run local dev mode
 - package Windows installer
 
-The Hidro README is currently better than the AIDAS frontend README for onboarding.
+The Hidro README is currently better than the FLORA frontend README for onboarding.
 
 ## 10. HIS / Gateway Dependencies
 
 Current practical dependency:
 
-- AIDAS clients may need to call a hospital-side gateway/service hosted at:
+- FLORA clients may need to call a hospital-side gateway/service hosted at:
   - `10.35.202.6`
 
 This is used as a hospital integration point for HIS-related retrieval.
@@ -294,13 +294,13 @@ Do not assume direct hospital API access from every client.
 
 Important lessons learned:
 
-- keep raw HN storage in AIDAS local DB simple
-- hospital-specific identifier transformation is safer in gateway/service layer than inside core AIDAS DB
+- keep raw HN storage in FLORA local DB simple
+- hospital-specific identifier transformation is safer in gateway/service layer than inside core FLORA DB
 - gateway/service behavior, access control, and token management are external dependencies and must be documented per hospital
 
 Related files:
 
-- [docs/server.py](c:/Users/onlys/Aidas/docs/server.py)
+- [docs/server.py](c:/Users/onlys/Flora/docs/server.py)
 - `deploy-artifacts/kcmh-gethis-service/`
 
 ## 11. Known Unstable / High-Risk Areas
@@ -385,7 +385,7 @@ Without more guidance, they will likely still struggle with:
 - real deployment rules per hospital
 - which DB copy is the correct prepared one
 - room-specific Hidro instability causes
-- expected integration boundary between AIDAS and Hidro
+- expected integration boundary between FLORA and Hidro
 - exact ownership of hospital-side service/gateway
 - undocumented workflow assumptions that currently live in developer memory
 
@@ -397,19 +397,19 @@ If the handoff is serious, create these next:
 2. `docs/DEPLOYMENT-RUNBOOK.md`
 3. `docs/KCMH-INTEGRATION-RUNBOOK.md`
 4. `docs/KNOWN-ISSUES.md`
-5. replace the default [frontend/README.md](c:/Users/onlys/Aidas/frontend/README.md) with a real project README
+5. replace the default [frontend/README.md](c:/Users/onlys/Flora/frontend/README.md) with a real project README
 
 ## 17. Minimum Safe Handoff Set
 
 If time is limited, the minimum set another company should receive is:
 
 1. this file
-2. root [README.md](c:/Users/onlys/Aidas/README.md)
-3. [backend/floradb.js](c:/Users/onlys/Aidas/backend/floradb.js)
-4. [backend/caseRoutes.js](c:/Users/onlys/Aidas/backend/caseRoutes.js)
-5. [electron/main.cjs](c:/Users/onlys/Aidas/electron/main.cjs)
-6. [electron/reportPdf.cjs](c:/Users/onlys/Aidas/electron/reportPdf.cjs)
-7. [docs/RELEASE_NOTES.md](c:/Users/onlys/Aidas/docs/RELEASE_NOTES.md)
+2. root [README.md](c:/Users/onlys/Flora/README.md)
+3. [backend/floradb.js](c:/Users/onlys/Flora/backend/floradb.js)
+4. [backend/caseRoutes.js](c:/Users/onlys/Flora/backend/caseRoutes.js)
+5. [electron/main.cjs](c:/Users/onlys/Flora/electron/main.cjs)
+6. [electron/reportPdf.cjs](c:/Users/onlys/Flora/electron/reportPdf.cjs)
+7. [docs/RELEASE_NOTES.md](c:/Users/onlys/Flora/docs/RELEASE_NOTES.md)
 8. the prepared deployment DB and explanation of where it should be used
 9. Hidro repo with its own README
 

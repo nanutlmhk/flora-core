@@ -323,7 +323,7 @@ secure channel.
 
 Copied-document folder:
 
-`C:\Users\onlys\Aidas\docs\handoff\BKI Docs`
+`C:\Users\onlys\Flora\docs\handoff\BKI Docs`
 
 The folder is flat and contains documents only. Local timestamps use
 Asia/Bangkok (`UTC+7`). The original sources remain in place. Some BKI
@@ -332,16 +332,16 @@ hospital-approved access controls.
 
 | Document in `BKI Docs` | Original source path(s) | Local timestamp(s) |
 | --- | --- | --- |
-| `BRKidney-HIS-Drug-Order-Software-Spec.md` | `C:\Users\onlys\Aidas\docs\BRKidney-HIS-Drug-Order-Software-Spec.md` | `2026-07-03T11:56:16+07:00` |
-| `BRKidney-HIS-Drug-Order-UAT-Plan.md` | `C:\Users\onlys\Aidas\docs\BRKidney-HIS-Drug-Order-UAT-Plan.md` | `2026-07-03T14:28:42+07:00` |
+| `BRKidney-HIS-Drug-Order-Software-Spec.md` | `C:\Users\onlys\Flora\docs\BRKidney-HIS-Drug-Order-Software-Spec.md` | `2026-07-03T11:56:16+07:00` |
+| `BRKidney-HIS-Drug-Order-UAT-Plan.md` | `C:\Users\onlys\Flora\docs\BRKidney-HIS-Drug-Order-UAT-Plan.md` | `2026-07-03T14:28:42+07:00` |
 | `coverrqage.xls` | `C:\Users\onlys\OneDrive\เอกสาร\coverrqage.xls` | `2026-05-28T10:07:53+07:00` |
-| `fkpj-meeting-report-2026-05-30.md` | `C:\Users\onlys\Aidas\fkpj-meeting-report-2026-05-30.md` | `2026-06-21T16:23:17+07:00` |
-| `HANDOFF-HOSPITAL-CONTEXT.md` | `C:\Users\onlys\Aidas\docs\HANDOFF-HOSPITAL-CONTEXT.md` | `2026-07-21T12:08:11+07:00` |
-| `HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `C:\Users\onlys\Aidas\docs\HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `2026-07-21T12:08:11+07:00` |
+| `fkpj-meeting-report-2026-05-30.md` | `C:\Users\onlys\Flora\fkpj-meeting-report-2026-05-30.md` | `2026-06-21T16:23:17+07:00` |
+| `HANDOFF-HOSPITAL-CONTEXT.md` | `C:\Users\onlys\Flora\docs\HANDOFF-HOSPITAL-CONTEXT.md` | `2026-07-21T12:08:11+07:00` |
+| `HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `C:\Users\onlys\Flora\docs\HANDOFF-RISKS-AND-OPEN-QUESTIONS.md` | `2026-07-21T12:08:11+07:00` |
 | `HIS_Interface_Requirements.docx` | `C:\Users\onlys\Downloads\HIS_Interface_Requirements.docx` | `2026-03-24T18:56:27+07:00` |
 | `HIS_Table_Spec.xlsx` | `C:\Users\onlys\Downloads\HIS_Table_Spec.xlsx` | `2026-03-25T11:10:37+07:00` |
 | `HN_VN_Request.xlsx` | `C:\Users\onlys\Downloads\HN_VN_Request.xlsx` | `2026-03-24T19:32:28+07:00` |
-| `Medical-Device-Integration-Handover-Checklist-Response.md` | `C:\Users\onlys\Aidas\docs\Medical-Device-Integration-Handover-Checklist-Response.md` | `2026-07-21T13:11:15+07:00` |
+| `Medical-Device-Integration-Handover-Checklist-Response.md` | `C:\Users\onlys\Flora\docs\Medical-Device-Integration-Handover-Checklist-Response.md` | `2026-07-21T13:11:15+07:00` |
 | `Medical-Device-Integration-Handover-Checklist-Response.pdf` | `C:\Users\onlys\Downloads\Medical-Device-Integration-Handover-Checklist-Response.pdf` | `2026-07-21T14:15:11+07:00` |
 | `MedicalOrdersPerShift_LpcXl1CaREiNNks8kI9-2g.xls` | `C:\Users\onlys\OneDrive\เอกสาร\MedicalOrdersPerShift_LpcXl1CaREiNNks8kI9-2g.xls` | `2026-03-23T10:08:58+07:00` |
 | `MedicalOrdersPerShift_nlojoCmLWEetROaVvWSqbw.xls` | `C:\Users\onlys\OneDrive\เอกสาร\MedicalOrdersPerShift_nlojoCmLWEetROaVvWSqbw.xls` | `2026-03-23T10:08:59+07:00` |
@@ -352,23 +352,23 @@ hospital-approved access controls.
 | `medusertype.xls` | `C:\Users\onlys\OneDrive\เอกสาร\medusertype.xls` | `2026-05-25T08:39:20+07:00` |
 | `meduseunit.xls` | `C:\Users\onlys\OneDrive\เอกสาร\meduseunit.xls` | `2026-05-25T08:39:18+07:00` |
 | `Porjai_Abstract_HIS_API_v3.pdf` | `C:\Users\onlys\Downloads\Porjai_Abstract_HIS_API_v3.pdf` | `2026-04-01T18:35:34+07:00` |
-| `Porjai_Abstract_HIS_API_v4.docx` | `C:\Users\onlys\Aidas\docs\Porjai_Abstract_HIS_API_v4.docx` | `2026-05-26T19:24:29+07:00` |
+| `Porjai_Abstract_HIS_API_v4.docx` | `C:\Users\onlys\Flora\docs\Porjai_Abstract_HIS_API_v4.docx` | `2026-05-26T19:24:29+07:00` |
 | `Porjai_Abstract_HIS_API_v4.pdf` | `C:\Users\onlys\Downloads\Porjai_Abstract_HIS_API_v4.pdf` | `2026-05-20T16:23:08+07:00` |
 | `Porjai_Abstract_HIS_API_v4_0.pdf` | `C:\Users\onlys\Downloads\Porjai_Abstract_HIS_API_v4_0.pdf` | `2026-05-20T16:33:39+07:00` |
 | `Porjai_Abstract_HIS_API_v4_1.pdf` | `C:\Users\onlys\Downloads\Porjai_Abstract_HIS_API_v4_1.pdf`<br>`C:\Users\onlys\OneDrive\Desktop\KCMH\Porjai_Abstract_HIS_API_v4.pdf` | `2026-05-20T16:29:40+07:00`<br>`2026-05-20T16:30:28+07:00` |
 | `Porjai_Abstract_HIS_API_v4_abs.docx` | `C:\Users\onlys\OneDrive\เอกสาร\Porjai_Abstract_HIS_API_v4_abs.docx` | `2026-05-20T15:59:02+07:00` |
 | `Porjai_Abstract_HIS_API_v4_abs.md` | `C:\Users\onlys\OneDrive\เอกสาร\Porjai_Abstract_HIS_API_v4_abs.md` | `2026-05-20T15:59:02+07:00` |
 | `Porjai_Abstract_HIS_API_v4_abs.pdf` | `C:\Users\onlys\OneDrive\เอกสาร\Porjai_Abstract_HIS_API_v4_abs.pdf` | `2026-05-20T15:59:18+07:00` |
-| `Porjai_Abstract_HIS_API_v5.pdf` | `C:\Users\onlys\Aidas\docs\Porjai_Abstract_HIS_API_v5.pdf` | `2026-05-27T16:19:34+07:00` |
-| `Porjai_Abstract_HIS_API_v5_draft.docx` | `C:\Users\onlys\Aidas\docs\Porjai_Abstract_HIS_API_v5_draft.docx` | `2026-05-28T12:14:23+07:00` |
-| `Porjai_Abstract_HIS_API_v5_draft.md` | `C:\Users\onlys\Aidas\docs\Porjai_Abstract_HIS_API_v5_draft.md` | `2026-05-27T14:19:17+07:00` |
-| `Porjai_Abstract_HIS_API_v5_draft.pdf` | `C:\Users\onlys\Aidas\docs\Porjai_Abstract_HIS_API_v5_draft.pdf` | `2026-05-27T09:09:03+07:00` |
-| `Porjai_Abstract_HIS_API_v5_rev1.pdf` | `C:\Users\onlys\Aidas\docs\Porjai_Abstract_HIS_API_v5_rev1.pdf` | `2026-05-28T12:14:49+07:00` |
+| `Porjai_Abstract_HIS_API_v5.pdf` | `C:\Users\onlys\Flora\docs\Porjai_Abstract_HIS_API_v5.pdf` | `2026-05-27T16:19:34+07:00` |
+| `Porjai_Abstract_HIS_API_v5_draft.docx` | `C:\Users\onlys\Flora\docs\Porjai_Abstract_HIS_API_v5_draft.docx` | `2026-05-28T12:14:23+07:00` |
+| `Porjai_Abstract_HIS_API_v5_draft.md` | `C:\Users\onlys\Flora\docs\Porjai_Abstract_HIS_API_v5_draft.md` | `2026-05-27T14:19:17+07:00` |
+| `Porjai_Abstract_HIS_API_v5_draft.pdf` | `C:\Users\onlys\Flora\docs\Porjai_Abstract_HIS_API_v5_draft.pdf` | `2026-05-27T09:09:03+07:00` |
+| `Porjai_Abstract_HIS_API_v5_rev1.pdf` | `C:\Users\onlys\Flora\docs\Porjai_Abstract_HIS_API_v5_rev1.pdf` | `2026-05-28T12:14:49+07:00` |
 | `Porjai_HIS_API.docx` | `C:\Users\onlys\Downloads\Porjai_HIS_API.docx` | `2026-03-25T12:44:22+07:00` |
 | `Porjai_HIS_API_Spec.docx` | `C:\Users\onlys\Downloads\Porjai_HIS_API_Spec.docx` | `2026-03-25T12:43:42+07:00` |
 | `Porjai_HIS_API_v2.docx` | `C:\Users\onlys\Downloads\Porjai_HIS_API_v2.docx` | `2026-03-26T10:08:41+07:00` |
 | `porjai_tss_his_mapping.xlsx` | `C:\Users\onlys\Downloads\porjai_tss_his_mapping.xlsx` | `2026-03-21T22:39:54+07:00` |
-| `porjai_v3.pdf` | `C:\Users\onlys\Aidas\tmp_porjai_review\porjai_v3.pdf`<br>`C:\Users\onlys\OneDrive\เอกสาร\Porjai_Abstract_HIS_API_v3 - abs.pdf` | `2026-04-08T10:52:52+07:00` |
+| `porjai_v3.pdf` | `C:\Users\onlys\Flora\tmp_porjai_review\porjai_v3.pdf`<br>`C:\Users\onlys\OneDrive\เอกสาร\Porjai_Abstract_HIS_API_v3 - abs.pdf` | `2026-04-08T10:52:52+07:00` |
 | `Porjai-AbstractHIS API Specification.pdf` | `C:\Users\onlys\OneDrive\เอกสาร\Porjai-AbstractHIS API Specification.pdf` | `2026-03-06T10:14:52+07:00` |
 | `เส้นส่ง med interface พอใจ_ABS.xlsx` | `C:\Users\onlys\OneDrive\เอกสาร\เส้นส่ง med interface พอใจ_ABS.xlsx` | `2026-03-26T09:28:22+07:00` |
 | `แบบตรวจรับงาน_HIS_TDMS_สถาบันโรคไต.xlsx` | `C:\Users\onlys\Hidro\แบบตรวจรับงาน_HIS_TDMS_สถาบันโรคไต.xlsx`<br>`C:\Users\onlys\OneDrive\เอกสาร\แบบตรวจรับงาน_HIS_TDMS_สถาบันโรคไต.xlsx` | `2026-07-03T14:11:35+07:00` |

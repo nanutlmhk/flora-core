@@ -1,12 +1,12 @@
 # Medical Device Integration Handover Guide
 
-## AIDAS and Hidro
+## FLORA and Hidro
 
-This document is a practical handover guide for the developer or software team taking over AIDAS and Hidro. Its sections follow the structure of `Medical_Device_Integration_Handover_Checklist.pdf` so that the successor can use it as both an onboarding guide and a checklist while examining the code and real deployment assets.
+This document is a practical handover guide for the developer or software team taking over FLORA and Hidro. Its sections follow the structure of `Medical_Device_Integration_Handover_Checklist.pdf` so that the successor can use it as both an onboarding guide and a checklist while examining the code and real deployment assets.
 
 Scope:
 
-- `AIDAS` anesthesia information and documentation system.
+- `FLORA` anesthesia information and documentation system.
 - `Hidro` medical-device integration middleware.
 - Porjai-managed device and data-flow components.
 
@@ -41,14 +41,14 @@ Hidro service
     -> parser and parameter normalization
 Hidro local SQLite and HTTP API
     -> local observation API
-AIDAS backend
+FLORA backend
     -> case association and minute writer
-AIDAS local SQLite: flora.db
+FLORA local SQLite: flora.db
     -> timeline, forms, medications, fluids, blood, events, reports
 Hospital HIS gateway or API: optional integration layer
 ```
 
-Status: `Verified` for the local AIDAS/Hidro flow. The successor should verify the hospital-wide topology from the live network and current IT records.
+Status: `Verified` for the local FLORA/Hidro flow. The successor should verify the hospital-wide topology from the live network and current IT records.
 
 ### 1.2 Device data transport
 
@@ -70,7 +70,7 @@ The system supports both continuous observation collection and local manual docu
 Known Porjai-side endpoints:
 
 - Hidro local API: `http://127.0.0.1:3000`.
-- AIDAS local backend: typically local workstation service, commonly port `3001` in current documentation.
+- FLORA local backend: typically local workstation service, commonly port `3001` in current documentation.
 - KCMH hospital integration gateway: hospital-side service associated with `10.35.202.6`.
 
 Live endpoint URLs, bearer tokens, certificates, firewall rules, and credentials must be provided through the hospital-approved secure channel and must not be stored in this document or a public repository.
@@ -83,8 +83,8 @@ Status: `Partial`.
 Device -> physical interface / adapter -> Hidro driver
       -> raw frame / message -> parser -> normalized parameter key
       -> Hidro observation database -> Hidro API
-      -> AIDAS minute writer -> case timeline in flora.db
-      -> AIDAS chart, report, and downstream export
+      -> FLORA minute writer -> case timeline in flora.db
+      -> FLORA chart, report, and downstream export
 ```
 
 HIS patient, lab, allergy, and blood-bank information enters through a hospital gateway/API when configured. It is separate from the device-observation flow.
@@ -121,7 +121,7 @@ Required future record:
 
 ### 2.3 Actual deployed quantities
 
-Known current AIDAS KCMH rollout evidence includes OR rooms `508`, `701`, and `901`. Confirm exact device counts and active status against the current hospital asset list.
+Known current FLORA KCMH rollout evidence includes OR rooms `508`, `701`, and `901`. Confirm exact device counts and active status against the current hospital asset list.
 
 Status: `Partial`.
 
@@ -141,7 +141,7 @@ Confirmed or present in repository:
 - Vendor-specific serial framing and checksums.
 - TCP/LAN for selected integrations such as B. Braun BCC.
 - HL7 listener/parser path.
-- Local REST/HTTP APIs between Hidro and AIDAS.
+- Local REST/HTTP APIs between Hidro and FLORA.
 
 Not confirmed as active Porjai implementation for this scope:
 
@@ -151,7 +151,7 @@ Not confirmed as active Porjai implementation for this scope:
 
 ### 3.2 Message format and specification
 
-Message handling is driver-specific. The repository contains parser, framing, checksum, mapping, raw sample, and protocol files under Hidro `service/` and the AIDAS `shared/` mapping paths.
+Message handling is driver-specific. The repository contains parser, framing, checksum, mapping, raw sample, and protocol files under Hidro `service/` and the FLORA `shared/` mapping paths.
 
 The safe handover package should include, per driver:
 
@@ -179,20 +179,20 @@ Status: `Observed / Partial`.
 
 ### 4.1 Device to internal mapping
 
-Hidro maps raw device values into normalized parameter keys. AIDAS then maps normalized observations into case minute records.
+Hidro maps raw device values into normalized parameter keys. FLORA then maps normalized observations into case minute records.
 
 Primary evidence:
 
-- Hidro `shared/aidasParamMap.js`.
+- Hidro `shared/floraParamMap.js`.
 - Hidro driver mapper/parser modules.
-- AIDAS `shared/aidasParamMap.js`.
-- AIDAS `backend/minuteWriter.js`.
+- FLORA `shared/floraParamMap.js`.
+- FLORA `backend/minuteWriter.js`.
 
 Examples include heart rate, SpO2, NIBP components, invasive pressure, CVP, temperature, respiratory values, gas values, agent values, and selected pump values.
 
 ### 4.2 Internal database to HIS mapping
 
-AIDAS/Hidro primarily consume hospital-side patient, lab, allergy, and blood information. A general write-back mapping from the local clinical database to HIS is not currently established as a universal capability.
+FLORA/Hidro primarily consume hospital-side patient, lab, allergy, and blood information. A general write-back mapping from the local clinical database to HIS is not currently established as a universal capability.
 
 The successor should confirm this per hospital interface and policy before implementing write-back behavior.
 
@@ -227,7 +227,7 @@ Hidro uses configured logical device identifiers and source/protocol information
 
 ### 5.3 Polling and queue settings
 
-Hidro collects observations continuously where the driver supports it. AIDAS minute writing is a separate process that polls Hidro and writes case-level minute records.
+Hidro collects observations continuously where the driver supports it. FLORA minute writing is a separate process that polls Hidro and writes case-level minute records.
 
 There is no RabbitMQ/Kafka-style external queue in the standard local profile. Local buffering is handled through service memory and SQLite observation storage.
 
@@ -241,7 +241,7 @@ Minimum procedure:
 4. Start Hidro and check service health.
 5. Check transport/port status separately from data status.
 6. Confirm raw observations and normalized parameters.
-7. Confirm AIDAS receives and stores minutes.
+7. Confirm FLORA receives and stores minutes.
 8. Test chart and report output.
 9. Record room, version, configuration, and acceptance evidence.
 
@@ -252,14 +252,14 @@ Minimum procedure:
 3. Change one setting only.
 4. Check port ownership and cable/adapter path.
 5. Restart/reconnect the relevant driver.
-6. Verify raw data, normalized data, AIDAS data, and report output.
+6. Verify raw data, normalized data, FLORA data, and report output.
 7. Record the change and rollback value.
 
 ## 6. Onsite Setup and Deployment
 
 ### 6.1 Installation
 
-Hidro is installed as a Windows application/service with an Electron tray control path. AIDAS is installed as a Windows Electron desktop application with local backend and database runtime.
+Hidro is installed as a Windows application/service with an Electron tray control path. FLORA is installed as a Windows Electron desktop application with local backend and database runtime.
 
 The exact installer version must be recorded for every room.
 
@@ -274,7 +274,7 @@ Status: `Partial`.
 Known local requirements:
 
 - Hidro local API on port `3000` by default.
-- AIDAS local backend commonly uses port `3001` in current documentation.
+- FLORA local backend commonly uses port `3001` in current documentation.
 - Device-specific TCP ports where applicable.
 - Hospital gateway/server access where HIS integration is enabled.
 
@@ -291,7 +291,7 @@ Recommended test sequence:
 5. Hidro `/health` check.
 6. Hidro device and data-status check.
 7. Raw observation check.
-8. AIDAS timeline check.
+8. FLORA timeline check.
 9. Report and printer check.
 
 ### 6.5 Go-live checklist
@@ -301,8 +301,8 @@ Recommended test sequence:
 - backup and rollback copy
 - Hidro service starts automatically
 - port and data status both verified
-- AIDAS backend and database ready
-- sample data reaches AIDAS
+- FLORA backend and database ready
+- sample data reaches FLORA
 - report generated and printed
 - support contact confirmed
 - room acceptance recorded
@@ -331,12 +331,12 @@ Check:
 - normalized observation rows
 - SQLite write errors
 - retention or timestamp filters
-- AIDAS minute-writer health
+- FLORA minute-writer health
 - active case and case start time
 
 ### 7.3 HIS does not receive data
 
-The standard AIDAS/Hidro workflow is primarily retrieval and local documentation. For any write-back or downstream delivery, check:
+The standard FLORA/Hidro workflow is primarily retrieval and local documentation. For any write-back or downstream delivery, check:
 
 - gateway/API availability
 - endpoint and firewall access
@@ -352,7 +352,7 @@ The standard AIDAS/Hidro workflow is primarily retrieval and local documentation
 
 Hidro supports runtime diagnostics logging with configurable runtime/log directories. Console output is also important during live diagnosis.
 
-AIDAS logs may be produced by the Electron shell, local backend, and deployment scripts. The exact packaged path depends on the installation profile.
+FLORA logs may be produced by the Electron shell, local backend, and deployment scripts. The exact packaged path depends on the installation profile.
 
 The final room runbook must record the actual paths used at that site.
 
@@ -370,15 +370,15 @@ Main Porjai runtime components:
 
 - Hidro Node.js service.
 - Hidro Electron tray application.
-- AIDAS Electron desktop shell.
-- AIDAS local Node.js backend.
-- Optional hospital-side gateway service, owned separately from AIDAS/Hidro.
+- FLORA Electron desktop shell.
+- FLORA local Node.js backend.
+- Optional hospital-side gateway service, owned separately from FLORA/Hidro.
 
 Linux deployment is not the standard current client model.
 
 ### 9.2 Start, stop, restart, and status
 
-Hidro supports tray/service control and service-only launch for diagnosis. AIDAS is normally started through its desktop launcher, which starts or checks the local backend.
+Hidro supports tray/service control and service-only launch for diagnosis. FLORA is normally started through its desktop launcher, which starts or checks the local backend.
 
 The support runbook should use the installed package's approved launcher rather than copying source code into a client workstation.
 
@@ -392,7 +392,7 @@ Status: `Partial`.
 
 ### 10.1 Queue architecture
 
-The standard local profile does not use RabbitMQ, Kafka, or Redis. Hidro uses service memory plus local SQLite observation storage. AIDAS uses local case/database writes and minute-writer reconciliation.
+The standard local profile does not use RabbitMQ, Kafka, or Redis. Hidro uses service memory plus local SQLite observation storage. FLORA uses local case/database writes and minute-writer reconciliation.
 
 ### 10.2 Queue monitoring and dead letter
 
@@ -404,11 +404,11 @@ Status: `Verified with limitation`.
 
 ### 11.1 ER diagram and schema
 
-AIDAS:
+FLORA:
 
 - `flora.db` SQLite database.
 - schema source: `backend/floradb.js`.
-- diagram: `docs/AIDAS-Database-Diagram.mmd`.
+- diagram: `docs/FLORA-Database-Diagram.mmd`.
 
 Hidro:
 
@@ -418,7 +418,7 @@ Hidro:
 ### 11.2 Archiving and retention
 
 - Hidro observation retention has a documented default of 90 days.
-- AIDAS clinical case retention and archive policy must follow the hospital's approved clinical-record policy.
+- FLORA clinical case retention and archive policy must follow the hospital's approved clinical-record policy.
 - No general statement should be made that local data is automatically deleted without confirming the deployed policy.
 
 ## 12. HIS/LIS Interface Details
@@ -442,7 +442,7 @@ For each hospital interface, document:
 - reconciliation behavior
 - owner of the upstream service
 
-These values are hospital-specific and must not be guessed from the AIDAS client alone.
+These values are hospital-specific and must not be guessed from the FLORA client alone.
 
 ## 13. Security and Network Controls
 
@@ -455,7 +455,7 @@ These values are hospital-specific and must not be guessed from the AIDAS client
 
 ### 13.2 Access control and encryption
 
-- AIDAS has local application authentication and role-aware workflow.
+- FLORA has local application authentication and role-aware workflow.
 - Local device/API traffic may be HTTP depending on deployment.
 - TLS, certificates, SSH keys, IP allowlists, and encryption-at-rest policy must be confirmed per hospital service.
 - No secrets should be included in this response document.
@@ -471,7 +471,7 @@ Hidro provides local service, device, transport, and data-status views. The curr
 - data status
 - last received time
 
-AIDAS can show integration-related status but is not an enterprise monitoring platform.
+FLORA can show integration-related status but is not an enterprise monitoring platform.
 
 ### 14.2 Alerting
 
@@ -483,7 +483,7 @@ No Line Notify, email, or SMS alerting service is part of the standard current d
 
 Minimum Porjai application backup set:
 
-- AIDAS `flora.db`.
+- FLORA `flora.db`.
 - Hidro local database.
 - deployment configuration.
 - installer version.
@@ -497,7 +497,7 @@ Before updating an existing client, back up the database and verify the backup c
 
 ### 16.1 Source code and repositories
 
-- AIDAS source is maintained in its Git repository with release notes and architecture documents.
+- FLORA source is maintained in its Git repository with release notes and architecture documents.
 - Hidro source is maintained in its own Git repository with README, CHANGELOG, service code, driver code, and packaging configuration.
 - Dancefloor is maintained separately as the project/asset/operations workspace.
 
@@ -505,7 +505,7 @@ Version tags/releases must identify the product, version, date, and deployment t
 
 ### 16.2 Hospital patch history
 
-Known AIDAS milestones include `1.0.0`, `1.1.0`, `1.2.0`, `1.2.1`, and `1.2.2`. Hidro `1.2.2` includes diagnostics and separated port/data status. Room-specific deployment history must be completed from Dancefloor and hospital records.
+Known FLORA milestones include `1.0.0`, `1.1.0`, `1.2.0`, `1.2.1`, and `1.2.2`. Hidro `1.2.2` includes diagnostics and separated port/data status. Room-specific deployment history must be completed from Dancefloor and hospital records.
 
 ## 17. Hospital-Specific Customizations
 
@@ -513,7 +513,7 @@ Known AIDAS milestones include `1.0.0`, `1.1.0`, `1.2.0`, `1.2.1`, and `1.2.2`. 
 
 | Site | Evidence currently available | Status |
 | --- | --- | --- |
-| KCMH | Extensive AIDAS/Hidro room, network, HIS gateway, Innovian, and deployment notes | Active / detailed |
+| KCMH | Extensive FLORA/Hidro room, network, HIS gateway, Innovian, and deployment notes | Active / detailed |
 | Vimut | Meeting and Hidro deployment notes exist, but a complete device/configuration matrix is not consolidated | Partial |
 | BKI | A complete matrix was not available in the source material at handoff | To verify with site records |
 
@@ -528,7 +528,7 @@ For each site, maintain a private matrix containing room, workstation, device, C
 - Long-running Hidro stability requires continued evidence and diagnosis.
 - Driver maturity differs by device family.
 - Existing client database migration must handle dirty or duplicate staff data safely.
-- HIS behavior is hospital-specific and can fail upstream of AIDAS.
+- HIS behavior is hospital-specific and can fail upstream of FLORA.
 - Report and printer output require end-to-end verification.
 - Configuration import/export and complete room matrices are not yet consolidated.
 
@@ -545,4 +545,4 @@ For each site, maintain a private matrix containing room, workstation, device, C
 
 ## Successor Onboarding Outcome
 
-AIDAS and Hidro provide the local clinical and device-integration foundation. A complete takeover requires the successor to connect this guide to the actual repositories, installed versions, room assets, hospital services, and support contacts. Historical questions that cannot be answered from the code or records should be discussed with the outgoing developer and the relevant hospital owner.
+FLORA and Hidro provide the local clinical and device-integration foundation. A complete takeover requires the successor to connect this guide to the actual repositories, installed versions, room assets, hospital services, and support contacts. Historical questions that cannot be answered from the code or records should be discussed with the outgoing developer and the relevant hospital owner.

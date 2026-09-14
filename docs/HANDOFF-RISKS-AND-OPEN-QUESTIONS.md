@@ -15,7 +15,7 @@
 - Who owns each production server, VM, database, gateway, and printer?
 - Which documents are authoritative for KCMH, Vimut, and BKI?
 - Which rooms are active, testing, planned, or retired at each site?
-- Which AIDAS/Hidro versions are installed in each room?
+- Which FLORA/Hidro versions are installed in each room?
 - What is the approved backup and restore procedure for each database?
 - What is the supported rollback process after a failed installer update?
 - Who receives a Hidro serial/device incident and what logs are required?

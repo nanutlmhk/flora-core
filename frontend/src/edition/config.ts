@@ -1,11 +1,11 @@
 import type { AuthThemeColor, AuthThemeMode } from "../api/authApi";
 import type { AxisStepMin } from "../views/caseview/constants";
 
-export type AidasEditionCode = "full" | "rcat" | "eforl";
+export type FloraEditionCode = "full" | "rcat" | "eforl";
 export type EditionReportMode = "standard" | "smart_fit" | "detail";
 
 export type EditionInfo = {
-  code: AidasEditionCode;
+  code: FloraEditionCode;
   productName: string;
   displayName: string;
   shortBadge: string;
@@ -17,22 +17,22 @@ export type EditionInfo = {
   allowedTimelineParamIds?: string[];
 };
 
-const EDITION_CONFIG: Record<AidasEditionCode, EditionInfo> = {
+const EDITION_CONFIG: Record<FloraEditionCode, EditionInfo> = {
   full: {
     code: "full",
-    productName: "Aidas",
-    displayName: "Aidas",
+    productName: "Flora",
+    displayName: "Flora",
     shortBadge: "",
-    allowedTimelineScales: [1, 3, 5, 15],
+    allowedTimelineScales: [1, 120],
     allowedReportModes: ["standard", "smart_fit", "detail"],
     allowThemeColorPicker: true,
   },
   rcat: {
     code: "rcat",
-    productName: "Aidas RCAT",
-    displayName: "Aidas RCAT Community",
+    productName: "Flora RCAT",
+    displayName: "Flora RCAT Community",
     shortBadge: "RCAT",
-    allowedTimelineScales: [1, 5],
+    allowedTimelineScales: [1, 15],
     allowedReportModes: ["standard"],
     allowThemeColorPicker: true,
     allowedTimelineParamIds: [
@@ -57,10 +57,10 @@ const EDITION_CONFIG: Record<AidasEditionCode, EditionInfo> = {
   },
   eforl: {
     code: "eforl",
-    productName: "Aidas EforL",
-    displayName: "Aidas E for L Partner",
+    productName: "Flora EforL",
+    displayName: "Flora E for L Partner",
     shortBadge: "EforL",
-    allowedTimelineScales: [1, 3, 5],
+    allowedTimelineScales: [1, 15],
     allowedReportModes: ["standard", "smart_fit"],
     allowThemeColorPicker: false,
     lockedThemeColor: "eforl",
@@ -95,7 +95,7 @@ const EDITION_CONFIG: Record<AidasEditionCode, EditionInfo> = {
   },
 };
 
-function normalizeEditionCode(raw: unknown): AidasEditionCode {
+function normalizeEditionCode(raw: unknown): FloraEditionCode {
   const token = String(raw || "")
     .trim()
     .toLowerCase();
@@ -106,7 +106,7 @@ function normalizeEditionCode(raw: unknown): AidasEditionCode {
 
 export function getEditionInfo(): EditionInfo {
   if (typeof window === "undefined") return EDITION_CONFIG.full;
-  const code = normalizeEditionCode(window.aidasDesktop?.getEditionInfo?.()?.code);
+  const code = normalizeEditionCode(window.floraDesktop?.getEditionInfo?.()?.code);
   return EDITION_CONFIG[code];
 }
 
@@ -114,7 +114,9 @@ export function clampEditionTimelineScale(
   value: AxisStepMin,
   allowedTimelineScales: AxisStepMin[],
 ): AxisStepMin {
-  return allowedTimelineScales.includes(value) ? value : allowedTimelineScales[0];
+  const minimum = Math.min(...allowedTimelineScales);
+  const maximum = Math.max(...allowedTimelineScales);
+  return Math.min(maximum, Math.max(minimum, Number.isFinite(value) ? Math.round(value) : minimum));
 }
 
 export function clampEditionReportMode(

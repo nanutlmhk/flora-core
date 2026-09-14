@@ -1,0 +1,46 @@
+name: flora-core
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.dev
+    ports:
+      - "6891:3001"
+    environment:
+      PORT: "3001"
+      FLORA_DB_PATH: /app/data/flora.db
+      IVY_READ_URL: http://host.docker.internal:6789/api/observations
+    volumes:
+      - ./backend:/app/backend
+      - ./shared:/app/shared:ro
+      - flora_dev_data:/app/data
+      - flora_backend_modules:/app/backend/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend.dev
+    ports:
+      - "6890:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_FLORA_BACKEND_BASE: http://localhost:6891
+    volumes:
+      - ./frontend:/app/frontend
+      - flora_frontend_modules:/app/frontend/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  flora_backend_modules:
+  flora_frontend_modules:
+  flora_dev_data:

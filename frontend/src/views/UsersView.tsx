@@ -408,7 +408,7 @@ export default function UsersView({ sessionUser }: Props) {
                     </div>
 
                     <div className="text-xs text-[var(--app-muted)]">
-                      Default password: {selected.authSource === "staff" ? "aidas" : selected.hospitalId ? selected.hospitalId : "Not available"}
+                      Default password: {selected.authSource === "staff" ? "flora" : selected.hospitalId ? selected.hospitalId : "Not available"}
                     </div>
 
                     <div className="flex flex-wrap gap-2">

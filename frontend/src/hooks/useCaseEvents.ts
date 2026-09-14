@@ -43,7 +43,7 @@ export function useCaseEvents(
       if (custom.detail?.caseId !== activeCaseId) return;
       void fetchEvents();
     };
-    window.addEventListener("aidas:case-events-changed", onExternalRefresh);
+    window.addEventListener("flora:case-events-changed", onExternalRefresh);
 
     if (status === "ACTIVE") {
       const timer = setInterval(() => {
@@ -53,7 +53,7 @@ export function useCaseEvents(
         alive = false;
         clearInterval(timer);
         window.removeEventListener(
-          "aidas:case-events-changed",
+          "flora:case-events-changed",
           onExternalRefresh,
         );
       };
@@ -61,7 +61,7 @@ export function useCaseEvents(
 
     return () => {
       alive = false;
-      window.removeEventListener("aidas:case-events-changed", onExternalRefresh);
+      window.removeEventListener("flora:case-events-changed", onExternalRefresh);
     };
   }, [caseId, fromTs, requestKey, status, toTs]);
 

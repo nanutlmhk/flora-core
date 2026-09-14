@@ -1,4 +1,6 @@
-const BASE = "http://localhost:3001/api/case";
+import { BACKEND_BASE } from "./backendBase";
+
+const BASE = `${BACKEND_BASE}/api/case`;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;

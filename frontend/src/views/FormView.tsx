@@ -1703,8 +1703,8 @@ export default function FormView({ caseStatus }: FormViewProps) {
       loadDraftFromStorage();
       setSaveNote("Synced from Patient/HIS");
     };
-    window.addEventListener("aidas:form-storage-changed", onStorageChanged);
-    return () => window.removeEventListener("aidas:form-storage-changed", onStorageChanged);
+    window.addEventListener("flora:form-storage-changed", onStorageChanged);
+    return () => window.removeEventListener("flora:form-storage-changed", onStorageChanged);
   }, [caseStatus, loadDraftFromStorage]);
 
   useEffect(() => {
@@ -1742,7 +1742,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
       // keep local reset behavior even if backend delete fails
     });
     window.dispatchEvent(
-      new CustomEvent("aidas:form-storage-changed", {
+      new CustomEvent("flora:form-storage-changed", {
         detail: { caseId: caseStatus.case_id, source: "form" },
       }),
     );
@@ -1802,7 +1802,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
         setForm(normalized);
       }
       window.dispatchEvent(
-        new CustomEvent("aidas:form-storage-changed", {
+        new CustomEvent("flora:form-storage-changed", {
           detail: { caseId: caseStatus.case_id, source: "form" },
         }),
       );

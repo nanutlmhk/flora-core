@@ -1,8 +1,8 @@
-# AIDAS Handoff
+# FLORA Handoff
 
 ## Purpose
 
-AIDAS is the newer local-first anesthesia information and documentation system. It supports case management, patient data, timeline charting, forms, staff, diagnosis/procedure, medication and fluid documentation, blood products, and report generation.
+FLORA is the newer local-first anesthesia information and documentation system. It supports case management, patient data, timeline charting, forms, staff, diagnosis/procedure, medication and fluid documentation, blood products, and report generation.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ The central organizing unit is the anesthesia case. Important domains include:
 - medication, fluid, output, and blood product records
 - HIS cache and master data
 
-The database diagram is [AIDAS-Database-Diagram.mmd](./AIDAS-Database-Diagram.mmd).
+The database diagram is [FLORA-Database-Diagram.mmd](./FLORA-Database-Diagram.mmd).
 
 ## Deployment
 
@@ -54,7 +54,7 @@ New-client deployment and existing-client upgrade are different operations. Exis
 
 ## Clinical and Technical Boundaries
 
-- AIDAS owns case workflow and clinical documentation.
+- FLORA owns case workflow and clinical documentation.
 - Hidro owns device connectivity and normalized observations.
 - Hospital gateways own hospital-specific API access and credentials.
 - Hospital IT owns network, VM, firewall, printer, and access policy unless separately agreed.
@@ -72,8 +72,8 @@ New-client deployment and existing-client upgrade are different operations. Exis
 ## First Tasks For A New Developer
 
 1. Read `README.md`, this document, and `docs/RELEASE_NOTES.md`.
-2. Run AIDAS against a known test database.
+2. Run FLORA against a known test database.
 3. Trace one case from patient entry through report generation.
-4. Trace one Hidro observation into the AIDAS timeline.
+4. Trace one Hidro observation into the FLORA timeline.
 5. Read the SQLite schema before changing workflow or migrations.
 6. Reproduce any client issue with logs and environment details before refactoring.

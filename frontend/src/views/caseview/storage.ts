@@ -2,7 +2,7 @@ import { AXIS_STEPS, DEFAULT_AXIS_STEP, type AxisStepMin } from "./constants";
 
 function parseAxisStep(raw: string | null): AxisStepMin | null {
   const n = Number(raw);
-  if (AXIS_STEPS.includes(n as AxisStepMin)) return n as AxisStepMin;
+  if (Number.isInteger(n) && n >= AXIS_STEPS[0] && n <= AXIS_STEPS[1]) return n;
   return null;
 }
 
@@ -23,19 +23,19 @@ export function readStoredUsername(): string {
 }
 
 export function getTimelineScaleStorageKey(username: string) {
-  return `aidas.timelineScale.${username}`;
+  return `flora.timelineScale.${username}`;
 }
 
 export function getHiddenRowsStorageKey(username: string) {
-  return `aidas.hiddenRows.${username}`;
+  return `flora.hiddenRows.${username}`;
 }
 
 export function getVisibleRowsStorageKey(username: string) {
-  return `aidas.visibleRows.${username}`;
+  return `flora.visibleRows.${username}`;
 }
 
 export function getChartVisibilityStorageKey(username: string) {
-  return `aidas.chartVisible.${username}`;
+  return `flora.chartVisible.${username}`;
 }
 
 export function readTimelineScaleForUser(username: string): AxisStepMin {
@@ -46,7 +46,7 @@ export function readTimelineScaleForUser(username: string): AxisStepMin {
   );
   if (userStep != null) return userStep;
 
-  const legacyStep = parseAxisStep(localStorage.getItem("aidas.timelineScale"));
+  const legacyStep = parseAxisStep(localStorage.getItem("flora.timelineScale"));
   return legacyStep ?? DEFAULT_AXIS_STEP;
 }
 
@@ -55,7 +55,7 @@ export function readHiddenRowsForUser(username: string): string[] {
 
   const keys = [
     getHiddenRowsStorageKey(username),
-    "aidas.hiddenRows",
+    "flora.hiddenRows",
   ];
 
   for (const key of keys) {
@@ -80,7 +80,7 @@ export function readVisibleRowsForUser(username: string): string[] | null {
 
   const keys = [
     getVisibleRowsStorageKey(username),
-    "aidas.visibleRows",
+    "flora.visibleRows",
   ];
 
   for (const key of keys) {

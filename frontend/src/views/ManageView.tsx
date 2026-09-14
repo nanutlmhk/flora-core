@@ -30,8 +30,8 @@ const buttonPrimary =
 const buttonSecondary =
   "rounded border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]";
 
-const MACHINE_ID_STORAGE_KEY = "aidas.eforl.machineId";
-const LICENSE_STORAGE_KEY = "aidas.eforl.license";
+const MACHINE_ID_STORAGE_KEY = "flora.eforl.machineId";
+const LICENSE_STORAGE_KEY = "flora.eforl.license";
 
 type LicenseState = {
   activationCode: string;

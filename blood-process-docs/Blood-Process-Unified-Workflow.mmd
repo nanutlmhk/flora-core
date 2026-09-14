@@ -2,7 +2,7 @@ flowchart TD
     %% Define Styles
     classDef his fill:#f9f,stroke:#333,stroke-width:2px;
     classDef clinical fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef aidas fill:#bfb,stroke:#333,stroke-width:2px;
+    classDef flora fill:#bfb,stroke:#333,stroke-width:2px;
     classDef decision fill:#fff,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
 
     subgraph HIS [HIS / Blood Bank]
@@ -16,7 +16,7 @@ flowchart TD
     subgraph CLINICAL [Clinical Workflow (Bedside/OR)]
         direction TB
         C1([Start Anesthesia Case])
-        C2[Open Blood Board in AIDAS]
+        C2[Open Blood Board in FLORA]
         C3[Receive physical bag in OR]
         C4[Verify Bag vs Patient Identity<br/><i>(Manual Cross-check)</i>]
         C5{Need Warming?}
@@ -28,7 +28,7 @@ flowchart TD
         C11([End Case & Review Report])
     end
 
-    subgraph AIDAS [AIDAS Recording & Tracking]
+    subgraph FLORA [FLORA Recording & Tracking]
         direction TB
         A1[Fetch Bag List from HIS]
         A2[Display Case Blood Board<br/><i>(Sync with HIS)</i>]
@@ -76,5 +76,5 @@ flowchart TD
     %% Assign Classes
     class H1,H2,H3,H4 his;
     class C1,C2,C3,C4,C6,C7,C9,C10,C11 clinical;
-    class A1,A2,A3,A4,A5,A6,A7,A8,A9 aidas;
+    class A1,A2,A3,A4,A5,A6,A7,A8,A9 flora;
     class C5,C8 decision;

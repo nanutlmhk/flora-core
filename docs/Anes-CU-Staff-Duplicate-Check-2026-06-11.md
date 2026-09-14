@@ -2,7 +2,7 @@
 
 Source file:
 
-- [Anes CU-staffs V3 mar-2569.xlsx](c:/Users/onlys/Aidas/docs/Anes%20CU-staffs%20V3%20mar-2569.xlsx)
+- [Anes CU-staffs V3 mar-2569.xlsx](c:/Users/onlys/Flora/docs/Anes%20CU-staffs%20V3%20mar-2569.xlsx)
 
 Check date:
 
@@ -68,7 +68,7 @@ The first looks like a real staff-ID conflict.
 
 The second looks like test/example data and should probably be removed or corrected before import.
 
-## Impact on AIDAS sync
+## Impact on FLORA sync
 
 The staff sync process uses `hospital_id` as one of the main identity keys.
 
@@ -93,8 +93,8 @@ Before final sync/import:
 
 From the HIS source files added later:
 
-- [doctor_ANES_25690506 (1).xlsx](c:/Users/onlys/Aidas/docs/doctor_ANES_25690506%20(1).xlsx)
-- [doctor_other_25690506 (1).xlsx](c:/Users/onlys/Aidas/docs/doctor_other_25690506%20(1).xlsx)
+- [doctor_ANES_25690506 (1).xlsx](c:/Users/onlys/Flora/docs/doctor_ANES_25690506%20(1).xlsx)
+- [doctor_other_25690506 (1).xlsx](c:/Users/onlys/Flora/docs/doctor_other_25690506%20(1).xlsx)
 
 Confirmed mapping:
 

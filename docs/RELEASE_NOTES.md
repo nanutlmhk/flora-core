@@ -1,6 +1,6 @@
-# Aidas Release Notes
+# Flora Release Notes
 
-This file tracks official Aidas release milestones, patch history, and user-facing changes.
+This file tracks official Flora release milestones, patch history, and user-facing changes.
 
 ## Format
 
@@ -25,9 +25,9 @@ Suggested status values:
 
 - Release date: initial clinical release
 - Status: released
-- Summary: First real clinical release of Aidas used in intervention OR.
+- Summary: First real clinical release of Flora used in intervention OR.
 - Key changes:
-  - First live-case use of Aidas in real clinical workflow.
+  - First live-case use of Flora in real clinical workflow.
   - Integrated with `GE B1x5` patient monitor.
   - Integrated with `GE Carestation 750` anesthesia machine.
   - Established the first production-ready anesthesia charting workflow in the OR.
@@ -38,9 +38,9 @@ Suggested status values:
 
 - Release date: packaging milestone
 - Status: released
-- Summary: Aidas and Hidro packaged into an installable deployment.
+- Summary: Flora and Hidro packaged into an installable deployment.
 - Key changes:
-  - Delivered Aidas and Hidro as installation packages.
+  - Delivered Flora and Hidro as installation packages.
   - Removed the need to manually copy source code onto client PCs.
   - Simplified deployment and upgrade workflow at client sites.
   - Improved reproducibility of installation and setup.
@@ -56,7 +56,7 @@ Suggested status values:
   - Completed support for `GE B650/850` patient monitor workflow.
   - Completed support for `GE Aisys / Avance` anesthesia machine workflow.
   - Used in real Neuro OR clinical cases.
-  - Expanded Aidas from the first intervention OR setup into a broader real-case device environment.
+  - Expanded Flora from the first intervention OR setup into a broader real-case device environment.
 - Validation / rollout note:
   - Confirmed in real-case Neuro OR use.
 
@@ -92,7 +92,7 @@ Suggested status values:
     - fixed master-data migration to include both `ICD-10` and `ICD-9-CM`
     - added a quick master-data verification command for client database checks
 - Validation / rollout note:
-  - Built successfully as `Aidas-Setup-1.2.1.exe`.
+  - Built successfully as `Flora-Setup-1.2.1.exe`.
   - Verified in local development build and partial real-case feedback loop.
   - Intended as the main stabilization patch set after the early March 2026 Neuro OR beta phase.
 
@@ -129,7 +129,7 @@ Suggested status values:
     - preserved existing `auth_user` rows when building client DBs
     - added edition-aware packaging script options for future installer variants
 - Validation / rollout note:
-  - Intended for Aidas `1.2.2` packaging after the June 2026 workflow refinement pass.
+  - Intended for Flora `1.2.2` packaging after the June 2026 workflow refinement pass.
   - Includes both full-edition stabilization work and edition architecture groundwork without changing the full-edition product identity.
 
 ## Upcoming Patch Entry Template

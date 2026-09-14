@@ -10,8 +10,8 @@ import { useAuth } from "./auth/useAuth";
 import { useBootstrapStatus } from "./bootstrap/useBootstrapStatus";
 import { getEditionInfo } from "./edition/config";
 
-const LEFT_RAIL_COLLAPSED_KEY = "aidas.ui.leftRailCollapsed";
-const RIGHT_RAIL_COLLAPSED_KEY = "aidas.ui.rightRailCollapsed";
+const LEFT_RAIL_COLLAPSED_KEY = "flora.ui.leftRailCollapsed";
+const RIGHT_RAIL_COLLAPSED_KEY = "flora.ui.rightRailCollapsed";
 
 function readStoredBool(key: string, fallback: boolean) {
   if (typeof window === "undefined") return fallback;
@@ -137,8 +137,8 @@ export default function App() {
         return { ...prev, hn: nextHn };
       });
     };
-    window.addEventListener("aidas:case-hn-updated", onCaseHnUpdated);
-    return () => window.removeEventListener("aidas:case-hn-updated", onCaseHnUpdated);
+    window.addEventListener("flora:case-hn-updated", onCaseHnUpdated);
+    return () => window.removeEventListener("flora:case-hn-updated", onCaseHnUpdated);
   }, []);
 
   useEffect(() => {
@@ -219,8 +219,8 @@ export default function App() {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
 
-        // Only works in Electron where aidasDesktop is available
-        const desktop = window.aidasDesktop;
+        // Only works in Electron where floraDesktop is available
+        const desktop = window.floraDesktop;
         if (desktop && typeof desktop.setZoomLevel === "function") {
           const currentZoom = desktop.getZoomLevel();
           const zoomStep = 0.2;
@@ -241,7 +241,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = window.aidasDesktop?.onShutdownRequested?.(() => {
+    const unsubscribe = window.floraDesktop?.onShutdownRequested?.(() => {
       setShutdownPrompt(prev =>
         prev.open
           ? prev
@@ -298,7 +298,7 @@ export default function App() {
       );
     }, 360);
     try {
-      await window.aidasDesktop?.shutdownApp?.();
+      await window.floraDesktop?.shutdownApp?.();
     } catch (err) {
       console.error("Shutdown unavailable", err);
       setShutdownPrompt({
@@ -322,10 +322,10 @@ export default function App() {
             </svg>
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-xl font-semibold text-[var(--app-text)]">Shutdown AIDAS?</div>
+            <div className="text-xl font-semibold text-[var(--app-text)]">Shutdown FLORA?</div>
             <div className="mt-1 text-sm text-[var(--app-muted)]">
               {shutdownPrompt.stage === "closing"
-                ? "Shutting down AIDAS on this workstation."
+                ? "Shutting down FLORA on this workstation."
                 : "Use Cancel to keep working. Choose Shutdown only when you really want to exit."}
             </div>
           </div>

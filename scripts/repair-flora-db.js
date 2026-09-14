@@ -2,11 +2,13 @@ const path = require("path");
 const fs = require("fs");
 const Database = require(path.join(__dirname, "..", "backend", "node_modules", "better-sqlite3"));
 
-const dbPath = String(process.env.FLORA_DB_PATH || "C:\\porjai\\data\\flora.db").trim();
+const dbPath = String(
+  process.env.FLORA_DB_PATH || path.resolve(__dirname, "..", "data", "flora.db"),
+).trim();
 const mode = String(process.argv[2] || "status").trim().toLowerCase();
 
 if (!fs.existsSync(dbPath)) {
-  console.error(`[AIDAS-REPAIR] database not found: ${dbPath}`);
+  console.error(`[FLORA-REPAIR] database not found: ${dbPath}`);
   process.exit(1);
 }
 
@@ -59,8 +61,8 @@ try {
   } else if (mode === "force-idle") {
     forceIdle();
   } else {
-    console.error(`[AIDAS-REPAIR] unsupported mode: ${mode}`);
-    console.error("Usage: node scripts/repair-aidas-db.js [status|force-idle]");
+    console.error(`[FLORA-REPAIR] unsupported mode: ${mode}`);
+    console.error("Usage: node scripts/repair-flora-db.js [status|force-idle]");
     process.exit(1);
   }
 } finally {

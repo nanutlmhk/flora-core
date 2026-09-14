@@ -20,7 +20,7 @@
 
 ## 3. ผลกระทบต่อการใช้งาน
 
-- ลดความมั่นใจของผู้ใช้ต่อ Hidro และ AIDAS
+- ลดความมั่นใจของผู้ใช้ต่อ Hidro และ FLORA
 - ทำให้เกิดความสับสนระหว่าง `status offline` กับ `actual data still flowing`
 - เพิ่มความเสี่ยงต่อ workflow ระหว่างใช้งานจริง
 - เพิ่มภาระ support ระหว่าง rollout
@@ -34,7 +34,7 @@ environment โดยทั่วไป:
 - `USB-to-serial adapters`
 - serial-connected medical devices
 - Hidro service ทำงาน locally
-- AIDAS ดึงข้อมูลจาก Hidro local API
+- FLORA ดึงข้อมูลจาก Hidro local API
 
 บริบทการใช้งานจริงที่เกี่ยวข้อง เช่น
 
@@ -165,7 +165,7 @@ layer ที่น่าจะมีส่วนเกี่ยวข้อง�
 ปัญหานี้น่าจะไม่สามารถอธิบายได้ด้วยสาเหตุง่าย ๆ เช่น
 
 - ordinary frontend bug
-- simple AIDAS workflow problem
+- simple FLORA workflow problem
 - one missing retry statement
 - one missing reconnect button
 
@@ -192,8 +192,8 @@ layer ที่น่าจะมีส่วนเกี่ยวข้อง�
 - สร้าง dedicated middleware/service layer ที่โฟกัสเฉพาะ `USB/serial connectivity reliability`
 - keep connection alive
 - auto-recover transport safely
-- expose stable downstream output ให้ Hidro/AIDAS ใช้งานต่อ
-- หลีกเลี่ยงการไปแก้ AIDAS clinical workflow layer โดยตรง
+- expose stable downstream output ให้ Hidro/FLORA ใช้งานต่อ
+- หลีกเลี่ยงการไปแก้ FLORA clinical workflow layer โดยตรง
 
 ### Option C: Appliance / Hidro Box direction
 
@@ -211,7 +211,7 @@ layer ที่น่าจะมีส่วนเกี่ยวข้อง�
 
 ขอบเขตที่เสี่ยงที่สุดคือ
 
-- direct uncontrolled modification ของ AIDAS/Hidro application core โดยไม่มี boundary หรือ ownership ที่ชัดเจน
+- direct uncontrolled modification ของ FLORA/Hidro application core โดยไม่มี boundary หรือ ownership ที่ชัดเจน
 
 ## 14. ข้อมูลที่ควรเก็บเมื่อเกิด incident ครั้งถัดไป
 

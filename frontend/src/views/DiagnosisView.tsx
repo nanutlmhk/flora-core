@@ -531,7 +531,7 @@ export default function DiagnosisView({ caseStatus }: Props) {
   const notifyChange = useCallback(() => {
     if (!caseId) return;
     window.dispatchEvent(
-      new CustomEvent("aidas:clinical-changed", { detail: { caseId } }),
+      new CustomEvent("flora:clinical-changed", { detail: { caseId } }),
     );
   }, [caseId]);
 

@@ -1,0 +1,11 @@
+const DEFAULT_BACKEND_BASE = "http://localhost:3001";
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+export const BACKEND_BASE = normalizeBaseUrl(
+  typeof window !== "undefined"
+    ? window.floraDesktop?.getBackendBaseUrl?.() || import.meta.env.VITE_FLORA_BACKEND_BASE || DEFAULT_BACKEND_BASE
+    : DEFAULT_BACKEND_BASE,
+);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { BootstrapStatus } from "./aidasDesktop";
+import type { BootstrapStatus } from "./floraDesktop";
 
 const HIDRO_OFFLINE_GRACE_MS = 5000;
 
@@ -29,7 +29,7 @@ export function useBootstrapStatus() {
   const [lastHidroOnlineAt, setLastHidroOnlineAt] = useState(0);
 
   const refresh = useCallback(async () => {
-    const desktop = window.aidasDesktop;
+    const desktop = window.floraDesktop;
     if (!desktop?.getBootstrapStatus) {
       setStatus(READY_STATUS);
       return READY_STATUS;
@@ -85,7 +85,7 @@ export function useBootstrapStatus() {
   }, [refresh]);
 
   const retryStart = useCallback(async () => {
-    const desktop = window.aidasDesktop;
+    const desktop = window.floraDesktop;
     if (!desktop?.retryBootstrapStart) return refresh();
     const next = await desktop.retryBootstrapStart();
     setStatus(next);
@@ -93,7 +93,7 @@ export function useBootstrapStatus() {
   }, [refresh]);
 
   const safeRecovery = useCallback(async () => {
-    const desktop = window.aidasDesktop;
+    const desktop = window.floraDesktop;
     if (!desktop?.runBootstrapSafeRecovery) return refresh();
     const next = await desktop.runBootstrapSafeRecovery();
     setStatus(next);
@@ -101,7 +101,7 @@ export function useBootstrapStatus() {
   }, [refresh]);
 
   const stopBackend = useCallback(async () => {
-    const desktop = window.aidasDesktop;
+    const desktop = window.floraDesktop;
     if (!desktop?.stopBootstrapBackend) return refresh();
     const next = await desktop.stopBootstrapBackend();
     setStatus(next);

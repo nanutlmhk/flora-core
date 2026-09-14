@@ -5,15 +5,15 @@ This index is the starting point for a future developer, support team, or softwa
 The portfolio should be understood as several related systems, not one codebase:
 
 - `Innovian`: legacy anesthesia information system and current maintenance environment.
-- `AIDAS`: newer anesthesia documentation and reporting platform.
-- `Hidro`: medical-device integration middleware used by AIDAS and other downstream workflows.
+- `FLORA`: newer anesthesia documentation and reporting platform.
+- `Hidro`: medical-device integration middleware used by FLORA and other downstream workflows.
 - `Dancefloor`: project, asset, governance, and operational knowledge workspace.
 
 ## Reading Order
 
-1. [AIDAS and Hidro Successor Handbook](./AIDAS-HIDRO-SUCCESSOR-HANDBOOK.md)
+1. [FLORA and Hidro Successor Handbook](./FLORA-HIDRO-SUCCESSOR-HANDBOOK.md)
 2. [Innovian Handoff](./HANDOFF-INNOVIAN.md)
-3. [AIDAS Handoff](./HANDOFF-AIDAS.md)
+3. [FLORA Handoff](./HANDOFF-FLORA.md)
 4. [Hidro Handoff](./HANDOFF-HIDRO.md)
 5. [Dancefloor Handoff](./HANDOFF-DANCEFLOOR.md)
 6. [Hospital and Client Context](./HANDOFF-HOSPITAL-CONTEXT.md)
@@ -23,7 +23,7 @@ The portfolio should be understood as several related systems, not one codebase:
 ## System Relationship
 
 ```text
-Medical devices -> Hidro -> AIDAS case workflow -> Local database -> Report
+Medical devices -> Hidro -> FLORA case workflow -> Local database -> Report
                                       |
                                       +-> HIS / hospital services when available
 

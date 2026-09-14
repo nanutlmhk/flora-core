@@ -61,7 +61,8 @@ export default function TimeAxis({
                 ${isNow ? "timeaxis-now-cell" : ""}
               `}
             >
-              {new Date(ts).toLocaleTimeString([], {
+              {new Date(ts).toLocaleTimeString("en-GB", {
+                timeZone: "Asia/Bangkok",
                 hour: "2-digit",
                 minute: "2-digit",
                 hour12: false,

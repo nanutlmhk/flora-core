@@ -1,8 +1,8 @@
-# Aidas
+# Flora
 
-Aidas is a desktop anesthesia information and documentation system used for real operating-room case recording, device-assisted vital sign capture, fluid and medication charting, clinical forms, and anesthesia report generation.
+Flora is a desktop anesthesia information and documentation system used for real operating-room case recording, device-assisted vital sign capture, fluid and medication charting, clinical forms, and anesthesia report generation.
 
-The current desktop app is built as an Electron package with a React frontend, Node backend, SQLite database, and shared parameter mapping used by Aidas and Hidro integration paths.
+The current desktop app is built as an Electron package with a React frontend, Node backend, SQLite database, and shared parameter mapping used by Flora and Hidro integration paths.
 
 ## Current Version
 
@@ -12,14 +12,14 @@ The current desktop app is built as an Electron package with a React frontend, N
 Major clinical milestones:
 
 - `1.0.0`: first real clinical release in intervention OR with `GE B1x5` and `GE Carestation 750`
-- `1.1.0`: packaged Aidas and Hidro installer workflow
+- `1.1.0`: packaged Flora and Hidro installer workflow
 - `1.2.0`: Neuro OR expansion with `GE B650/850` and `GE Aisys / Avance`
 - `1.2.1`: stabilization patch after Neuro OR beta and packaged client rollout
 - `1.2.2`: line-form refinement, report/event fixes, manual drug fallback, and first edition architecture support
 
 ## Repository Layout
 
-- `frontend/`: React/Vite frontend for the Aidas desktop UI
+- `frontend/`: React/Vite frontend for the Flora desktop UI
 - `backend/`: Node backend, SQLite schema, case APIs, minute writer, and master-data import tools
 - `electron/`: Electron shell and desktop PDF/report generation entry points
 - `shared/`: shared parameter maps and integration constants
@@ -57,6 +57,21 @@ Build and run in one command:
 npm run desktop:start
 ```
 
+### Browser development with Docker
+
+For UI work, run Flora in a browser with Vite hot reload instead of rebuilding Electron:
+
+```powershell
+docker compose -f compose.dev.yaml up -d --build
+```
+
+Open `http://localhost:6890`. The Docker API uses `http://localhost:6891`.
+Frontend edits appear automatically; backend edits restart the Node process. Docker uses a
+separate `flora-core_flora_dev_data` SQLite volume so it cannot lock or change the desktop
+database. It starts empty unless a test database is seeded. Stop with
+`docker compose -f compose.dev.yaml down` (the database volume is retained). Electron and
+its installer remain separate deployment paths.
+
 ## Packaging
 
 Build the Windows installer:
@@ -71,13 +86,15 @@ Runtime release bundles and client database files are local deployment artifacts
 
 ## Database
 
-In packaged mode, Aidas uses:
+In packaged mode, Flora keeps the database in the same directory as the app:
 
 ```text
-C:\porjai\data\flora.db
+<Flora installation directory>\flora.db
 ```
 
-The installer does not bundle a production database. A valid client database must be prepared and placed at the runtime path.
+The installer includes a clean seed database and installs it only when `flora.db` is
+missing. An existing database is preserved during an upgrade. Keep regular backups;
+uninstalling Flora removes the installation directory and its database.
 
 Build a sanitized client database from the deployment source DB:
 
@@ -88,7 +105,7 @@ node scripts/build-client-db.js
 Check required master data in a client database:
 
 ```powershell
-npm run db:check:master -- C:\porjai\data\flora.db
+npm run db:check:master -- "<Flora installation directory>\flora.db"
 ```
 
 Expected master tables include:
@@ -106,9 +123,9 @@ npm run db:migrate:master
 
 ## Operational Scripts
 
-- `scripts/start-aidas.ps1`: launch Aidas using the packaged runtime database path
-- `scripts/launch-aidas.ps1`: launch helper for local runtime
-- `scripts/repair-aidas-db.js`: inspect or repair active-case state
+- `scripts/start-flora.ps1`: launch Flora using the packaged runtime database path
+- `scripts/launch-flora.ps1`: launch helper for local runtime
+- `scripts/repair-flora-db.js`: inspect or repair active-case state
 - `scripts/check-master-data.js`: verify ICD and other master tables
 - `scripts/build-client-db.js`: prepare a clean client DB with master data and default admin
 - `scripts/build-desktop-win.ps1`: Windows packaging wrapper

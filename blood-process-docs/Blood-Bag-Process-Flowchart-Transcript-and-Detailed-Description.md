@@ -3,7 +3,7 @@
 
 This document helps explain the attached **Blood Bag Process Flowchart** in simple terms.
 
-The flowchart shows how a blood bag is handled during an operation, and how **AIDAS** helps the team record each important step.
+The flowchart shows how a blood bag is handled during an operation, and how **FLORA** helps the team record each important step.
 
 ---
 
@@ -14,30 +14,30 @@ The flowchart is divided into three columns:
 | Column | Meaning |
 | --- | --- |
 | **OR Workflow** | What doctors and nurses do in the operating room |
-| **AIDAS** | What the AIDAS system shows or records |
+| **FLORA** | What the FLORA system shows or records |
 | **HIS and Blood Bank** | Where blood bags are prepared and their information is provided |
 
 Simply speaking:
 
 - The **Blood Bank** prepares the blood bags.
 - The **OR team** checks and gives the blood to the patient.
-- **AIDAS** helps show the bag information and keep a record of what happened.
+- **FLORA** helps show the bag information and keep a record of what happened.
 
 ---
 
 ## 2. Beginning of the Process
 
-When the operation starts, the OR team opens the **Blood Board** in AIDAS.
+When the operation starts, the OR team opens the **Blood Board** in FLORA.
 
-AIDAS then gets the available blood bag information from HIS/Blood Bank and shows the list on screen.
+FLORA then gets the available blood bag information from HIS/Blood Bank and shows the list on screen.
 
 This allows the team to see which blood bags are available for the patient.
 
 ```text
 Start Case
   -> Open Blood Board
-  -> AIDAS gets blood bag list from HIS
-  -> AIDAS shows available bags
+  -> FLORA gets blood bag list from HIS
+  -> FLORA shows available bags
 ```
 
 ---
@@ -46,21 +46,21 @@ Start Case
 
 Before giving blood to the patient, the OR team selects or scans the blood bag.
 
-AIDAS helps compare the bag information with the information received from HIS.
+FLORA helps compare the bag information with the information received from HIS.
 
 The OR team then performs the bedside check and confirms that the blood bag is correct for the patient.
 
-After confirmation, AIDAS records that the verification was completed.
+After confirmation, FLORA records that the verification was completed.
 
 ```text
 Review Bag List
   -> Scan or Select Bag
-  -> AIDAS matches the bag information
+  -> FLORA matches the bag information
   -> Staff performs bedside check
   -> Verification is recorded
 ```
 
-**Important:** AIDAS supports the checking process, but the doctor or nurse must still perform the actual patient and blood bag verification.
+**Important:** FLORA supports the checking process, but the doctor or nurse must still perform the actual patient and blood bag verification.
 
 ---
 
@@ -68,13 +68,13 @@ Review Bag List
 
 Some blood bags may need warming before they are given to the patient.
 
-If warming is required, the OR team warms the bag and AIDAS records that step.
+If warming is required, the OR team warms the bag and FLORA records that step.
 
 If warming is not required, the team may continue directly to giving the blood.
 
 ```text
 Need Warming?
-  -> Yes: Warm Bag, then record warming in AIDAS
+  -> Yes: Warm Bag, then record warming in FLORA
   -> No: Continue to giving blood
 ```
 
@@ -84,11 +84,11 @@ Need Warming?
 
 When transfusion begins, the OR team starts giving the blood product to the patient.
 
-AIDAS records the start time and the amount of blood product given.
+FLORA records the start time and the amount of blood product given.
 
 ```text
 Start Giving
-  -> AIDAS records start time and amount
+  -> FLORA records start time and amount
 ```
 
 This helps make the patient record clearer and allows the team to review blood usage later.
@@ -105,7 +105,7 @@ If the blood bag is given successfully, the bag is marked as completed.
 
 ### Stop or Reaction
 
-If the blood must be stopped early, or if the patient has a suspected reaction, the team handles the clinical situation and records it in AIDAS.
+If the blood must be stopped early, or if the patient has a suspected reaction, the team handles the clinical situation and records it in FLORA.
 
 ```text
 Outcome
@@ -113,7 +113,7 @@ Outcome
   -> Stopped or Reaction: Record the event and relevant details
 ```
 
-AIDAS then updates the Blood Board so the team can see the current status of the bag.
+FLORA then updates the Blood Board so the team can see the current status of the bag.
 
 ---
 
@@ -125,14 +125,14 @@ If more bags are needed:
 
 1. The Blood Bank prepares or releases additional bags.
 2. New bag information becomes available in HIS.
-3. AIDAS refreshes the list.
+3. FLORA refreshes the list.
 4. The new bags are added to the Blood Board.
 5. The OR team can continue the same checking and recording process for each new bag.
 
 ```text
 More Bags Needed?
   -> Yes: Blood Bank prepares more bags
-          -> AIDAS refreshes the list
+          -> FLORA refreshes the list
           -> New bags are shown
           -> Continue the process
 ```
@@ -145,7 +145,7 @@ The information already recorded for earlier bags remains in the case record.
 
 When no more blood bags are required, the operation continues toward completion.
 
-At the end of the case, AIDAS prepares a summary of the blood bag process.
+At the end of the case, FLORA prepares a summary of the blood bag process.
 
 The summary can show:
 
@@ -159,7 +159,7 @@ The summary can show:
 ```text
 No More Bags Needed
   -> End Case
-  -> AIDAS generates summary
+  -> FLORA generates summary
 ```
 
 ---
@@ -170,16 +170,16 @@ For example, a patient needs two blood bags during an operation.
 
 | Step | What Happens |
 | --- | --- |
-| 1 | AIDAS shows two available blood bags from HIS |
+| 1 | FLORA shows two available blood bags from HIS |
 | 2 | Staff select and check the first bag |
 | 3 | The first bag is warmed and then given to the patient |
-| 4 | AIDAS records that the first bag was completed |
+| 4 | FLORA records that the first bag was completed |
 | 5 | Staff select and check the second bag |
 | 6 | The second bag is given without warming |
-| 7 | AIDAS records that the second bag was completed |
-| 8 | At the end of the case, AIDAS shows a summary of both bags |
+| 7 | FLORA records that the second bag was completed |
+| 8 | At the end of the case, FLORA shows a summary of both bags |
 
-If an additional bag is needed during the operation, AIDAS can refresh the list and show the new bag when it becomes available from HIS.
+If an additional bag is needed during the operation, FLORA can refresh the list and show the new bag when it becomes available from HIS.
 
 ---
 
@@ -189,13 +189,13 @@ The flowchart describes a simple process:
 
 ```text
 Blood Bank prepares the blood bags
-  -> AIDAS shows the available bags
+  -> FLORA shows the available bags
   -> OR staff check the correct bag for the patient
   -> Blood is warmed if needed
   -> Blood is given to the patient
-  -> AIDAS records the result
+  -> FLORA records the result
   -> Additional bags can be added if needed
   -> A summary is available at the end of the case
 ```
 
-AIDAS is designed to make blood bag tracking and documentation easier and clearer while the clinical team continues to perform the required patient safety checks.
+FLORA is designed to make blood bag tracking and documentation easier and clearer while the clinical team continues to perform the required patient safety checks.

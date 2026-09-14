@@ -27,7 +27,7 @@ export type BootstrapStatus = {
   updatedAt: number;
 };
 
-export type AidasDesktopApi = {
+export type FloraDesktopApi = {
   isElectron: boolean;
   platform: string;
   getEditionInfo?: () => {
@@ -35,6 +35,7 @@ export type AidasDesktopApi = {
     productName: string;
     version: string;
   };
+  getBackendBaseUrl?: () => string;
   setZoomLevel: (level: number) => void;
   getZoomLevel: () => number;
   getBootstrapStatus?: () => Promise<BootstrapStatus>;
@@ -50,7 +51,7 @@ export type AidasDesktopApi = {
 
 declare global {
   interface Window {
-    aidasDesktop?: AidasDesktopApi;
+    floraDesktop?: FloraDesktopApi;
   }
 }
 

@@ -2,9 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/flora-app.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aidas 1.2.1</title>
+    <title>Flora 1.2.1</title>
 
     <!--
       THEME INIT — runs synchronously before first paint so the correct
@@ -19,7 +19,8 @@
             (window.matchMedia("(prefers-color-scheme: dark)").matches
               ? "dark"
               : "light");
-          var color = localStorage.getItem("theme-color") || "default";
+          var savedColor = localStorage.getItem("theme-color");
+          var color = savedColor === "nit" ? "nit" : savedColor === "eforl" ? "eforl" : "esm";
           var el = document.documentElement;
           el.classList.add(mode);
           el.classList.add("theme-" + color);
@@ -27,13 +28,6 @@
       })();
     </script>
 
-    <!-- ✅ LOAD INTER FONT (CRITICAL) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
     <div id="root"></div>

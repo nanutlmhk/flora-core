@@ -1,21 +1,21 @@
 {
-  "name": "aidas-desktop",
+  "name": "flora-desktop",
   "private": true,
   "version": "1.2.2",
-  "aidasEdition": "full",
-  "author": "AIDAS Team",
-  "description": "AIDAS — Anesthesia Information and Documentation Assistance System",
+  "floraEdition": "full",
+  "author": "FLORA Team",
+  "description": "FLORA — Anesthesia Information and Documentation Assistance System",
   "main": "electron/main.cjs",
   "scripts": {
-    "aidas:icon:build": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-aidas-ico.ps1",
+    "flora:icon:build": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-flora-ico.ps1",
     "desktop:build:web": "powershell -Command \"Set-Location frontend; npm run build\"",
     "backend:rebuild:native": "powershell -Command \"Set-Location backend; npm rebuild better-sqlite3\"",
     "desktop:start": "npm run desktop:build:web && electron electron/main.cjs",
     "desktop:start:no-build": "electron electron/main.cjs",
-    "desktop:start:full:testdb": "powershell -Command \"$env:AIDAS_EDITION='full'; $env:FLORA_DB_PATH='C:\\Users\\onlys\\Aidas\\deploy-artifacts\\flora.db'; npm run desktop:build:web; if ($LASTEXITCODE -eq 0) { electron electron/main.cjs }\"",
-    "desktop:start:no-build:full:testdb": "powershell -Command \"$env:AIDAS_EDITION='full'; $env:FLORA_DB_PATH='C:\\Users\\onlys\\Aidas\\deploy-artifacts\\flora.db'; electron electron/main.cjs\"",
-    "desktop:start:eforl": "powershell -Command \"$env:AIDAS_EDITION='eforl'; npm run desktop:build:web; if ($LASTEXITCODE -eq 0) { electron electron/main.cjs }\"",
-    "desktop:start:no-build:eforl": "powershell -Command \"$env:AIDAS_EDITION='eforl'; electron electron/main.cjs\"",
+    "desktop:start:full:testdb": "powershell -Command \"$env:FLORA_EDITION='full'; $env:FLORA_DB_PATH='C:\\Users\\onlys\\Flora\\deploy-artifacts\\flora.db'; npm run desktop:build:web; if ($LASTEXITCODE -eq 0) { electron electron/main.cjs }\"",
+    "desktop:start:no-build:full:testdb": "powershell -Command \"$env:FLORA_EDITION='full'; $env:FLORA_DB_PATH='C:\\Users\\onlys\\Flora\\deploy-artifacts\\flora.db'; electron electron/main.cjs\"",
+    "desktop:start:eforl": "powershell -Command \"$env:FLORA_EDITION='eforl'; npm run desktop:build:web; if ($LASTEXITCODE -eq 0) { electron electron/main.cjs }\"",
+    "desktop:start:no-build:eforl": "powershell -Command \"$env:FLORA_EDITION='eforl'; electron electron/main.cjs\"",
     "db:migrate:master": "node backend/scripts/migrate-master-data.js",
     "db:build:master-only": "node backend/scripts/build-master-only-db.js",
     "db:check:master": "node scripts/check-master-data.js",
@@ -32,8 +32,8 @@
     "pdf-lib": "^1.17.1"
   },
   "build": {
-    "appId": "com.aidas.desktop",
-    "productName": "Aidas",
+    "appId": "com.flora.desktop",
+    "productName": "Flora",
     "toolsets": {
       "winCodeSign": "1.1.0"
     },
@@ -73,13 +73,17 @@
       {
         "from": "frontend/src/assets/eforllogo.png",
         "to": "assets/eforllogo.png"
+      },
+      {
+        "from": "data/flora.db",
+        "to": "seed/flora.db"
       }
     ],
     "directories": {
       "output": "dist-electron"
     },
     "win": {
-      "icon": "electron/assets/aidas-app.ico",
+      "icon": "electron/assets/flora-app.ico",
       "signAndEditExecutable": true,
       "target": [
         {
@@ -87,14 +91,15 @@
           "arch": ["x64"]
         }
       ],
-      "artifactName": "Aidas-Setup-${version}.${ext}"
+      "artifactName": "Flora-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "electron/assets/aidas-app.ico",
-      "uninstallerIcon": "electron/assets/aidas-app.ico"
+      "include": "electron/installer.nsh",
+      "installerIcon": "electron/assets/flora-app.ico",
+      "uninstallerIcon": "electron/assets/flora-app.ico"
     }
   }
 }

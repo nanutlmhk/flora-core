@@ -6,10 +6,9 @@
 
 :root {
   --app-font:
+    "Inter Variable",
+    "Noto Sans Thai Variable",
     "Segoe UI",
-    "Noto Sans Thai",
-    "Tahoma",
-    "Arial",
     system-ui,
     sans-serif;
   --app-bg: #dde8f7;
@@ -798,6 +797,70 @@
   --app-nav-border: #4d8e86;
 }
 
+/* Standard Flora palettes, following Minivia's blue and warm-orange identity. */
+:root.light.theme-esm,
+:root.light.theme-nit {
+  --app-bg: #f6f8fc;
+  --app-main-bg: #ffffff;
+  --app-panel-bg: rgba(255, 255, 255, 0.96);
+  --app-border: #b7c3e2;
+  --app-text: #1a2756;
+  --app-muted: #5f6f9a;
+  --app-main-glow-a: rgba(47, 72, 163, 0.08);
+  --app-main-glow-b: rgba(47, 72, 163, 0.06);
+  --app-topbar-bg: linear-gradient(90deg, #edf2ff 0%, #ffffff 54%, #edf2ff 100%);
+  --app-nav-bg: rgba(255, 255, 255, 0.86);
+  --app-nav-border: #9eadd4;
+  --app-nav-hover: #eaf0ff;
+  --app-accent: #2f48a3;
+  --app-accent-contrast: #ffffff;
+  --app-control-border: #9eadd4;
+  --app-control-focus: rgba(47, 72, 163, 0.3);
+  --timegrid-now-line: rgba(47, 72, 163, 0.78);
+}
+
+:root.dark.theme-esm,
+:root.dark.theme-nit {
+  --app-bg: #0e1738;
+  --app-main-bg: #101d48;
+  --app-panel-bg: rgba(17, 29, 72, 0.92);
+  --app-border: #455a9f;
+  --app-text: #f7f9ff;
+  --app-muted: #aab7ea;
+  --app-main-glow-a: rgba(91, 120, 255, 0.18);
+  --app-main-glow-b: rgba(91, 120, 255, 0.12);
+  --app-topbar-bg: linear-gradient(90deg, #0e1738 0%, #16255d 50%, #111d48 100%);
+  --app-nav-bg: rgba(17, 29, 72, 0.92);
+  --app-nav-border: #5369ad;
+  --app-nav-hover: rgba(34, 50, 108, 0.96);
+  --app-accent: #7f96ff;
+  --app-accent-contrast: #101d48;
+  --app-control-border: #5369ad;
+  --app-control-focus: rgba(91, 120, 255, 0.36);
+  --timegrid-now-line: rgba(127, 150, 255, 0.88);
+}
+
+:root.light.theme-nit {
+  --app-main-glow-b: rgba(246, 154, 28, 0.1);
+  --app-topbar-bg: linear-gradient(90deg, #edf2ff 0%, #ffffff 56%, #fff1d9 100%);
+  --app-nav-hover: #fff1d9;
+  --app-accent: #b96500;
+  --app-control-focus: rgba(246, 154, 28, 0.3);
+  --timegrid-focus-bg: rgba(246, 154, 28, 0.12);
+  --timegrid-focus-ring: rgba(246, 154, 28, 0.36);
+}
+
+:root.dark.theme-nit {
+  --app-main-glow-b: rgba(246, 154, 28, 0.13);
+  --app-topbar-bg: linear-gradient(90deg, #0e1738 0%, #16255d 56%, #3b2c25 100%);
+  --app-nav-hover: rgba(60, 54, 75, 0.96);
+  --app-accent: #f69a1c;
+  --app-accent-contrast: #251900;
+  --app-control-focus: rgba(246, 154, 28, 0.36);
+  --timegrid-focus-bg: rgba(246, 154, 28, 0.15);
+  --timegrid-focus-ring: rgba(246, 154, 28, 0.42);
+}
+
 html,
 body,
 #root {
@@ -824,7 +887,7 @@ input {
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ============================= */
-/* AIDAS SCROLLBAR THEME (DARK)  */
+/* FLORA SCROLLBAR THEME (DARK)  */
 /* ============================= */
 
 ::-webkit-scrollbar {
@@ -885,6 +948,38 @@ input {
   box-shadow: var(--app-topbar-shadow);
 }
 
+.app-topbar button,
+.app-topbar select {
+  font-family: var(--app-font);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease,
+    box-shadow 140ms ease, transform 140ms ease;
+}
+
+.app-topbar button:focus-visible,
+.app-topbar select:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--app-control-focus);
+}
+
+.app-topbar button:not(:disabled):active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.app-topbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (hover: hover) {
+  .app-topbar button:not(.app-nav-item):not(:disabled):hover,
+  .app-topbar select:hover {
+    background: var(--app-nav-hover);
+    border-color: var(--app-accent);
+  }
+}
+
 .app-nav-shell {
   background: var(--app-nav-bg);
   border-color: var(--app-nav-border);
@@ -893,6 +988,8 @@ input {
 
 .app-nav-item {
   color: var(--app-text);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .app-nav-item:hover {
@@ -902,6 +999,12 @@ input {
 .app-nav-item-active {
   background: var(--app-accent);
   color: var(--app-accent-contrast);
+}
+
+.app-nav-item-active:hover {
+  background: var(--app-accent);
+  color: var(--app-accent-contrast);
+  filter: brightness(1.08);
 }
 
 .app-theme-scope input:not([type="checkbox"]):not([type="radio"]),
@@ -1174,75 +1277,28 @@ input {
   color: var(--badge-setting-text);
 }
 
-.case-quick-actions {
-  border-color: color-mix(in srgb, var(--app-border) 92%, white 8%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--app-panel-bg) 86%, black 14%) 0%, var(--app-panel-bg) 100%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 4%, transparent),
-    0 12px 30px color-mix(in srgb, black 12%, transparent);
-}
-
-.case-quick-action {
-  position: relative;
-  overflow: hidden;
-  backdrop-filter: blur(8px);
-  isolation: isolate;
-}
-
-.case-quick-action::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--quick-action-accent, var(--app-accent)) 92%, white 8%) 0%,
-    color-mix(in srgb, var(--quick-action-accent, var(--app-accent)) 32%, transparent) 100%
-  );
-  opacity: 0.95;
-}
-
-.case-quick-action::after {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: 0.7rem;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, white 8%, transparent) 0%,
-    transparent 55%,
-    color-mix(in srgb, black 4%, transparent) 100%
-  );
-  pointer-events: none;
-  opacity: 0.72;
-}
-
-.case-quick-action:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--quick-action-accent, var(--app-accent)) 52%,
-    var(--app-border)
-  ) !important;
-  box-shadow:
-    0 14px 28px color-mix(in srgb, var(--quick-action-accent, var(--app-accent)) 12%, transparent),
-    inset 0 1px 0 color-mix(in srgb, white 7%, transparent) !important;
-}
-
-.case-quick-action__label,
-.case-quick-action__shortcut,
-.case-quick-action__icon {
-  position: relative;
-  z-index: 1;
-}
-
-.case-quick-action__label {
-  letter-spacing: 0.01em;
-  font-weight: 700;
-}
-
-.case-quick-action__icon {
-  flex-shrink: 0;
+.case-kronos { border-color: var(--app-border); background: var(--app-panel-bg); }
+.case-kronos__clock { display: flex; flex: 0 0 auto; flex-direction: column; min-width: 11rem; }
+.case-kronos__eyebrow { color: var(--app-muted); font-size: .68rem; font-weight: 800; letter-spacing: .09em; }
+.case-kronos__elapsed { color: var(--app-accent); font-size: 1.18rem; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.case-kronos__sub { color: var(--app-muted); font-size: .68rem; white-space: nowrap; }
+.case-kronos__clinical { display: flex; flex: 1 1 17rem; min-width: 12rem; flex-direction: column; gap: .12rem; overflow: hidden; }
+.case-kronos__clinical span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-kronos__clinical b { color: var(--app-accent); margin-right: .35rem; }
+.case-kronos__controls { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; margin-left: auto; }
+.case-kronos__stepper { display: inline-flex; align-items: center; overflow: hidden; border: 1px solid var(--app-border); border-radius: .65rem; background: var(--app-bg); }
+.case-kronos__stepper button { min-width: 2rem; height: 2rem; color: var(--app-accent); font-size: 1.15rem; font-weight: 700; }
+.case-kronos__stepper button:hover:not(:disabled) { background: color-mix(in srgb, var(--app-accent) 12%, transparent); }
+.case-kronos__stepper button:disabled { opacity: .4; cursor: not-allowed; }
+.case-kronos__stepper input { width: 2.5rem; border: 0; outline: none; background: transparent; color: inherit; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.case-kronos__stepper input::-webkit-inner-spin-button, .case-kronos__stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.case-kronos__stepper span { color: var(--app-muted); font-size: .7rem; }
+.case-kronos__sync { color: var(--app-muted); min-width: 3.4rem; }
+.case-kronos__latest { color: var(--app-accent); font-weight: 700; white-space: nowrap; }
+@media (max-width: 760px) {
+  .case-kronos__controls { margin-left: 0; flex-wrap: wrap; }
+  .case-kronos__clock { min-width: 0; }
+  .case-kronos__sub { white-space: normal; }
 }
 
 .io-drip-bar {
@@ -1615,7 +1671,7 @@ input {
 .report-thai-text,
 .report-page .report-thai-text,
 .report-document .report-thai-text {
-  font-family: "Noto Sans Thai", "Sarabun", "TH Sarabun New", Tahoma, sans-serif !important;
+  font-family: "Noto Sans Thai Variable", "Noto Sans Thai", Tahoma, sans-serif !important;
 }
 
 /* Force readable report text regardless of app theme tinting/filter overlays. */

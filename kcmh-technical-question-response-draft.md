@@ -1,10 +1,10 @@
 # KCMH Technical Baseline Workshop
-## Vendor Response Draft for Porjai Session (Aidas / Hidro / Anesthesia)
+## Vendor Response Draft for Porjai Session (Flora / Hidro / Anesthesia)
 
 This draft answers the hospital workbook from the **Porjai / Anesthesia** scope only.
 
 Important boundary:
-- This response covers **Aidas**, **Hidro**, and the **device/data flow managed by Porjai**
+- This response covers **Flora**, **Hidro**, and the **device/data flow managed by Porjai**
 - It does **not** claim ownership of hospital core infrastructure, enterprise network, VMware clusters, central backup platforms, PACS, LIS, or HIS internals unless explicitly noted
 - For shared items, the best answer is often: **Porjai scope + KCMH IT to confirm hospital-side detail**
 
@@ -14,16 +14,16 @@ Important boundary:
 
 | Application | Purpose | Runtime model | Primary owner |
 |---|---|---|---|
-| Aidas | Anesthesia information and documentation system for OR case recording, charting, forms, and report generation | Electron desktop app on Windows workstation | Porjai |
+| Flora | Anesthesia information and documentation system for OR case recording, charting, forms, and report generation | Electron desktop app on Windows workstation | Porjai |
 | Hidro | Medical device middleware for bedside device capture and normalization | Windows local service + Electron tray UI | Porjai |
 
 ### Main functional flow
 
 1. Medical devices send data to **Hidro**
 2. Hidro normalizes and stores observations in local SQLite
-3. **Aidas** reads Hidro local API for device observations
-4. Aidas records perioperative documentation and stores case data in local SQLite
-5. Aidas can also integrate with hospital-side HIS APIs or gateways for patient / blood / lab workflows where configured
+3. **Flora** reads Hidro local API for device observations
+4. Flora records perioperative documentation and stores case data in local SQLite
+5. Flora can also integrate with hospital-side HIS APIs or gateways for patient / blood / lab workflows where configured
 
 ## T-1 Infrastructure & Platform Capability
 
@@ -31,7 +31,7 @@ Important boundary:
 
 Suggested answer:
 
-- **Aidas**
+- **Flora**
   - Function: anesthesia case documentation, medication/fluid charting, forms, report generation, selected HIS-assisted workflows
   - Client runtime: Windows desktop workstation
   - App stack: Electron + React frontend + Node backend
@@ -58,7 +58,7 @@ Suggested vendor answer:
 
 - Porjai solution in current OR deployment is primarily **workstation-local**, not a central Porjai-hosted server cluster
 - Typical local components:
-  - Windows workstation hosting Aidas
+  - Windows workstation hosting Flora
   - Windows workstation or same station hosting Hidro
   - Local SQLite data stores
 - Centralized hospital virtualization / enterprise server inventory is **KCMH IT scope**
@@ -71,7 +71,7 @@ Suggested status:
 Suggested answer:
 
 - Not in Porjai operational ownership
-- Aidas and Hidro typically run on Windows endpoint/workstation layer, not on Porjai-managed VMware infrastructure
+- Flora and Hidro typically run on Windows endpoint/workstation layer, not on Porjai-managed VMware infrastructure
 - KCMH IT to confirm central virtualization landscape
 
 Suggested status:
@@ -85,8 +85,8 @@ Porjai-side view:
 - Medical device interfaces connect to Hidro through:
   - USB-to-serial adapters / COM ports
   - or TCP where applicable
-- Aidas communicates to Hidro through local HTTP on `127.0.0.1:3000`
-- Aidas may call hospital HIS gateway/API endpoints when configured
+- Flora communicates to Hidro through local HTTP on `127.0.0.1:3000`
+- Flora may call hospital HIS gateway/API endpoints when configured
 
 Hospital-side VLAN/firewall/network segmentation:
 - KCMH IT to provide authoritative topology
@@ -98,7 +98,7 @@ Suggested status:
 
 Suggested answer:
 
-- No AWS/Azure/cloud dependency is required for the standard local Aidas/Hidro runtime
+- No AWS/Azure/cloud dependency is required for the standard local Flora/Hidro runtime
 - Current design is local workstation + local API + local SQLite
 - If hospital uses cloud around surrounding systems, that is outside Porjai scope
 
@@ -109,7 +109,7 @@ Suggested status:
 
 Suggested answer:
 
-- No dedicated Porjai-managed secondary DR site for Aidas/Hidro application stack is currently bundled by default
+- No dedicated Porjai-managed secondary DR site for Flora/Hidro application stack is currently bundled by default
 - Recovery currently depends on:
   - application installer
   - workstation readiness
@@ -124,7 +124,7 @@ Suggested status:
 Suggested answer:
 
 - Not under Porjai ownership
-- Aidas/Hidro rely on the hospital workstation and facility environment provided at point of care
+- Flora/Hidro rely on the hospital workstation and facility environment provided at point of care
 - KCMH IT / facilities team should answer UPS, generator, NOC, SOC, and physical data-center controls
 
 Suggested status:
@@ -154,7 +154,7 @@ Suggested status:
 
 Suggested answer:
 
-- Aidas current package version in this repo lineage: `1.2.2`
+- Flora current package version in this repo lineage: `1.2.2`
 - Hidro current package version in recent workstream: `1.2.2`
 - Product maintenance is versioned and patch-based
 - For workstation deployments, lifecycle risk is usually around:
@@ -176,7 +176,7 @@ Suggested answer:
 Proposed support split:
 - **L1**: hospital user / ward / OR super user reports issue
 - **L2**: hospital IT / local technical coordinator checks workstation, network, login, printer, Windows environment
-- **L3**: Porjai handles Aidas/Hidro application defects, integration logic, and device middleware issues
+- **L3**: Porjai handles Flora/Hidro application defects, integration logic, and device middleware issues
 - Vendor/device escalation may be needed for:
   - medical device protocol behavior
   - USB-to-serial chipset/driver instability
@@ -201,7 +201,7 @@ Suggested status:
 
 Suggested answer:
 
-- Aidas and Hidro are patched through controlled versioned releases
+- Flora and Hidro are patched through controlled versioned releases
 - Updates should be tested before production rollout
 - Backup of local DB should be taken before upgrade
 - Clinical rollout should avoid uncontrolled in-place updates without rollback path
@@ -213,7 +213,7 @@ Suggested status:
 
 Suggested answer:
 
-- Aidas and Hidro use local SQLite data stores
+- Flora and Hidro use local SQLite data stores
 - Backup approach should at minimum include:
   - scheduled backup of local DB files
   - preservation of configuration files
@@ -252,7 +252,7 @@ Suggested answer:
 
 | System | DB engine | Purpose | Host pattern | Notes |
 |---|---|---|---|---|
-| Aidas | SQLite | case records, local app data, master-data-assisted workflows | local Windows workstation | file-based local DB (`flora.db`) |
+| Flora | SQLite | case records, local app data, master-data-assisted workflows | local Windows workstation | file-based local DB (`flora.db`) |
 | Hidro | SQLite | device observations / middleware state | local Windows workstation | file-based local DB |
 
 Suggested status:
@@ -262,7 +262,7 @@ Suggested status:
 
 Suggested answer:
 
-- Aidas and Hidro use SQLite, not Oracle / SQL Server / Informix for local runtime
+- Flora and Hidro use SQLite, not Oracle / SQL Server / Informix for local runtime
 - Hospital-side central databases for HIS/LIS/PACS are outside Porjai ownership
 
 Suggested status:
@@ -297,7 +297,7 @@ Suggested status:
 Suggested answer:
 
 Proposed working targets for local workstation deployment:
-- Aidas client reinstall / recovery: hours, not instant HA
+- Flora client reinstall / recovery: hours, not instant HA
 - Hidro service restart: minutes if workstation and device links are healthy
 - Data-loss tolerance depends on last successful local DB backup and runtime capture continuity
 
@@ -323,7 +323,7 @@ Suggested status:
 
 Suggested answer:
 
-- No active DB engine migration is required for Aidas/Hidro local runtime in current scope
+- No active DB engine migration is required for Flora/Hidro local runtime in current scope
 - HIS-side or laboratory-side migrations are hospital / other-vendor scope
 
 Suggested status:
@@ -367,15 +367,15 @@ Suggested status:
 Suggested answer:
 
 Porjai-side integration methods include:
-- Hidro local REST API to Aidas
+- Hidro local REST API to Flora
 - Serial device integration via Hidro
 - TCP/HL7 ingestion where configured
-- HIS API / gateway calls from Aidas where configured
+- HIS API / gateway calls from Flora where configured
 
 Examples visible in current source:
 - Hidro local health/status API on port `3000`
-- Aidas backend reads Hidro observations from local API
-- Aidas backend supports HIS gateway integration for patient/blood/lab workflows
+- Flora backend reads Hidro observations from local API
+- Flora backend supports HIS gateway integration for patient/blood/lab workflows
 
 Suggested status:
 - **Available**
@@ -386,7 +386,7 @@ Suggested status:
 
 Suggested answer:
 
-- **Current state:** Aidas and Hidro operate on local workstation databases for operational clinical workflow support
+- **Current state:** Flora and Hidro operate on local workstation databases for operational clinical workflow support
 - **Committed target state:** Porjai plans to implement a **central PostgreSQL database** hosted in KCMH IT infrastructure as the shared consolidation layer
 - The central platform is intended to support:
   - enterprise reporting
@@ -402,7 +402,7 @@ Suggested status:
 
 Suggested answer:
 
-- **Current state:** Aidas focuses on clinical documentation and report generation rather than enterprise BI
+- **Current state:** Flora focuses on clinical documentation and report generation rather than enterprise BI
 - **Future direction:** once the central PostgreSQL layer is established, KCMH can connect BI/reporting tools such as Power BI, Tableau, or equivalent hospital analytics tools to the centralized dataset
 - Porjai commitment is to structure the exported central data so it is usable for reporting and future analytics, rather than leaving data only in isolated workstation-local stores
 
@@ -427,7 +427,7 @@ Suggested status:
 Suggested answer:
 
 - Clinical source-of-truth governance remains primarily with hospital systems and workflow owners
-- During active-case operation, Aidas local runtime remains the operational source for perioperative capture
+- During active-case operation, Flora local runtime remains the operational source for perioperative capture
 - Under the committed target architecture, centralized PostgreSQL will act as the governed institutional copy for analytics/integration purposes
 - Formal enterprise data governance, access approval, and policy ownership should be established jointly with KCMH IT / data governance stakeholders
 
@@ -438,7 +438,7 @@ Suggested status:
 
 Suggested answer:
 
-- Not a core Aidas/Hidro capability in current base scope
+- Not a core Flora/Hidro capability in current base scope
 - DICOM/PACS storage should be answered by hospital or imaging vendors
 
 Suggested status:
@@ -448,7 +448,7 @@ Suggested status:
 
 Suggested answer:
 
-- **Current state:** no AI/ML functionality is part of the current Aidas/Hidro base deployment
+- **Current state:** no AI/ML functionality is part of the current Flora/Hidro base deployment
 - **Committed direction:** the central PostgreSQL architecture is being proposed specifically so that future ML / AI work can be supported on a governed, consolidated dataset instead of fragmented workstation-local databases
 - This means Porjai is not presenting AI as active today, but is committing to an architecture that is compatible with future model development, feature engineering, and retrospective analytics
 
@@ -487,7 +487,7 @@ Suggested answer:
 For Porjai scope, downtime handling today is practical rather than fully formalized enterprise DR:
 - Hidro service can be restarted locally
 - device communication can be reconnected/reset locally
-- Aidas can continue with local workstation operation where data path is available
+- Flora can continue with local workstation operation where data path is available
 - manual fallback may still be needed if workstation or device middleware is unavailable
 
 Suggested status:
@@ -521,7 +521,7 @@ Porjai-side operational sequence would usually be:
 1. Workstation usable
 2. Hidro service healthy
 3. Device connectivity restored
-4. Aidas local runtime healthy
+4. Flora local runtime healthy
 5. HIS-facing integrations restored
 
 Suggested status:
@@ -543,7 +543,7 @@ Suggested status:
 Suggested answer:
 
 - This should be jointly answered with KCMH operational leadership
-- Vendor can support training material for Aidas/Hidro behavior, but hospital must own clinical downtime process adoption
+- Vendor can support training material for Flora/Hidro behavior, but hospital must own clinical downtime process adoption
 
 Suggested status:
 - **Shared**
@@ -558,7 +558,7 @@ To keep the meeting clean and credible, Porjai should answer in this pattern:
 
 ## Honest Gaps We Should Not Hide
 
-- Current Aidas/Hidro architecture is **workstation-centric**, not enterprise HA
+- Current Flora/Hidro architecture is **workstation-centric**, not enterprise HA
 - USB-to-serial stability is a real operational risk in some deployments
 - Backup/restore discipline matters a lot because runtime data is local
 - Formal RTO/RPO, centralized monitoring, and enterprise-grade IAM/audit are not fully solved by the base deployment alone
@@ -572,11 +572,11 @@ From this draft, we can produce either:
 
 ## Core Target Architecture Proposal
 
-Porjai proposes this as the **core future-state architecture** for Aidas/Hidro data management, subject to KCMH IT infrastructure readiness and policy approval.
+Porjai proposes this as the **core future-state architecture** for Flora/Hidro data management, subject to KCMH IT infrastructure readiness and policy approval.
 
 ### Architecture direction
 
-- Keep **Aidas/Hidro local runtime** at point of care for bedside resilience
+- Keep **Flora/Hidro local runtime** at point of care for bedside resilience
 - Add a **central PostgreSQL database** hosted on KCMH IT VM infrastructure, proposed on `10.35.202.6`
 - Use the central database as the **shared reporting / integration / analytics / ML-ready layer**
 - Do **not** make bedside capture depend on central database availability
@@ -665,4 +665,4 @@ This architecture is ready in principle from the application side, but depends o
 
 Porjai can position this as:
 
-> The target architecture is to keep Aidas/Hidro operational locally for patient-care resilience, while synchronizing to a central PostgreSQL database in KCMH IT infrastructure for reporting, integration, governance, and future analytics/ML. The remaining dependency is hospital infrastructure readiness, network policy, and central platform approval.
+> The target architecture is to keep Flora/Hidro operational locally for patient-care resilience, while synchronizing to a central PostgreSQL database in KCMH IT infrastructure for reporting, integration, governance, and future analytics/ML. The remaining dependency is hospital infrastructure readiness, network policy, and central platform approval.

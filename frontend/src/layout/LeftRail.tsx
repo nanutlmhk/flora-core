@@ -64,9 +64,9 @@ type LeftRailUiState = {
   safetyOpen: boolean;
 };
 
-const LEFT_RAIL_UI_STATE_KEY = "aidas.leftRail.ui.v1";
-const PRESTART_PATIENT_DRAFT_PREFIX = "aidas.prestartPatientDraft.";
-const PRESTART_HN_SYNC_EVENT = "aidas:prestart-hn-sync";
+const LEFT_RAIL_UI_STATE_KEY = "flora.leftRail.ui.v1";
+const PRESTART_PATIENT_DRAFT_PREFIX = "flora.prestartPatientDraft.";
+const PRESTART_HN_SYNC_EVENT = "flora:prestart-hn-sync";
 const ANESTHESIA_CODE_KEYS = new Set<string>([
   "mask_ventilation_difficulty",
   "eye_protection",
@@ -1030,9 +1030,9 @@ export default function LeftRail({
       setHn(selectedHn);
     };
 
-    window.addEventListener("aidas:patient-hn-selected", onPatientHnSelected);
+    window.addEventListener("flora:patient-hn-selected", onPatientHnSelected);
     return () =>
-      window.removeEventListener("aidas:patient-hn-selected", onPatientHnSelected);
+      window.removeEventListener("flora:patient-hn-selected", onPatientHnSelected);
   }, []);
 
   useEffect(() => {
@@ -1053,11 +1053,11 @@ export default function LeftRail({
     };
 
     window.addEventListener("storage", onStorage);
-    window.addEventListener("aidas:form-storage-changed", onFormChanged);
+    window.addEventListener("flora:form-storage-changed", onFormChanged);
 
     return () => {
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("aidas:form-storage-changed", onFormChanged);
+      window.removeEventListener("flora:form-storage-changed", onFormChanged);
     };
   }, [caseStatus, formStorageKey, refreshFormSummary]);
 
@@ -1093,10 +1093,10 @@ export default function LeftRail({
     };
 
     void loadClinical();
-    window.addEventListener("aidas:clinical-changed", onClinicalChanged);
+    window.addEventListener("flora:clinical-changed", onClinicalChanged);
     return () => {
       alive = false;
-      window.removeEventListener("aidas:clinical-changed", onClinicalChanged);
+      window.removeEventListener("flora:clinical-changed", onClinicalChanged);
     };
   }, [caseStatus]);
 
@@ -1132,12 +1132,12 @@ export default function LeftRail({
     };
 
     void loadAllergy();
-    window.addEventListener("aidas:his-synced", onHisSynced);
-    window.addEventListener("aidas:allergy-changed", onAllergyChanged);
+    window.addEventListener("flora:his-synced", onHisSynced);
+    window.addEventListener("flora:allergy-changed", onAllergyChanged);
     return () => {
       alive = false;
-      window.removeEventListener("aidas:his-synced", onHisSynced);
-      window.removeEventListener("aidas:allergy-changed", onAllergyChanged);
+      window.removeEventListener("flora:his-synced", onHisSynced);
+      window.removeEventListener("flora:allergy-changed", onAllergyChanged);
     };
   }, [caseStatus]);
 
@@ -1285,7 +1285,7 @@ export default function LeftRail({
     }
     await onCaseChange();
     window.dispatchEvent(
-      new CustomEvent("aidas:case-started", {
+      new CustomEvent("flora:case-started", {
         detail: { caseId: startedCaseId, hn: String(targetHn).trim() },
       }),
     );
@@ -1416,7 +1416,7 @@ export default function LeftRail({
           : "";
       setHisSyncNote(`HIS synced${partial}`);
       window.dispatchEvent(
-        new CustomEvent("aidas:his-synced", {
+        new CustomEvent("flora:his-synced", {
           detail: { caseId: caseStatus.case_id },
         }),
       );
@@ -1455,17 +1455,17 @@ export default function LeftRail({
       await updateCaseStartTime(caseStatus.case_id, nextTs);
       onCaseStartTimeUpdated?.(caseStatus.case_id, nextTs);
       window.dispatchEvent(
-        new CustomEvent("aidas:case-events-changed", {
+        new CustomEvent("flora:case-events-changed", {
           detail: { caseId: caseStatus.case_id },
         }),
       );
       window.dispatchEvent(
-        new CustomEvent("aidas:case-io-changed", {
+        new CustomEvent("flora:case-io-changed", {
           detail: { caseId: caseStatus.case_id },
         }),
       );
       window.dispatchEvent(
-        new CustomEvent("aidas:case-start-time-updated", {
+        new CustomEvent("flora:case-start-time-updated", {
           detail: { caseId: caseStatus.case_id, startTime: nextTs },
         }),
       );
@@ -1544,7 +1544,7 @@ export default function LeftRail({
     const rows = await getCaseAllergies(caseStatus.case_id);
     setAllergyRows(rows);
     window.dispatchEvent(
-      new CustomEvent("aidas:allergy-changed", {
+      new CustomEvent("flora:allergy-changed", {
         detail: { caseId: caseStatus.case_id },
       }),
     );
@@ -2059,7 +2059,7 @@ export default function LeftRail({
                         return;
                       }
                       window.dispatchEvent(
-                        new CustomEvent("aidas:patient-gethis-request", {
+                        new CustomEvent("flora:patient-gethis-request", {
                           detail: { hn: requestHn },
                         }),
                       );

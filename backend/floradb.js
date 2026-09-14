@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 
-const explicitDb = String(process.env.FLORA_DB_PATH || process.env.AIDAS_DB_PATH || "").trim();
+const explicitDb = String(process.env.FLORA_DB_PATH || "").trim();
 const porjaiRoot = String(process.env.PORJAI_ROOT || "").trim();
 
 const DB_PATH = explicitDb
@@ -502,8 +502,8 @@ CREATE TABLE IF NOT EXISTS legacy_med_drip_preset_analysis (
   avg_minutes           REAL,
   first_seen            TEXT,
   last_seen             TEXT,
-  aidas_kind            TEXT,
-  aidas_entry_mode      TEXT,
+  flora_kind            TEXT,
+  flora_entry_mode      TEXT,
   display_label         TEXT,
   selection_note        TEXT,
   is_curated            INTEGER NOT NULL DEFAULT 0 CHECK (is_curated IN (0,1)),
@@ -1929,8 +1929,8 @@ function createPasswordRecord(password) {
 }
 
 const DEFAULT_STAFF_AUTH_PASSWORD = String(
-  process.env.AIDAS_DEFAULT_STAFF_PASSWORD || "aidas",
-).trim() || "aidas";
+  process.env.FLORA_DEFAULT_STAFF_PASSWORD || "flora",
+).trim() || "flora";
 
 const selectAuthUserByUsername = db.prepare(
   `SELECT id, username, hospital_id, auth_source, password_salt, password_hash, name, role, theme_mode, theme_color, is_active, created_at, updated_at, last_login_at
@@ -1989,7 +1989,7 @@ const updateAuthUserThemePreferences = db.prepare(
    WHERE id = ?`
 );
 
-const AUTH_SESSION_TTL_MS = Number(process.env.AIDAS_AUTH_SESSION_TTL_MS || 30 * 24 * 60 * 60 * 1000);
+const AUTH_SESSION_TTL_MS = Number(process.env.FLORA_AUTH_SESSION_TTL_MS || 30 * 24 * 60 * 60 * 1000);
 
 const selectAuthSessionByTokenHash = db.prepare(
   `SELECT
@@ -2283,7 +2283,7 @@ function setAuthUserThemePreferences(userId, { themeMode, themeColor }) {
   const mode = String(themeMode || "").trim().toLowerCase();
   const color = String(themeColor || "").trim().toLowerCase();
   const allowedModes = new Set(["light", "dark"]);
-  const allowedColors = new Set(["default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"]);
+  const allowedColors = new Set(["esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"]);
 
   if (!allowedModes.has(mode)) throw new Error("invalid theme mode");
   if (!allowedColors.has(color)) throw new Error("invalid theme color");
@@ -2527,9 +2527,9 @@ function recordCaseDeviceIngestAudit({
 function ensureBootstrapAdminUsers() {
   const adminUsers = [
     {
-      username: "nanut.l",
-      password: "Welcome1!",
-      name: "Nanut",
+      username: "admin",
+      password: "admin",
+      name: "Administrator",
       role: "admin",
       authSource: "seed",
     },
@@ -2542,10 +2542,6 @@ function ensureBootstrapAdminUsers() {
 
 runBootstrapWrite("auth_user admin seed", () => {
   ensureBootstrapAdminUsers();
-});
-
-runBootstrapWrite("auth_user staff sync", () => {
-  syncStaffDirectoryAuthUsers();
 });
 
 module.exports = {
