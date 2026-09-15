@@ -1,158 +1,136 @@
-# Flora
+# Flora Core
 
-Flora is a desktop anesthesia information and documentation system used for real operating-room case recording, device-assisted vital sign capture, fluid and medication charting, clinical forms, and anesthesia report generation.
+Flora Core is a hybrid perioperative platform for operating-room documentation,
+device observations, medications and I/O, clinical forms, case review, and
+reporting. It supports browser access and an optional Electron workstation shell.
 
-The current desktop app is built as an Electron package with a React frontend, Node backend, SQLite database, and shared parameter mapping used by Flora and Hidro integration paths.
+## Products
 
-## Current Version
+- **Flora Leaf** is the local perioperative workstation. It owns clinical entry,
+  local device connectivity, and offline operation.
+- **Flora Canopy** is the central read-only viewer. It receives authenticated,
+  idempotent updates from multiple Leaves and presents hospital-wide active cases.
 
-- Current package version: `1.2.2`
-- Release and milestone history: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)
+Leaves never expose their databases directly to Canopy or to another Leaf.
+Cross-workstation review goes through the central Canopy API.
 
-Major clinical milestones:
+## Architecture
 
-- `1.0.0`: first real clinical release in intervention OR with `GE B1x5` and `GE Carestation 750`
-- `1.1.0`: packaged Flora and Hidro installer workflow
-- `1.2.0`: Neuro OR expansion with `GE B650/850` and `GE Aisys / Avance`
-- `1.2.1`: stabilization patch after Neuro OR beta and packaged client rollout
-- `1.2.2`: line-form refinement, report/event fixes, manual drug fallback, and first edition architecture support
+| Service | Responsibility | Development port |
+| --- | --- | ---: |
+| `flora-leaf` | Write-capable React/Vite workstation UI | 6890 |
+| `backend` | Temporary Node compatibility API during cutover | 6891 |
+| `postgres` | PostgreSQL clinical database | 6892 |
+| `flora-leaf-api` | Python/FastAPI clinical API | 6893 |
+| `flora-canopy` | Read-only React/Vite central viewer | 6894 |
+| `flora-canopy-api` | Python/FastAPI viewer API using `flora_view` | 6895 |
+| `flora-sync-api` | Private authenticated Leaf ingestion API | 6896 |
+| `flora-leaf-sync` | Incremental Leaf-to-Canopy publisher | internal |
 
-## Repository Layout
+PostgreSQL is the target clinical system of record. The repository is currently in
+a controlled cutover: the legacy Node/SQLite runtime still handles remaining write
+contracts, while `flora-db-bridge` mirrors its live state transactionally into
+PostgreSQL. Node/SQLite is compatibility infrastructure, not the target backend.
 
-- `frontend/`: React/Vite frontend for the Flora desktop UI
-- `backend/`: Node backend, SQLite schema, case APIs, minute writer, and master-data import tools
-- `electron/`: Electron shell and desktop PDF/report generation entry points
-- `shared/`: shared parameter maps and integration constants
-- `scripts/`: desktop build, launch, repair, client DB, and verification scripts
-- `docs/`: release notes, integration documents, IP/license drafts, and working documentation
+See [the replatform plan](docs/FLORA-REPLATFORM-PLAN.md) for migration boundaries,
+safety gates, and the remaining cutover sequence.
 
-## Development
+## Run with Docker
 
-Install dependencies in the root, frontend, and backend folders as needed:
-
-```powershell
-npm install
-Set-Location frontend
-npm install
-Set-Location ..\backend
-npm install
-Set-Location ..
-```
-
-Build the frontend:
+Create a local environment file and replace every placeholder secret:
 
 ```powershell
-npm run desktop:build:web
+Copy-Item .env.example .env
 ```
 
-Run the desktop app after building:
-
-```powershell
-npm run desktop:start:no-build
-```
-
-Build and run in one command:
-
-```powershell
-npm run desktop:start
-```
-
-### Browser development with Docker
-
-For UI work, run Flora in a browser with Vite hot reload instead of rebuilding Electron:
+Run Flora Leaf and its supporting services:
 
 ```powershell
 docker compose -f compose.dev.yaml up -d --build
 ```
 
-Open `http://localhost:6890`. Browser API calls use the same origin, so a phone on the
-same network can use `http://<Flora-host-IP>:6890` without trying to reach its own localhost.
-The API is also exposed on `localhost:6891` for development checks. This development
-stack is for a trusted network only, not clinical production deployment.
-Frontend edits appear automatically; backend edits restart the Node process. Docker uses a
-separate `flora-core_flora_dev_data` SQLite volume so it cannot lock or change the desktop
-database. It starts empty unless a test database is seeded. Stop with
-`docker compose -f compose.dev.yaml down` (the database volume is retained). Electron and
-its installer remain separate deployment paths.
+Open <http://localhost:6890>.
 
-## Packaging
-
-Build the Windows installer:
+Start the Canopy viewer as well:
 
 ```powershell
+docker compose -f compose.dev.yaml --profile canopy up -d --build
+```
+
+Open <http://localhost:6894>. Canopy automatically refreshes its Leaf fleet and
+active-case overview. The development stack is intended for a trusted local
+network; production deployment requires unique credentials, TLS, and hospital
+network controls.
+
+Stop the stack without deleting its volumes:
+
+```powershell
+docker compose -f compose.dev.yaml --profile canopy down
+```
+
+## Data flow
+
+```text
+Clinical workstation
+  Flora Leaf → local PostgreSQL → signed sync worker
+                                      ↓
+Central server
+  sync API → central PostgreSQL → read-only Canopy API → Flora Canopy
+```
+
+During the current transition, the temporary local path is:
+
+```text
+Leaf UI → Node/SQLite writes → transaction-safe DB bridge → PostgreSQL/Python API
+```
+
+Synchronization uses stable Leaf, hospital, message, and global case identifiers.
+Repeated delivery is safe. Canopy has no clinical mutation endpoints and its
+database role has SELECT-only access.
+
+## Validation
+
+Validate the SQLite-to-PostgreSQL migration, constraints, sequences, and database
+roles:
+
+```powershell
+docker compose -f compose.dev.yaml --profile migration run --rm migration-validator
+```
+
+Compare migrated Python read contracts with the compatibility API:
+
+```powershell
+docker compose -f compose.dev.yaml --profile validation run --rm api-contract-validator
+```
+
+Build-check the frontend:
+
+```powershell
+docker exec flora-core-flora-leaf-1 npm run build
+```
+
+## Repository layout
+
+- `frontend/` — shared Leaf and Canopy React/Vite UI
+- `services/flora-api/` — Python/FastAPI Leaf, Canopy, and sync API code
+- `services/flora-sync-worker/` — Leaf-to-Canopy publisher
+- `services/flora-db-bridge/` — temporary SQLite-to-PostgreSQL cutover bridge
+- `infrastructure/postgres/` — roles, constraints, indexes, and sync schema
+- `compose/` — service-specific Docker Compose definitions
+- `backend/` — temporary Node/SQLite compatibility runtime
+- `electron/` — optional desktop host and packaging integration
+- `shared/` — shared parameter mapping and integration constants
+- `docs/` — architecture, migration, release, and integration documentation
+
+## Electron packaging
+
+Electron remains an optional deployment shell for Flora Leaf. Browser development
+does not require rebuilding it.
+
+```powershell
+npm run desktop:build:web
 npm run desktop:package:win
 ```
 
-Generated installer artifacts are written to `dist-electron/`.
-
-Runtime release bundles and client database files are local deployment artifacts and are ignored by git under `deploy-artifacts/`.
-
-## Database
-
-In packaged mode, Flora keeps the database in the same directory as the app:
-
-```text
-<Flora installation directory>\flora.db
-```
-
-The installer includes a clean seed database and installs it only when `flora.db` is
-missing. An existing database is preserved during an upgrade. Keep regular backups;
-uninstalling Flora removes the installation directory and its database.
-
-Build a sanitized client database from the deployment source DB:
-
-```powershell
-node scripts/build-client-db.js
-```
-
-Check required master data in a client database:
-
-```powershell
-npm run db:check:master -- "<Flora installation directory>\flora.db"
-```
-
-Expected master tables include:
-
-- `icd10_master`
-- `icd9cm_master`
-- `io_item_master`
-- `staff_role`
-
-Migrate master data from a source DB into the local app DB:
-
-```powershell
-npm run db:migrate:master
-```
-
-## Operational Scripts
-
-- `scripts/start-flora.ps1`: launch Flora using the packaged runtime database path
-- `scripts/launch-flora.ps1`: launch helper for local runtime
-- `scripts/repair-flora-db.js`: inspect or repair active-case state
-- `scripts/check-master-data.js`: verify ICD and other master tables
-- `scripts/build-client-db.js`: prepare a clean client DB with master data and default admin
-- `scripts/build-desktop-win.ps1`: Windows packaging wrapper
-
-## Release Notes
-
-Every release or client-facing patch should be recorded in [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md).
-
-Use the release notes for:
-
-- real clinical milestones
-- device integration milestones
-- patch summaries
-- validation and rollout notes
-- known operational meaning of each version
-
-## Git Notes
-
-Generated and local runtime outputs are intentionally ignored:
-
-- `frontend/dist/`
-- `dist-electron/`
-- `deploy-artifacts/`
-- `tmp_docx_extract/`
-- local runtime profiles and database files
-
-Keep source changes, release notes, scripts, and reusable documentation in git. Keep installers, runtime DB files, and temporary document extraction folders outside git unless there is a deliberate reason to version them.
+Generated installers, runtime databases, hospital exports, and local environment
+files are intentionally excluded from Git.
