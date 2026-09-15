@@ -1,0 +1,20 @@
+services:
+  flora-db-bridge:
+    build:
+      context: ../services/flora-db-bridge
+    environment:
+      FLORA_SQLITE_PATH: /source/flora.db
+      FLORA_DATABASE_URL: postgresql://flora_app:${FLORA_DB_APP_PASSWORD:-flora-app-local-only}@postgres:5432/${FLORA_POSTGRES_DB:-flora}
+      FLORA_BRIDGE_INTERVAL_SECONDS: ${FLORA_BRIDGE_INTERVAL_SECONDS:-10}
+    volumes:
+      - flora_dev_data:/source:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  flora_dev_data:
+    external: false

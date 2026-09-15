@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { BootstrapStatus } from "./floraDesktop";
+import { BACKEND_BASE } from "../api/backendBase";
 
 const HIDRO_OFFLINE_GRACE_MS = 5000;
 
@@ -12,6 +13,7 @@ const READY_STATUS: BootstrapStatus = {
   lastExitDetail: "",
   dbPath: "",
   dbExists: true,
+  dataMode: "local",
   dbWalExists: false,
   dbShmExists: false,
   ivyReadUrl: "",
@@ -25,14 +27,36 @@ const READY_STATUS: BootstrapStatus = {
 };
 
 export function useBootstrapStatus() {
-  const [status, setStatus] = useState<BootstrapStatus>(READY_STATUS);
+  const [status, setStatus] = useState<BootstrapStatus>(() => ({
+    ...READY_STATUS,
+    ready: false,
+    phase: "bootstrap",
+    backendState: "starting",
+    dbExists: false,
+  }));
   const [lastHidroOnlineAt, setLastHidroOnlineAt] = useState(0);
 
   const refresh = useCallback(async () => {
     const desktop = window.floraDesktop;
     if (!desktop?.getBootstrapStatus) {
-      setStatus(READY_STATUS);
-      return READY_STATUS;
+      const response = await fetch(`${BACKEND_BASE}/health`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Flora system is unavailable");
+      const health = await response.json() as { status?: string; data_ready?: boolean; data_mode?: "local" | "server" };
+      const ready = health.data_ready === true || (health.status === "OK" && health.data_ready !== false);
+      const host = new URL(BACKEND_BASE).hostname.toLowerCase();
+      const dataMode = health.data_mode || (["localhost", "127.0.0.1", "::1", "[::1]"].includes(host) ? "local" : "server");
+      const next: BootstrapStatus = {
+        ...READY_STATUS,
+        ready,
+        phase: ready ? "ready" : "bootstrap",
+        backendState: ready ? "running" : "error",
+        dbExists: ready,
+        dataMode,
+        lastError: ready ? "" : "Flora data is unavailable",
+        updatedAt: Date.now(),
+      };
+      setStatus(next);
+      return next;
     }
     const next = await desktop.getBootstrapStatus();
     const now = Date.now();
@@ -66,7 +90,8 @@ export function useBootstrapStatus() {
             ready: false,
             phase: "bootstrap",
             backendState: "error",
-            lastError: "Unable to read desktop bootstrap status",
+            dbExists: false,
+            lastError: "Flora system is unavailable",
             updatedAt: Date.now(),
           }));
         }
@@ -76,7 +101,7 @@ export function useBootstrapStatus() {
     void tick();
     const id = window.setInterval(() => {
       void tick();
-    }, 1200);
+    }, window.floraDesktop ? 1200 : 5000);
 
     return () => {
       cancelled = true;

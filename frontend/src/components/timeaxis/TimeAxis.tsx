@@ -37,7 +37,7 @@ export default function TimeAxis({
             width: labelColWidth,
             minWidth: labelColWidth,
           }}
-          className="sticky left-0 z-20 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900"
+          className="timeaxis-sticky-label sticky left-0 z-[100] flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900"
         />
 
         {startIndex > 0 && (

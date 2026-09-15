@@ -5,6 +5,7 @@ import StaffView from "../views/StaffView";
 import ManageView from "../views/ManageView";
 import HistoryView from "../views/HistoryView";
 import DrugView from "../views/DrugView";
+import CanopyFleetView from "../views/CanopyFleetView";
 
 const CaseView = lazy(() => import("../views/CaseView"));
 const FormView = lazy(() => import("../views/FormView"));
@@ -23,6 +24,7 @@ interface Props {
     | "patient"
     | "report"
     | "master"
+    | "fleet"
     | "history";
   sessionUser: AuthUser | null;
   onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
@@ -107,6 +109,8 @@ export default function MainArea({
           caseStatus={caseStatus}
           onCaseDischargeTimeUpdated={onCaseDischargeTimeUpdated}
         />
+      ) : activeView === "fleet" ? (
+        <CanopyFleetView />
       ) : activeView === "history" ? (
         <HistoryView onOpenCase={onOpenCase ?? (() => {})} />
       ) : (

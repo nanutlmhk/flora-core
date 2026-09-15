@@ -1,0 +1,15 @@
+services:
+  api-contract-validator:
+    image: flora-core-flora-leaf-api
+    profiles: ["validation"]
+    environment:
+      LEGACY_API_URL: http://backend:3001
+      PYTHON_API_URL: http://flora-leaf-api:8000
+    command: ["python", "/tests/contract_read_parity.py"]
+    volumes:
+      - ../services/flora-api/tests:/tests:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      flora-leaf-api:
+        condition: service_healthy

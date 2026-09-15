@@ -4,7 +4,7 @@ import {
   type AuthThemeColor,
   type AuthThemeMode,
 } from "../api/authApi";
-import { getEditionInfo } from "../edition/config";
+import { getSurfaceInfo } from "../edition/config";
 
 export type ThemeMode = AuthThemeMode;
 export type ThemeColor = AuthThemeColor;
@@ -12,12 +12,16 @@ export type ThemeColor = AuthThemeColor;
 interface ThemeContextType {
   mode: ThemeMode;
   color: ThemeColor;
-  setMode: (mode: ThemeMode) => void;
   setColor: (color: ThemeColor) => void;
-  toggleMode: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+const THEME_COLORS: ThemeColor[] = ["monochromatic", "neon", "warm", "pastel", "jewel", "vibrant"];
+const DEFAULT_THEME: ThemeColor = "monochromatic";
+
+function isThemeColor(value: unknown): value is ThemeColor {
+  return typeof value === "string" && THEME_COLORS.includes(value as ThemeColor);
+}
 
 function readThemeUsername() {
   if (typeof window === "undefined") return "";
@@ -36,25 +40,9 @@ function readStoredUserTheme() {
   try {
     const raw = window.localStorage.getItem("flora_user");
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as { themeMode?: unknown; themeColor?: unknown };
+    const parsed = JSON.parse(raw) as { themeColor?: unknown };
     return {
-      mode:
-        parsed.themeMode === "light" || parsed.themeMode === "dark"
-          ? parsed.themeMode
-          : undefined,
-      color:
-        parsed.themeColor === "esm" ||
-        parsed.themeColor === "nit" ||
-        parsed.themeColor === "default" ||
-        parsed.themeColor === "grey" ||
-        parsed.themeColor === "green" ||
-        parsed.themeColor === "blackpink" ||
-        parsed.themeColor === "oldrose" ||
-        parsed.themeColor === "pink" ||
-        parsed.themeColor === "rcat" ||
-        parsed.themeColor === "eforl"
-          ? parsed.themeColor
-          : undefined,
+      color: isThemeColor(parsed.themeColor) ? parsed.themeColor : undefined,
     };
   } catch {
     return {};
@@ -81,37 +69,31 @@ function getThemeStorageKey(kind: "mode" | "color", username: string) {
   return scope ? `theme-${kind}.${scope}` : `theme-${kind}`;
 }
 
-function readStoredMode(username: string): ThemeMode {
-  const userTheme = readStoredUserTheme().mode as ThemeMode | undefined;
-  const scoped = localStorage.getItem(getThemeStorageKey("mode", username)) as ThemeMode | null;
-  const legacy = localStorage.getItem("theme-mode") as ThemeMode | null;
-  return userTheme || scoped || legacy || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-}
-
 function readStoredColor(username: string): ThemeColor {
   const userTheme = readStoredUserTheme().color as ThemeColor | undefined;
-  const scoped = localStorage.getItem(getThemeStorageKey("color", username)) as ThemeColor | null;
-  const legacy = localStorage.getItem("theme-color") as ThemeColor | null;
-  const saved = userTheme || scoped || legacy;
-  return saved === "nit" ? "nit" : "esm";
+  const scoped = localStorage.getItem(getThemeStorageKey("color", username));
+  const legacy = localStorage.getItem("theme-color");
+  return userTheme || (isThemeColor(scoped) ? scoped : undefined) || (isThemeColor(legacy) ? legacy : DEFAULT_THEME);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const edition = getEditionInfo();
-  const lockedThemeColor = edition.lockedThemeColor;
+  const surface = getSurfaceInfo();
   const [themeUsername, setThemeUsername] = useState(() => readThemeUsername());
-  const [mode, setModeState] = useState<ThemeMode>(() => edition.defaultThemeMode || readStoredMode(readThemeUsername()));
-  const [color, setColorState] = useState<ThemeColor>(() => lockedThemeColor || readStoredColor(readThemeUsername()));
+  const mode: ThemeMode = "dark";
+  const [color, setColorState] = useState<ThemeColor>(() => readStoredColor(readThemeUsername()));
   const lastSyncedPrefRef = useRef("");
 
   useEffect(() => {
     const syncThemeScope = () => {
       const username = readThemeUsername();
       setThemeUsername(username);
-      const nextMode = readStoredMode(username);
-      const nextColor = readStoredColor(username);
-      setModeState(nextMode);
-      setColorState(lockedThemeColor || nextColor);
+      const loginColor = username ? window.sessionStorage.getItem("flora.loginThemeColor") : null;
+      const nextColor = isThemeColor(loginColor) ? loginColor : readStoredColor(username);
+      if (username && loginColor) {
+        window.sessionStorage.removeItem("flora.loginThemeColor");
+      }
+      window.sessionStorage.removeItem("flora.loginThemeMode");
+      setColorState(nextColor);
     };
 
     syncThemeScope();
@@ -121,14 +103,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("storage", syncThemeScope);
       window.removeEventListener("flora:auth-changed", syncThemeScope as EventListener);
     };
-  }, [lockedThemeColor]);
+  }, []);
 
   useEffect(() => {
     const root = window.document.documentElement;
     
     // Clean up
     root.classList.remove("light", "dark");
-    ["esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"].forEach(c => root.classList.remove(`theme-${c}`));
+    [...THEME_COLORS, "esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"].forEach(c => root.classList.remove(`theme-${c}`));
 
     // Add classes
     root.classList.add(mode);
@@ -144,6 +126,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!themeUsername.trim()) return;
+    if (!surface.clinicalWriteEnabled) return;
     const syncKey = `${themeUsername}|${mode}|${color}`;
     if (lastSyncedPrefRef.current === syncKey) return;
     lastSyncedPrefRef.current = syncKey;
@@ -155,30 +138,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         // keep local preference even if backend persistence is unavailable for the moment
       });
-  }, [mode, color, themeUsername]);
-
-  const setMode = (m: ThemeMode) => {
-    setModeState(m);
-    if (lockedThemeColor) {
-      setColorState(lockedThemeColor);
-    }
-  };
+  }, [mode, color, surface.clinicalWriteEnabled, themeUsername]);
 
   const setColor = (c: ThemeColor) => {
-    if (lockedThemeColor) {
-      setColorState(lockedThemeColor);
-      return;
-    }
-    setColorState(c === "nit" ? "nit" : "esm");
-  };
-
-  const toggleMode = () => {
-    const nextMode = mode === "light" ? "dark" : "light";
-    setMode(nextMode);
+    setColorState(isThemeColor(c) ? c : DEFAULT_THEME);
   };
 
   return (
-    <ThemeContext.Provider value={{ mode, color, setMode, setColor, toggleMode }}>
+    <ThemeContext.Provider value={{ mode, color, setColor }}>
       {children}
     </ThemeContext.Provider>
   );

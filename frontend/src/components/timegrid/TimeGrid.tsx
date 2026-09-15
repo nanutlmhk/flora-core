@@ -537,7 +537,7 @@ export default function TimeGrid({
               : "";
           const labelClass = `${specialLabelClass || baseLabelClass}`;
 
-          const labelToneClass = rowCellToneClass;
+          const labelToneClass = `${rowToneClass === "timegrid-row-even" ? "timegrid-label-even" : "timegrid-label-odd"} ${isSpecialRow ? rowCellToneClass : ""}`;
           const rowClass = isSpecialRow
             ? "transition-colors"
             : `timegrid-row ${rowToneClass} ${isRowActive ? "timegrid-row-active" : ""} transition-colors`;
@@ -563,7 +563,7 @@ export default function TimeGrid({
                   transform: `translateX(${scrollLeft}px)`,
                 }}
                 className={`
-                  sticky left-0 z-[80] timegrid-sticky-label
+                  sticky left-0 z-[100] timegrid-sticky-label
                   ${labelToneClass}
                   border-r border-gray-200 dark:border-gray-800
                   px-2 py-1

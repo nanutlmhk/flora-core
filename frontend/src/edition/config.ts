@@ -1,8 +1,15 @@
-import type { AuthThemeColor, AuthThemeMode } from "../api/authApi";
 import type { AxisStepMin } from "../views/caseview/constants";
 
 export type FloraEditionCode = "full" | "rcat" | "eforl";
+export type FloraSurfaceCode = "leaf" | "canopy";
 export type EditionReportMode = "standard" | "smart_fit" | "detail";
+
+export type SurfaceInfo = {
+  code: FloraSurfaceCode;
+  productName: string;
+  description: string;
+  clinicalWriteEnabled: boolean;
+};
 
 export type EditionInfo = {
   code: FloraEditionCode;
@@ -11,9 +18,6 @@ export type EditionInfo = {
   shortBadge: string;
   allowedTimelineScales: AxisStepMin[];
   allowedReportModes: EditionReportMode[];
-  allowThemeColorPicker: boolean;
-  lockedThemeColor?: AuthThemeColor;
-  defaultThemeMode?: AuthThemeMode;
   allowedTimelineParamIds?: string[];
 };
 
@@ -25,7 +29,6 @@ const EDITION_CONFIG: Record<FloraEditionCode, EditionInfo> = {
     shortBadge: "",
     allowedTimelineScales: [1, 120],
     allowedReportModes: ["standard", "smart_fit", "detail"],
-    allowThemeColorPicker: true,
   },
   rcat: {
     code: "rcat",
@@ -34,7 +37,6 @@ const EDITION_CONFIG: Record<FloraEditionCode, EditionInfo> = {
     shortBadge: "RCAT",
     allowedTimelineScales: [1, 15],
     allowedReportModes: ["standard"],
-    allowThemeColorPicker: true,
     allowedTimelineParamIds: [
       "hr",
       "spo2",
@@ -62,9 +64,6 @@ const EDITION_CONFIG: Record<FloraEditionCode, EditionInfo> = {
     shortBadge: "EforL",
     allowedTimelineScales: [1, 15],
     allowedReportModes: ["standard", "smart_fit"],
-    allowThemeColorPicker: false,
-    lockedThemeColor: "eforl",
-    defaultThemeMode: "light",
     allowedTimelineParamIds: [
       "hr",
       "spo2",
@@ -94,6 +93,26 @@ const EDITION_CONFIG: Record<FloraEditionCode, EditionInfo> = {
     ],
   },
 };
+
+const SURFACE_CONFIG: Record<FloraSurfaceCode, SurfaceInfo> = {
+  leaf: {
+    code: "leaf",
+    productName: "Flora Leaf",
+    description: "Perioperative workstation",
+    clinicalWriteEnabled: true,
+  },
+  canopy: {
+    code: "canopy",
+    productName: "Flora Canopy",
+    description: "Central clinical viewer",
+    clinicalWriteEnabled: false,
+  },
+};
+
+export function getSurfaceInfo(): SurfaceInfo {
+  const raw = String(import.meta.env.VITE_FLORA_SURFACE || "leaf").trim().toLowerCase();
+  return raw === "canopy" ? SURFACE_CONFIG.canopy : SURFACE_CONFIG.leaf;
+}
 
 function normalizeEditionCode(raw: unknown): FloraEditionCode {
   const token = String(raw || "")

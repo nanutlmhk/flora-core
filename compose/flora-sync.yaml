@@ -1,0 +1,40 @@
+services:
+  flora-sync-api:
+    build:
+      context: ../services/flora-api
+    environment:
+      FLORA_DATABASE_URL: postgresql://flora_sync:${FLORA_DB_SYNC_PASSWORD:-flora-sync-local-only}@postgres:5432/${FLORA_POSTGRES_DB:-flora}
+      FLORA_API_ENV: development
+      FLORA_API_MODE: sync
+      FLORA_SYNC_SHARED_SECRET: ${FLORA_SYNC_SHARED_SECRET:-flora-sync-dev-secret-change-me}
+    ports:
+      - "127.0.0.1:${FLORA_SYNC_API_PORT:-6896}:8000"
+    volumes:
+      - ../services/flora-api/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  flora-leaf-sync:
+    build:
+      context: ../services/flora-sync-worker
+    environment:
+      FLORA_LEAF_API_URL: http://flora-leaf-api:8000
+      FLORA_CANOPY_SYNC_URL: http://flora-sync-api:8000
+      FLORA_SYNC_SHARED_SECRET: ${FLORA_SYNC_SHARED_SECRET:-flora-sync-dev-secret-change-me}
+      FLORA_LEAF_ID: ${FLORA_LEAF_ID:-leaf-dev-01}
+      FLORA_HOSPITAL_ID: ${FLORA_HOSPITAL_ID:-hospital-dev}
+      FLORA_LEAF_NAME: ${FLORA_LEAF_NAME:-Development Leaf}
+      FLORA_SYNC_INTERVAL_SECONDS: ${FLORA_SYNC_INTERVAL_SECONDS:-10}
+    depends_on:
+      flora-leaf-api:
+        condition: service_healthy
+      flora-sync-api:
+        condition: service_healthy
+    restart: unless-stopped

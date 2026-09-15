@@ -1,17 +1,13 @@
 import { BACKEND_BASE } from "./backendBase";
 
-export type AuthThemeMode = "light" | "dark";
+export type AuthThemeMode = "dark";
 export type AuthThemeColor =
-  | "esm"
-  | "nit"
-  | "default"
-  | "grey"
-  | "green"
-  | "blackpink"
-  | "oldrose"
-  | "pink"
-  | "rcat"
-  | "eforl";
+  | "monochromatic"
+  | "neon"
+  | "warm"
+  | "pastel"
+  | "jewel"
+  | "vibrant";
 
 export type AuthApiUser = {
   username: string;
@@ -79,21 +75,14 @@ function parseAuthUser(user: Partial<AuthApiUser> | undefined): AuthApiUser {
     username: user.username.trim(),
     name: typeof user.name === "string" && user.name.trim() ? user.name.trim() : user.username.trim(),
     role: typeof user.role === "string" && user.role.trim() ? user.role.trim() : undefined,
-    themeMode:
-      user.themeMode === "light" || user.themeMode === "dark"
-        ? user.themeMode
-        : undefined,
+    themeMode: user.themeMode === "dark" ? "dark" : undefined,
     themeColor:
-      user.themeColor === "esm" ||
-      user.themeColor === "nit" ||
-      user.themeColor === "default" ||
-      user.themeColor === "grey" ||
-      user.themeColor === "green" ||
-      user.themeColor === "blackpink" ||
-      user.themeColor === "oldrose" ||
-      user.themeColor === "pink" ||
-      user.themeColor === "rcat" ||
-      user.themeColor === "eforl"
+      user.themeColor === "monochromatic" ||
+      user.themeColor === "neon" ||
+      user.themeColor === "warm" ||
+      user.themeColor === "pastel" ||
+      user.themeColor === "jewel" ||
+      user.themeColor === "vibrant"
         ? user.themeColor
         : undefined,
   };

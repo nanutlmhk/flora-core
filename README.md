@@ -65,7 +65,10 @@ For UI work, run Flora in a browser with Vite hot reload instead of rebuilding E
 docker compose -f compose.dev.yaml up -d --build
 ```
 
-Open `http://localhost:6890`. The Docker API uses `http://localhost:6891`.
+Open `http://localhost:6890`. Browser API calls use the same origin, so a phone on the
+same network can use `http://<Flora-host-IP>:6890` without trying to reach its own localhost.
+The API is also exposed on `localhost:6891` for development checks. This development
+stack is for a trusted network only, not clinical production deployment.
 Frontend edits appear automatically; backend edits restart the Node process. Docker uses a
 separate `flora-core_flora_dev_data` SQLite volume so it cannot lock or change the desktop
 database. It starts empty unless a test database is seeded. Stop with

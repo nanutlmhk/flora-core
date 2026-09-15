@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile.backend.dev
+    ports:
+      - "127.0.0.1:6891:3001"
+    environment:
+      PORT: "3001"
+      FLORA_DB_PATH: /app/data/flora.db
+      IVY_READ_URL: http://host.docker.internal:6789/api/observations
+      IVY_BULK_READ_URL: http://host.docker.internal:6789/api/observations/bulk
+    volumes:
+      - ../backend:/app/backend
+      - ../shared:/app/shared:ro
+      - flora_dev_data:/app/data
+      - flora_backend_modules:/app/backend/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  flora_backend_modules:
+  flora_dev_data:

@@ -15,10 +15,17 @@ const IVY_URLS = Array.from(
   ),
 );
 
+const configuredBulkUrl = String(process.env.IVY_BULK_READ_URL || "").trim();
+const configuredReadUrl = String(process.env.IVY_READ_URL || "").trim();
+const derivedBulkUrl = configuredReadUrl
+  ? configuredReadUrl.replace(/\/api\/observations\/?$/, "/api/observations/bulk")
+  : "";
+
 const IVY_BULK_URLS = Array.from(
   new Set(
     [
-      process.env.IVY_BULK_READ_URL || "",
+      configuredBulkUrl,
+      derivedBulkUrl,
       "http://localhost:6789/api/observations/bulk",
       "http://127.0.0.1:6789/api/observations/bulk",
     ]

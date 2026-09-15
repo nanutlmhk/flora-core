@@ -10,4 +10,4 @@ COPY backend ./backend
 
 EXPOSE 3001
 WORKDIR /app/backend
-CMD ["node", "--watch", "server.js"]
+CMD ["./node_modules/.bin/nodemon", "--legacy-watch", "--watch", "/app/backend", "--watch", "/app/shared", "--ignore", "/app/backend/node_modules", "--ext", "js,cjs,json", "server.js"]

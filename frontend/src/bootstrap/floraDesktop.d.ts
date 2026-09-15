@@ -15,6 +15,7 @@ export type BootstrapStatus = {
   lastExitDetail: string;
   dbPath: string;
   dbExists: boolean;
+  dataMode?: "local" | "server";
   dbWalExists: boolean;
   dbShmExists: boolean;
   ivyReadUrl: string;

@@ -797,68 +797,114 @@
   --app-nav-border: #4d8e86;
 }
 
-/* Standard Flora palettes, following Minivia's blue and warm-orange identity. */
-:root.light.theme-esm,
-:root.light.theme-nit {
-  --app-bg: #f6f8fc;
-  --app-main-bg: #ffffff;
-  --app-panel-bg: rgba(255, 255, 255, 0.96);
-  --app-border: #b7c3e2;
-  --app-text: #1a2756;
-  --app-muted: #5f6f9a;
-  --app-main-glow-a: rgba(47, 72, 163, 0.08);
-  --app-main-glow-b: rgba(47, 72, 163, 0.06);
-  --app-topbar-bg: linear-gradient(90deg, #edf2ff 0%, #ffffff 54%, #edf2ff 100%);
-  --app-nav-bg: rgba(255, 255, 255, 0.86);
-  --app-nav-border: #9eadd4;
-  --app-nav-hover: #eaf0ff;
-  --app-accent: #2f48a3;
-  --app-accent-contrast: #ffffff;
-  --app-control-border: #9eadd4;
-  --app-control-focus: rgba(47, 72, 163, 0.3);
-  --timegrid-now-line: rgba(47, 72, 163, 0.78);
+/* Six dark palettes from Vev; clinical signal colors stay distinct from theme accents. */
+:root.dark.theme-monochromatic {
+  --palette-bg: #121212;
+  --palette-text: #e0e0e0;
+  --palette-muted: #b0b0b0;
+  --palette-border: #444444;
+  --palette-accent: #888888;
+  --palette-secondary: #b0b0b0;
+  --palette-hover: #888888;
 }
 
-:root.dark.theme-esm,
-:root.dark.theme-nit {
-  --app-bg: #0e1738;
-  --app-main-bg: #101d48;
-  --app-panel-bg: rgba(17, 29, 72, 0.92);
-  --app-border: #455a9f;
-  --app-text: #f7f9ff;
-  --app-muted: #aab7ea;
-  --app-main-glow-a: rgba(91, 120, 255, 0.18);
-  --app-main-glow-b: rgba(91, 120, 255, 0.12);
-  --app-topbar-bg: linear-gradient(90deg, #0e1738 0%, #16255d 50%, #111d48 100%);
-  --app-nav-bg: rgba(17, 29, 72, 0.92);
-  --app-nav-border: #5369ad;
-  --app-nav-hover: rgba(34, 50, 108, 0.96);
-  --app-accent: #7f96ff;
-  --app-accent-contrast: #101d48;
-  --app-control-border: #5369ad;
-  --app-control-focus: rgba(91, 120, 255, 0.36);
-  --timegrid-now-line: rgba(127, 150, 255, 0.88);
+:root.dark.theme-neon {
+  --palette-bg: #0d0d0d;
+  --palette-text: #ffffff;
+  --palette-muted: #b0b0b0;
+  --palette-border: #444444;
+  --palette-accent: #00ff85;
+  --palette-secondary: #1e90ff;
+  --palette-hover: #ff0099;
 }
 
-:root.light.theme-nit {
-  --app-main-glow-b: rgba(246, 154, 28, 0.1);
-  --app-topbar-bg: linear-gradient(90deg, #edf2ff 0%, #ffffff 56%, #fff1d9 100%);
-  --app-nav-hover: #fff1d9;
-  --app-accent: #b96500;
-  --app-control-focus: rgba(246, 154, 28, 0.3);
-  --timegrid-focus-bg: rgba(246, 154, 28, 0.12);
-  --timegrid-focus-ring: rgba(246, 154, 28, 0.36);
+:root.dark.theme-warm {
+  --palette-bg: #1c1c1c;
+  --palette-text: #f5e8d8;
+  --palette-muted: #c8b9a9;
+  --palette-border: #554640;
+  --palette-accent: #ff6f61;
+  --palette-secondary: #daa520;
+  --palette-hover: #ff4500;
 }
 
-:root.dark.theme-nit {
-  --app-main-glow-b: rgba(246, 154, 28, 0.13);
-  --app-topbar-bg: linear-gradient(90deg, #0e1738 0%, #16255d 56%, #3b2c25 100%);
-  --app-nav-hover: rgba(60, 54, 75, 0.96);
-  --app-accent: #f69a1c;
-  --app-accent-contrast: #251900;
-  --app-control-focus: rgba(246, 154, 28, 0.36);
-  --timegrid-focus-bg: rgba(246, 154, 28, 0.15);
-  --timegrid-focus-ring: rgba(246, 154, 28, 0.42);
+:root.dark.theme-pastel {
+  --palette-bg: #2c2c2c;
+  --palette-text: #e4e4e4;
+  --palette-muted: #c5c5c5;
+  --palette-border: #5a5a5a;
+  --palette-accent: #a8dadc;
+  --palette-secondary: #ffc1cc;
+  --palette-hover: #b39cd0;
+}
+
+:root.dark.theme-jewel {
+  --palette-bg: #1a1a1a;
+  --palette-text: #f0f0f0;
+  --palette-muted: #bdbdbd;
+  --palette-border: #3e5641;
+  --palette-accent: #004d61;
+  --palette-secondary: #822659;
+  --palette-hover: #3e5641;
+}
+
+:root.dark.theme-vibrant {
+  --palette-bg: #181818;
+  --palette-text: #f7f7f7;
+  --palette-muted: #c6c6c6;
+  --palette-border: #555555;
+  --palette-accent: #ff5722;
+  --palette-secondary: #673ab7;
+  --palette-hover: #ffeb3b;
+}
+
+:root.dark:is(.theme-monochromatic, .theme-neon, .theme-warm, .theme-pastel, .theme-jewel, .theme-vibrant) {
+  --app-bg: var(--palette-bg);
+  --app-main-bg: color-mix(in srgb, var(--palette-bg) 94%, white);
+  --app-panel-bg: color-mix(in srgb, var(--palette-bg) 89%, white);
+  --app-border: var(--palette-border);
+  --app-text: var(--palette-text);
+  --app-muted: var(--palette-muted);
+  --app-main-glow-a: color-mix(in srgb, var(--palette-accent) 14%, transparent);
+  --app-main-glow-b: color-mix(in srgb, var(--palette-secondary) 11%, transparent);
+  --app-topbar-bg: linear-gradient(90deg, var(--palette-bg), color-mix(in srgb, var(--palette-bg) 87%, var(--palette-secondary)));
+  --app-nav-bg: color-mix(in srgb, var(--palette-bg) 85%, white);
+  --app-nav-border: var(--palette-border);
+  --app-nav-hover: color-mix(in srgb, var(--palette-hover) 18%, var(--palette-bg));
+  --app-accent: var(--palette-accent);
+  --app-accent-contrast: #0d0d0d;
+  --app-control-bg: color-mix(in srgb, var(--palette-bg) 86%, white);
+  --app-control-bg-hover: color-mix(in srgb, var(--palette-bg) 78%, white);
+  --app-control-border: var(--palette-border);
+  --app-control-text: var(--palette-text);
+  --app-control-muted: var(--palette-muted);
+  --app-control-focus: color-mix(in srgb, var(--palette-accent) 42%, transparent);
+  --app-button-neutral-bg: color-mix(in srgb, var(--palette-bg) 83%, white);
+  --app-button-neutral-hover: color-mix(in srgb, var(--palette-bg) 72%, white);
+  --app-tooltip-bg: color-mix(in srgb, var(--palette-bg) 91%, white);
+  --app-tooltip-text: var(--palette-text);
+  --app-tooltip-border: var(--palette-border);
+  --chart-grid-line: color-mix(in srgb, var(--palette-text) 22%, transparent);
+  --chart-grid-line-strong: color-mix(in srgb, var(--palette-text) 44%, transparent);
+  --chart-axis-text: var(--palette-text);
+  --timegrid-row-even: color-mix(in srgb, var(--palette-bg) 86%, white);
+  --timegrid-row-odd: color-mix(in srgb, var(--palette-bg) 82%, white);
+  --timegrid-label-even: color-mix(in srgb, var(--palette-bg) 81%, white);
+  --timegrid-label-odd: color-mix(in srgb, var(--palette-bg) 77%, white);
+  --timegrid-row-divider: color-mix(in srgb, var(--palette-border) 75%, transparent);
+  --timegrid-sticky-divider: var(--palette-border);
+  --timegrid-now-line: var(--palette-accent);
+  --timegrid-focus-bg: color-mix(in srgb, var(--palette-accent) 18%, transparent);
+  --timegrid-focus-ring: color-mix(in srgb, var(--palette-accent) 48%, transparent);
+  --timegrid-row-hover-bg: color-mix(in srgb, var(--palette-accent) 13%, transparent);
+  --timegrid-row-hover-line: color-mix(in srgb, var(--palette-accent) 50%, transparent);
+  --timegrid-row-active-bg: color-mix(in srgb, var(--palette-accent) 19%, transparent);
+  --timegrid-row-active-line: var(--palette-accent);
+}
+
+/* The source jewel accents are intentionally deep; lift the action text for contrast. */
+:root.dark.theme-jewel {
+  --app-accent: #89c1cf;
 }
 
 html,
@@ -1525,9 +1571,37 @@ input {
 }
 
 .timegrid-sticky-label {
+  --timegrid-sticky-base: var(--timegrid-label-even);
   box-shadow: inset -1px 0 0 var(--timegrid-sticky-divider),
     4px 0 8px -8px var(--timegrid-sticky-shadow);
-  background-clip: padding-box;
+  background: var(--timegrid-sticky-base) !important;
+  background-clip: border-box;
+  isolation: isolate;
+}
+
+.timegrid-sticky-label.timegrid-label-odd {
+  --timegrid-sticky-base: var(--timegrid-label-odd);
+}
+
+.timegrid-sticky-label.timegrid-row-event-header {
+  background: linear-gradient(var(--timegrid-event-header-bg), var(--timegrid-event-header-bg)),
+    var(--timegrid-sticky-base) !important;
+}
+
+.timegrid-sticky-label.timegrid-row-io-header {
+  background: linear-gradient(var(--timegrid-io-header-bg), var(--timegrid-io-header-bg)),
+    var(--timegrid-sticky-base) !important;
+}
+
+.timegrid-sticky-label.timegrid-row-vital-header {
+  background: linear-gradient(var(--timegrid-vital-header-bg), var(--timegrid-vital-header-bg)),
+    var(--timegrid-sticky-base) !important;
+}
+
+.timeaxis-sticky-label,
+.timechart-sticky-label {
+  background: var(--app-main-bg) !important;
+  isolation: isolate;
 }
 
 .timegrid-compact tbody tr.timegrid-row:hover > td {
@@ -1536,6 +1610,17 @@ input {
 
 .timegrid-compact tbody tr.timegrid-row-active > td {
   background: var(--timegrid-row-active-bg) !important;
+}
+
+/* The pinned label must mask the scrolling columns, even on hover or focus. */
+.timegrid-compact tbody tr.timegrid-row:hover > td.timegrid-sticky-label {
+  background: linear-gradient(var(--timegrid-row-hover-bg), var(--timegrid-row-hover-bg)),
+    var(--timegrid-sticky-base) !important;
+}
+
+.timegrid-compact tbody tr.timegrid-row-active > td.timegrid-sticky-label {
+  background: linear-gradient(var(--timegrid-row-active-bg), var(--timegrid-row-active-bg)),
+    var(--timegrid-sticky-base) !important;
 }
 
 .timegrid-compact tbody tr.timegrid-row:hover > td,

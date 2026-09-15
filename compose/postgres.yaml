@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: ${FLORA_POSTGRES_DB:-flora}
+      POSTGRES_USER: ${FLORA_POSTGRES_ADMIN_USER:-flora_admin}
+      POSTGRES_PASSWORD: ${FLORA_POSTGRES_ADMIN_PASSWORD:-flora-admin-local-only}
+      FLORA_DB_APP_PASSWORD: ${FLORA_DB_APP_PASSWORD:-flora-app-local-only}
+      FLORA_DB_VIEW_PASSWORD: ${FLORA_DB_VIEW_PASSWORD:-flora-view-local-only}
+      FLORA_DB_SYNC_PASSWORD: ${FLORA_DB_SYNC_PASSWORD:-flora-sync-local-only}
+    ports:
+      - "127.0.0.1:${FLORA_POSTGRES_PORT:-6892}:5432"
+    volumes:
+      - flora_postgres_data:/var/lib/postgresql/data
+      - ../infrastructure/postgres/0000-create-app-role.sql:/docker-entrypoint-initdb.d/0000-create-app-role.sql:ro
+      - ../infrastructure/postgres/0003-create-view-role.sql:/docker-entrypoint-initdb.d/0003-create-view-role.sql:ro
+      - ../infrastructure/postgres/0004-leaf-canopy-sync.sql:/docker-entrypoint-initdb.d/0004-leaf-canopy-sync.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  flora_postgres_data:

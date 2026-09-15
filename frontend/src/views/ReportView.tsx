@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   dischargeCase,
   getSuggestedCaseEndTime,
@@ -516,14 +517,12 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
   const [printError, setPrintError] = useState("");
   const [suggestedEndBusy, setSuggestedEndBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [rowLimitAttention, setRowLimitAttention] = useState(false);
   const [previewBlobUrl, setPreviewBlobUrl] = useState("");
   const [previewFileName, setPreviewFileName] = useState("flora-report.pdf");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
   const [data, setData] = useState<ReportData | null>(null);
   const [suggestedCaseEnd, setSuggestedCaseEnd] = useState<SuggestedCaseEnd>(null);
-  const dataCheckRef = useRef<HTMLDivElement | null>(null);
   const [timelineLayoutMode, setTimelineLayoutMode] = useState<TimelineLayoutMode>(() =>
     clampEditionReportMode(
       readStoredTimelineLayoutMode(preferenceUsername),
@@ -726,13 +725,12 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
 
   const handleOpenPdfPreview = async () => {
     setPrintError("");
-    if (pageLimitExceeded) {
-      setPrintError(`Timeline page limit exceeded. Reduce selected parameters to ${maxSelectableTimelineParamRows} or fewer.`);
-      setRowLimitAttention(true);
-      dataCheckRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      window.setTimeout(() => setRowLimitAttention(false), 1800);
-      return;
-    }
+    const outputParamIds = pageLimitExceeded
+      ? cappedTimelineParamIds
+      : selectedTimelineParamIds;
+    const outputReportModel = pageLimitExceeded
+      ? { ...reportPdfModel, selectedTimelineParamIds: outputParamIds }
+      : reportPdfModel;
     const desktop = (
       window as unknown as {
         floraDesktop?: {
@@ -741,6 +739,9 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       }
     ).floraDesktop;
     if (!desktop?.generateReportPdf) {
+      if (pageLimitExceeded) {
+        flushSync(() => setSelectedTimelineParamIds(outputParamIds));
+      }
       window.print();
       return;
     }
@@ -750,7 +751,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       const casePart = caseIdForFileName ? `case${caseIdForFileName}` : "case";
       const result = await desktop.generateReportPdf({
         fileBaseName: `flora-report-${casePart}-${Date.now()}`,
-        report: reportPdfModel,
+        report: outputReportModel,
       });
       const buffer = base64ToArrayBuffer(result?.pdfBase64 || "");
       if (buffer.byteLength === 0) throw new Error("Generated PDF is empty");
@@ -2418,16 +2419,12 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
           <button type="button" className="rounded border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700" onClick={() => setReloadToken(prev => prev + 1)}>Refresh</button>
           <button
             type="button"
-            className={`rounded border px-3 py-1.5 text-xs ${
-              pageLimitExceeded
-                ? "border-amber-500 bg-amber-500/10 text-amber-300"
-                : "border-gray-300 dark:border-gray-700"
-            }`}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
             onClick={handleOpenPdfPreview}
             disabled={previewBusy}
-            title={pageLimitExceeded ? `Reduce selected parameters to ${maxSelectableTimelineParamRows} or fewer before reviewing PDF.` : undefined}
+            title={pageLimitExceeded ? `Print will use the best-fitting ${maxSelectableTimelineParamRows} parameter rows.` : undefined}
           >
-            {previewBusy ? "Opening PDF..." : pageLimitExceeded ? "Fix Row Limit" : "Review PDF"}
+            {previewBusy ? "Opening PDF..." : window.floraDesktop?.generateReportPdf ? "Review PDF" : "Print"}
           </button>
         </div>
       </div>
@@ -2519,14 +2516,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
                   </div>
                 ) : null}
               </div>
-              <div
-                ref={dataCheckRef}
-                className={`rounded-lg border bg-[var(--app-control-bg)] px-3 py-2 transition-shadow ${
-                  rowLimitAttention
-                    ? "border-amber-500 shadow-[0_0_0_2px_rgba(245,158,11,0.35)]"
-                    : "border-[var(--app-border)]"
-                }`}
-              >
+              <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2">
                 <div className="text-xs uppercase tracking-wide text-[var(--app-muted)]">Data Check</div>
                 <div className="mt-1">Vitals: {timelineVitals.length} rows</div>
                 <div>Events: {caseEventsAll.length}</div>

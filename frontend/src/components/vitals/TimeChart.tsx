@@ -270,7 +270,7 @@ export default function TimeChart({
   if (!hasChartReadings) {
     return (
       <div className="flex h-12 items-center border-b border-gray-200 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400" style={{ width: labelColWidth + axis.length * colWidth }}>
-        <strong className="sticky left-0 z-40 shrink-0 border-r border-gray-200 px-3 py-4 text-gray-700 dark:border-gray-800 dark:text-gray-200" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
+        <strong className="timechart-sticky-label sticky left-0 z-[100] shrink-0 border-r border-gray-200 px-3 py-4 text-gray-700 dark:border-gray-800 dark:text-gray-200" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
         <span className="px-4">No vital readings in this time window</span>
       </div>
     );
@@ -415,7 +415,7 @@ export default function TimeChart({
           minWidth: labelColWidth,
           height,
         }}
-        className="sticky left-0 z-40 shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900"
+        className="timechart-sticky-label sticky left-0 z-[100] shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900"
       >
         {/* Legend Checkboxes */}
         <div className="relative z-10 p-2 space-y-1">

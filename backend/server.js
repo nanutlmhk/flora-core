@@ -24,7 +24,12 @@ const WRITER_STALL_RESTART_MS = Math.max(
 
 /* ------------------ HEALTH ------------------ */
 app.get("/health", (req, res) => {
-  res.json({ status: "OK" });
+  try {
+    db.prepare("SELECT 1").get();
+    res.json({ status: "OK", data_ready: true, data_mode: process.env.FLORA_DATA_MODE === "server" ? "server" : "local" });
+  } catch {
+    res.status(503).json({ status: "UNAVAILABLE", data_ready: false });
+  }
 });
 
 app.get("/debug/minute-writer", (req, res) => {

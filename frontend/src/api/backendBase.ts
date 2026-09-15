@@ -6,6 +6,6 @@ function normalizeBaseUrl(value: string): string {
 
 export const BACKEND_BASE = normalizeBaseUrl(
   typeof window !== "undefined"
-    ? window.floraDesktop?.getBackendBaseUrl?.() || import.meta.env.VITE_FLORA_BACKEND_BASE || DEFAULT_BACKEND_BASE
+    ? window.floraDesktop?.getBackendBaseUrl?.() || import.meta.env.VITE_FLORA_BACKEND_BASE || window.location.origin
     : DEFAULT_BACKEND_BASE,
 );

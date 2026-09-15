@@ -1,6 +1,6 @@
 import type { AuthUser } from "../auth/useAuth";
-import { useTheme, type ThemeColor } from "../context/ThemeContext";
-import { getEditionInfo } from "../edition/config";
+import ThemePicker from "../components/ThemePicker";
+import { getEditionInfo, getSurfaceInfo } from "../edition/config";
 import eforlLogo from "../assets/eforllogo.png";
 import floraLogo from "../assets/flora-app.png";
 
@@ -14,6 +14,7 @@ interface TopBarProps {
     | "patient"
     | "report"
     | "master"
+    | "fleet"
     | "history";
   setActiveView: React.Dispatch<
     React.SetStateAction<
@@ -25,6 +26,7 @@ interface TopBarProps {
       | "patient"
       | "report"
       | "master"
+      | "fleet"
       | "history"
     >
   >;
@@ -162,30 +164,6 @@ function MasterIcon() {
   );
 }
 
-function SunMoonIcon({ dark }: { dark: boolean }) {
-  return dark ? (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-      <path
-        d="M21 12.8A9 9 0 1111.2 3 7 7 0 0021 12.8z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-      <path
-        d="M12 4v2M12 18v2M4 12h2M18 12h2M6.2 6.2l1.4 1.4M16.4 16.4l1.4 1.4M6.2 17.8l1.4-1.4M16.4 7.6l1.4-1.4M12 16a4 4 0 100-8 4 4 0 000 8z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function PowerIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
@@ -251,26 +229,13 @@ export default function TopBar({
   onOpenLeftRail,
   onOpenRightRail,
 }: TopBarProps) {
-  const { mode, color, toggleMode, setColor } = useTheme();
   const edition = getEditionInfo();
-
-  const colorOptions = [
-    { label: "ESM · Blue", value: "esm" },
-    { label: "NIT · Orange / Blue", value: "nit" },
-  ] as const;
+  const surface = getSurfaceInfo();
 
   const navItemClass = (view: TopBarProps["activeView"]) =>
     `app-nav-item inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-l border-[var(--app-nav-border)] ${
       activeView === view ? "app-nav-item-active" : ""
     }`;
-  const colorIndex = Math.max(
-    0,
-    colorOptions.findIndex(opt => opt.value === color),
-  );
-  const nextColor = colorOptions[(colorIndex + 1) % colorOptions.length]?.value ?? "esm";
-  const colorSwatchClass = color === "nit"
-    ? "bg-[linear-gradient(135deg,#2f48a3_0%,#2f48a3_50%,#f69a1c_50%,#f69a1c_100%)]"
-    : "bg-[#2f48a3]";
   const sessionLabel = sessionUser?.username || sessionUser?.name || "Current User";
 
   return (
@@ -288,7 +253,7 @@ export default function TopBar({
           <BrandLogo editionCode={edition.code} />
           <div className="flex items-center gap-2">
             <div className="hidden font-semibold tracking-wide text-[var(--app-text)] sm:block">
-              {edition.code === "eforl" ? "Flora EforL" : "Flora"}
+              {edition.code === "eforl" ? "Flora EforL" : surface.productName}
             </div>
             {edition.shortBadge ? (
               <div className="rounded-full border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--app-muted)]">
@@ -312,23 +277,30 @@ export default function TopBar({
                 | "patient"
                 | "report"
                 | "master"
+                | "fleet"
                 | "history",
             )
           }
           aria-label="Choose page"
         >
-          <option value="case">Chart</option>
-          <option value="drug">I/O</option>
-          <option value="diagnosis">Diag/Ops</option>
-          <option value="form">Form</option>
-          <option value="staff">Staff</option>
-          <option value="patient">Patient</option>
+          {surface.code === "leaf" ? (
+            <>
+              <option value="case">Chart</option>
+              <option value="drug">I/O</option>
+              <option value="diagnosis">Diag/Ops</option>
+              <option value="form">Form</option>
+              <option value="staff">Staff</option>
+              <option value="patient">Patient</option>
+              <option value="master">Manage</option>
+            </>
+          ) : <option value="fleet">Live overview</option>}
           <option value="report">Report</option>
-          <option value="master">Manage</option>
           <option value="history">History</option>
         </select>
 
         <nav className="app-nav-shell ml-1 hidden min-w-0 flex-1 rounded-md border overflow-x-auto overflow-y-hidden whitespace-nowrap 2xl:inline-flex" aria-label="Main navigation">
+          {surface.code === "leaf" ? (
+            <>
           <button
             onClick={() => setActiveView("case")}
             aria-current={activeView === "case" ? "page" : undefined}
@@ -379,6 +351,15 @@ export default function TopBar({
             <PatientIcon />
             Patient
           </button>
+            </>
+          ) : <button
+            onClick={() => setActiveView("fleet")}
+            aria-current={activeView === "fleet" ? "page" : undefined}
+            className={`${navItemClass("fleet")} shrink-0`}
+          >
+            <ChartIcon />
+            Live overview
+          </button>}
           <button
             onClick={() => setActiveView("report")}
             aria-current={activeView === "report" ? "page" : undefined}
@@ -387,14 +368,14 @@ export default function TopBar({
             <ReportIcon />
             Report
           </button>
-          <button
+          {surface.code === "leaf" ? <button
             onClick={() => setActiveView("master")}
             aria-current={activeView === "master" ? "page" : undefined}
             className={`${navItemClass("master")} shrink-0`}
           >
             <MasterIcon />
             Manage
-          </button>
+          </button> : null}
           <button
             onClick={() => setActiveView("history")}
             aria-current={activeView === "history" ? "page" : undefined}
@@ -407,37 +388,16 @@ export default function TopBar({
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
-        <button
+        {surface.code === "leaf" ? <button
           type="button"
           onClick={onOpenRightRail}
           className="lg:hidden inline-flex items-center rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] px-2 py-1 text-xs"
           aria-label="Open timeline panel"
         >
           Timeline
-        </button>
+        </button> : null}
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            onClick={toggleMode}
-            aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`}
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] text-[var(--app-text)] transition-all hover:bg-[var(--app-nav-hover)]"
-            title={`Switch to ${mode === "light" ? "Dark" : "Light"} mode`}
-          >
-            <SunMoonIcon dark={mode === "dark"} />
-          </button>
-
-          {edition.allowThemeColorPicker ? (
-            <button
-              type="button"
-              onClick={() => setColor(nextColor as ThemeColor)}
-              aria-label={`Theme: ${colorOptions[colorIndex]?.label || color}. Switch theme`}
-              title={`Theme color: ${colorOptions[colorIndex]?.label || color}. Click to change.`}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] text-[var(--app-text)] transition-all hover:bg-[var(--app-nav-hover)]"
-            >
-              <span className={`inline-flex h-3.5 w-3.5 rounded-full ring-2 ring-white/20 ${colorSwatchClass}`} />
-            </button>
-          ) : null}
-        </div>
+        <ThemePicker compact />
 
         <div className="hidden min-w-0 items-center gap-2 rounded border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] px-2.5 py-1 text-[var(--app-text)] lg:inline-flex">
           <CurrentUserIcon />
@@ -453,14 +413,14 @@ export default function TopBar({
         >
           <LogoutIcon />
         </button>
-        <button
+        {surface.code === "leaf" ? <button
           onClick={onShutdown}
           aria-label="Shut down Flora"
           className="inline-flex h-8 w-8 items-center justify-center rounded border border-amber-400/35 bg-amber-500/10 text-amber-200 transition-all hover:bg-amber-500/16"
           title="Shutdown FLORA"
         >
           <PowerIcon />
-        </button>
+        </button> : null}
       </div>
     </header>
   );

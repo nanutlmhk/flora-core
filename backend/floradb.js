@@ -2282,8 +2282,8 @@ function setAuthUserThemePreferences(userId, { themeMode, themeColor }) {
 
   const mode = String(themeMode || "").trim().toLowerCase();
   const color = String(themeColor || "").trim().toLowerCase();
-  const allowedModes = new Set(["light", "dark"]);
-  const allowedColors = new Set(["esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"]);
+  const allowedModes = new Set(["dark"]);
+  const allowedColors = new Set(["monochromatic", "neon", "warm", "pastel", "jewel", "vibrant"]);
 
   if (!allowedModes.has(mode)) throw new Error("invalid theme mode");
   if (!allowedColors.has(color)) throw new Error("invalid theme color");

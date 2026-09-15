@@ -8,7 +8,7 @@ import type { CaseStatus } from "./api/caseApi";
 import LoginPage from "./auth/LoginPage";
 import { useAuth } from "./auth/useAuth";
 import { useBootstrapStatus } from "./bootstrap/useBootstrapStatus";
-import { getEditionInfo } from "./edition/config";
+import { getEditionInfo, getSurfaceInfo } from "./edition/config";
 
 const LEFT_RAIL_COLLAPSED_KEY = "flora.ui.leftRailCollapsed";
 const RIGHT_RAIL_COLLAPSED_KEY = "flora.ui.rightRailCollapsed";
@@ -24,6 +24,7 @@ export default function App() {
   const { user, ready, isAuthenticated, login, logout, syncSession } = useAuth();
   const bootstrap = useBootstrapStatus();
   const edition = getEditionInfo();
+  const surface = getSurfaceInfo();
   const [caseStatus, setCaseStatus] = useState<CaseStatus>({ status: "IDLE" });
   const [isHistoryMode, setIsHistoryMode] = useState(false);
   const [isLeftRailOpen, setIsLeftRailOpen] = useState(false);
@@ -43,8 +44,9 @@ export default function App() {
     | "patient"
     | "report"
     | "master"
+    | "fleet"
     | "history"
-  >("case");
+  >(surface.code === "canopy" ? "fleet" : "case");
   const [shutdownPrompt, setShutdownPrompt] = useState<{
     open: boolean;
     stage: "confirm" | "closing";
@@ -111,9 +113,9 @@ export default function App() {
     if (!user?.username) return;
     // A changed authenticated session resets navigation to its safe landing view.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveView("case");
+    setActiveView(surface.code === "canopy" ? "fleet" : "case");
     setIsHistoryMode(false);
-  }, [user?.username]);
+  }, [surface.code, user?.username]);
 
   useEffect(() => {
     if (caseStatus.status === "IDLE" && activeView === "form") {
@@ -142,7 +144,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const needsFocusedLayout = activeView === "master" || activeView === "history";
+    const needsFocusedLayout = activeView === "master" || activeView === "history" || activeView === "fleet";
     const needsFormLayout = activeView === "form";
 
     if (needsFocusedLayout) {
@@ -197,8 +199,8 @@ export default function App() {
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.title = edition.productName;
-  }, [edition.productName]);
+    document.title = edition.code === "full" ? surface.productName : edition.productName;
+  }, [edition.code, edition.productName, surface.productName]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -378,13 +380,7 @@ export default function App() {
           onLogin={login}
           loginEnabled={bootstrap.status.ready}
           bootstrapStatus={bootstrap.status}
-          onRetryStart={bootstrap.retryStart}
-          onSafeRecovery={bootstrap.safeRecovery}
-          onStopBackend={bootstrap.stopBackend}
-          onShutdown={handleShutdown}
-          sessionUserName={user?.name || ""}
         />
-        {shutdownOverlay}
       </>
     );
   }
@@ -408,7 +404,7 @@ export default function App() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {isLeftRailCollapsed ? (
+        {surface.code !== "leaf" ? null : isLeftRailCollapsed ? (
           <div className="app-rail hidden lg:flex w-9 border-r items-center justify-center">
             <button
               type="button"
@@ -450,7 +446,7 @@ export default function App() {
           />
         </div>
 
-        {isRightRailCollapsed ? (
+        {surface.code !== "leaf" ? null : isRightRailCollapsed ? (
           <div className="app-rail hidden lg:flex w-9 border-l items-center justify-center">
             <button
               type="button"
@@ -476,7 +472,7 @@ export default function App() {
         )}
       </div>
 
-      {isLeftRailOpen ? (
+      {surface.code === "leaf" && isLeftRailOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
@@ -509,7 +505,7 @@ export default function App() {
         </div>
       ) : null}
 
-      {isRightRailOpen ? (
+      {surface.code === "leaf" && isRightRailOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"

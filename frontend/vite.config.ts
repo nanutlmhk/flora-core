@@ -6,6 +6,12 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      '/api': process.env.VITE_API_PROXY_TARGET || 'http://localhost:3001',
+      '/health': process.env.VITE_API_PROXY_TARGET || 'http://localhost:3001',
+    },
+  },
   build: {
     rollupOptions: {
       output: {

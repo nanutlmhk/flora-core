@@ -7,22 +7,16 @@
     <title>Flora 1.2.1</title>
 
     <!--
-      THEME INIT — runs synchronously before first paint so the correct
-      dark/light class and color theme are on <html> from frame 0.
-      This eliminates the flash of the default blue-dark on every load.
+      Apply the saved dark palette before first paint.
     -->
     <script>
       (function () {
         try {
-          var mode =
-            localStorage.getItem("theme-mode") ||
-            (window.matchMedia("(prefers-color-scheme: dark)").matches
-              ? "dark"
-              : "light");
           var savedColor = localStorage.getItem("theme-color");
-          var color = savedColor === "nit" ? "nit" : savedColor === "eforl" ? "eforl" : "esm";
+          var colors = ["monochromatic", "neon", "warm", "pastel", "jewel", "vibrant"];
+          var color = colors.indexOf(savedColor) >= 0 ? savedColor : "monochromatic";
           var el = document.documentElement;
-          el.classList.add(mode);
+          el.classList.add("dark");
           el.classList.add("theme-" + color);
         } catch (_) {}
       })();
