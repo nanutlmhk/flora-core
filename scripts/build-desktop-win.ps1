@@ -59,7 +59,6 @@ for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
 
     Invoke-Step "flora icon build" "npm run flora:icon:build"
     Invoke-Step "frontend build" "npm run desktop:build:web"
-    Invoke-Step "backend native rebuild" "npm run backend:rebuild:native"
     $env:FLORA_EDITION = $editionCode
     Invoke-Step "electron package" "npx electron-builder --win nsis --x64 --config.extraMetadata.floraEdition=$editionCode --config.productName=""$productName"" --config.appId=$appId --config.win.artifactName=""$artifactName"""
 

@@ -8,12 +8,12 @@ services:
     environment:
       CHOKIDAR_USEPOLLING: "true"
       VITE_FLORA_SURFACE: leaf
-      VITE_API_PROXY_TARGET: http://backend:3001
+      VITE_API_PROXY_TARGET: http://flora-leaf-api:8000
     volumes:
       - ../frontend:/app/frontend
       - flora_frontend_modules:/app/frontend/node_modules
     depends_on:
-      backend:
+      flora-leaf-api:
         condition: service_healthy
 
 volumes:

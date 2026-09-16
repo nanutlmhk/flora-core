@@ -413,7 +413,7 @@ export default function TopBar({
         >
           <LogoutIcon />
         </button>
-        {surface.code === "leaf" ? <button
+        {surface.code === "leaf" && typeof window.floraDesktop?.shutdownApp === "function" ? <button
           onClick={onShutdown}
           aria-label="Shut down Flora"
           className="inline-flex h-8 w-8 items-center justify-center rounded border border-amber-400/35 bg-amber-500/10 text-amber-200 transition-all hover:bg-amber-500/16"

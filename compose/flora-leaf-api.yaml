@@ -6,10 +6,16 @@ services:
       FLORA_DATABASE_URL: postgresql://flora_app:${FLORA_DB_APP_PASSWORD:-flora-app-local-only}@postgres:5432/${FLORA_POSTGRES_DB:-flora}
       FLORA_API_ENV: development
       FLORA_API_MODE: leaf
+      FLORA_LEAF_WRITE_API: "true"
+      FLORA_DEVICE_INGEST_ENABLED: "true"
+      VECTOR_READ_URL: ${VECTOR_READ_URL:-http://host.docker.internal:6789/api/observations}
+      HIS_GATEWAY_BASE_URL: ${HIS_GATEWAY_BASE_URL:-http://10.35.202.6:8590}
     ports:
       - "127.0.0.1:${FLORA_LEAF_API_PORT:-6893}:8000"
     volumes:
       - ../services/flora-api/app:/app/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

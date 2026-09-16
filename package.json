@@ -9,17 +9,11 @@
   "scripts": {
     "flora:icon:build": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-flora-ico.ps1",
     "desktop:build:web": "powershell -Command \"Set-Location frontend; npm run build\"",
-    "backend:rebuild:native": "powershell -Command \"Set-Location backend; npm rebuild better-sqlite3\"",
     "desktop:start": "npm run desktop:build:web && electron electron/main.cjs",
     "desktop:start:no-build": "electron electron/main.cjs",
-    "desktop:start:full:testdb": "powershell -Command \"$env:FLORA_EDITION='full'; $env:FLORA_DB_PATH='C:\\Users\\onlys\\Flora\\deploy-artifacts\\flora.db'; npm run desktop:build:web; if ($LASTEXITCODE -eq 0) { electron electron/main.cjs }\"",
-    "desktop:start:no-build:full:testdb": "powershell -Command \"$env:FLORA_EDITION='full'; $env:FLORA_DB_PATH='C:\\Users\\onlys\\Flora\\deploy-artifacts\\flora.db'; electron electron/main.cjs\"",
     "desktop:start:eforl": "powershell -Command \"$env:FLORA_EDITION='eforl'; npm run desktop:build:web; if ($LASTEXITCODE -eq 0) { electron electron/main.cjs }\"",
     "desktop:start:no-build:eforl": "powershell -Command \"$env:FLORA_EDITION='eforl'; electron electron/main.cjs\"",
-    "db:migrate:master": "node backend/scripts/migrate-master-data.js",
-    "db:build:master-only": "node backend/scripts/build-master-only-db.js",
-    "db:check:master": "node scripts/check-master-data.js",
-    "desktop:package:dir": "npm run desktop:build:web && npm run backend:rebuild:native && electron-builder --dir",
+    "desktop:package:dir": "npm run desktop:build:web && electron-builder --dir",
     "desktop:package:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-desktop-win.ps1",
     "desktop:package:win:eforl": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-desktop-win.ps1 -Edition eforl"
   },
@@ -48,35 +42,8 @@
     ],
     "extraResources": [
       {
-        "from": "backend",
-        "to": "backend",
-        "filter": [
-          "**/*",
-          "!node_modules/**",
-          "!flora.db*",
-          "!scripts/**",
-          "!*.md",
-          "!Anesthesia*",
-          "!ICD10.xlsx"
-        ]
-      },
-      {
-        "from": "backend/node_modules",
-        "to": "backend/node_modules",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "shared",
-        "to": "shared",
-        "filter": ["**/*"]
-      },
-      {
         "from": "frontend/src/assets/eforllogo.png",
         "to": "assets/eforllogo.png"
-      },
-      {
-        "from": "data/flora.db",
-        "to": "seed/flora.db"
       }
     ],
     "directories": {

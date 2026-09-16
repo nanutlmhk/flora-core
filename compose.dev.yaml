@@ -2,11 +2,7 @@ name: flora-core
 
 include:
   - path: ./compose/postgres.yaml
-  - path: ./compose/migration-tools.yaml
-  - path: ./compose/validation-tools.yaml
   - path: ./compose/flora-leaf-api.yaml
-  - path: ./compose/legacy-api.yaml
-  - path: ./compose/flora-db-bridge.yaml
   - path: ./compose/flora-leaf.yaml
   - path: ./compose/flora-canopy.yaml
   - path: ./compose/flora-sync.yaml

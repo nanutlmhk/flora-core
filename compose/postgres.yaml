@@ -13,8 +13,10 @@ services:
     volumes:
       - flora_postgres_data:/var/lib/postgresql/data
       - ../infrastructure/postgres/0000-create-app-role.sql:/docker-entrypoint-initdb.d/0000-create-app-role.sql:ro
+      - ../docs/database/flora-schema.sql:/docker-entrypoint-initdb.d/0001-schema.sql:ro
       - ../infrastructure/postgres/0003-create-view-role.sql:/docker-entrypoint-initdb.d/0003-create-view-role.sql:ro
       - ../infrastructure/postgres/0004-leaf-canopy-sync.sql:/docker-entrypoint-initdb.d/0004-leaf-canopy-sync.sql:ro
+      - ../infrastructure/postgres/0005-leaf-writes.sql:/docker-entrypoint-initdb.d/0005-leaf-writes.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

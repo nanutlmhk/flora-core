@@ -219,11 +219,10 @@ export default function App() {
     const handleWheel = (e: WheelEvent) => {
       // Check for Ctrl key (or Cmd on Mac) + Scroll
       if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-
         // Only works in Electron where floraDesktop is available
         const desktop = window.floraDesktop;
         if (desktop && typeof desktop.setZoomLevel === "function") {
+          e.preventDefault();
           const currentZoom = desktop.getZoomLevel();
           const zoomStep = 0.2;
 
