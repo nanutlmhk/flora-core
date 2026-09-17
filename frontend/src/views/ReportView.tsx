@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useWorkstationSettings } from "../hooks/useWorkstationSettings";
+import { formatConfiguredDate, formatConfiguredDateTime, formatConfiguredTime, type DateTimePreferences } from "../utils/dateTime";
 import { flushSync } from "react-dom";
 import {
   dischargeCase,
@@ -266,18 +268,16 @@ function parseTechniqueSummary(raw: unknown): Array<{
   }
 }
 
-function formatDateDDMMYYYY(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+function formatDateDDMMYYYY(ts: number, preferences: DateTimePreferences): string {
+  return formatConfiguredDate(ts, preferences);
 }
 
-function formatTimeHHMM(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+function formatTimeHHMM(ts: number, preferences: DateTimePreferences): string {
+  return formatConfiguredTime(ts, preferences);
 }
 
-function formatDateTime(ts: number): string {
-  return `${formatDateDDMMYYYY(ts)} ${formatTimeHHMM(ts)}`;
+function formatDateTime(ts: number, preferences: DateTimePreferences): string {
+  return formatConfiguredDateTime(ts, preferences);
 }
 
 function formatDuration(fromTs: number, toTs: number): string {
@@ -508,6 +508,7 @@ function formatAsaDisplay(form: Record<string, unknown>): string {
 }
 
 export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: Props) {
+  const workstation = useWorkstationSettings();
   const edition = getEditionInfo();
   const allowedReportModes = edition.allowedReportModes;
   const preferenceUsername = readStoredUsername();
@@ -1653,10 +1654,10 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
         currentCase.status === "ACTIVE" ? "Discharge At Suggested Time" : "Use Suggested Time",
       idleTailLabel: formatDuration(lastActivityTs, actualEndTs),
       suggestedEndTs,
-      suggestedEndLabel: formatDateTime(suggestedEndTs),
+      suggestedEndLabel: formatDateTime(suggestedEndTs, workstation),
       pagesSaved: Math.max(0, currentPageCount - suggestedPageCount),
     };
-  }, [currentCase, reportBucketMs, reportTimelinePageMs, suggestedCaseEnd]);
+  }, [currentCase, reportBucketMs, reportTimelinePageMs, suggestedCaseEnd, workstation]);
   const handleApplySuggestedEndTime = useCallback(async () => {
     if (!reportEndSuggestion) return;
 
@@ -2102,7 +2103,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
   const renderPageFooter = (pageNum: number) => (
     <footer className="mt-auto flex items-center justify-between border-t border-gray-400 pt-1 text-[8px] text-gray-500">
       <span>ANESTHESIA RECORD — CONFIDENTIAL MEDICAL DOCUMENT</span>
-      <span>HN: {currentCase?.hn || "-"} | AN: {safeText(form.an)} | {currentCase ? formatDateDDMMYYYY(currentCase.start_time) : "-"}</span>
+      <span>HN: {currentCase?.hn || "-"} | AN: {safeText(form.an)} | {currentCase ? formatDateDDMMYYYY(currentCase.start_time, workstation) : "-"}</span>
       <span>Page {pageNum} / {totalPageCount}</span>
     </footer>
   );
@@ -2125,7 +2126,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
                 <td className={th}>Post-op</td>
                 <td className={td}>{safeText(form.postoperativeDestination)}</td>
                 <td className={th}>Case Start</td>
-                <td className={td}>{currentCase ? formatDateTime(currentCase.start_time) : "-"}</td>
+                <td className={td}>{currentCase ? formatDateTime(currentCase.start_time, workstation) : "-"}</td>
               </tr>
               <tr>
                 <td className={th}>Anesthesia</td>
@@ -2170,7 +2171,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
                 ] as Array<{ label: string; ts: number | null; dur: string }>).filter(row => row.ts != null).map(row => (
                   <tr key={row.label}>
                     <td className={th} style={{ width: "30%" }}>{row.label}</td>
-                    <td className={td}>{row.ts != null ? formatDateTime(row.ts) : "-"}</td>
+                    <td className={td}>{row.ts != null ? formatDateTime(row.ts, workstation) : "-"}</td>
                     <td className={`${td} whitespace-nowrap`}>{row.dur || "-"}</td>
                   </tr>
                 ))}
@@ -2251,7 +2252,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
               <tbody>
                 {bloodProductSummary.slice(0, 4).map(row => (
                   <tr key={`bp-p1-${row.id}`}>
-                    <td className={td}>{formatTimeHHMM(row.ts)}</td>
+                    <td className={td}>{formatTimeHHMM(row.ts, workstation)}</td>
                     <td className={td}>{row.type || "-"}</td>
                     <td className={td}>{row.group || "-"}</td>
                     <td className={td}>{row.bagNo || "-"}</td>
@@ -2276,9 +2277,9 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
               <tbody>
                 {bloodProductProcessRows.slice(0, 4).map(row => (
                   <tr key={`bp-process-${row.key}`}>
-                    <td className={td}>{row.timeOutTs != null ? formatTimeHHMM(row.timeOutTs) : "-"}</td>
-                    <td className={td}>{row.refrigeratedTs != null ? `${formatTimeHHMM(row.refrigeratedTs)} ${row.product} ${row.bagNo || ""}`.trim() : "-"}</td>
-                    <td className={td}>{row.giveTs != null ? `${formatTimeHHMM(row.giveTs)} ${row.status || "warmed"} ${row.amount > 0 ? `${formatAmount(row.amount)} mL` : ""}`.trim() : "-"}</td>
+                    <td className={td}>{row.timeOutTs != null ? formatTimeHHMM(row.timeOutTs, workstation) : "-"}</td>
+                    <td className={td}>{row.refrigeratedTs != null ? `${formatTimeHHMM(row.refrigeratedTs, workstation)} ${row.product} ${row.bagNo || ""}`.trim() : "-"}</td>
+                    <td className={td}>{row.giveTs != null ? `${formatTimeHHMM(row.giveTs, workstation)} ${row.status || "warmed"} ${row.amount > 0 ? `${formatAmount(row.amount)} mL` : ""}`.trim() : "-"}</td>
                   </tr>
                 ))}
                 {bloodProductProcessRows.length === 0 ? (
@@ -2344,7 +2345,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
               <tbody>
                 {caseEventsAll.slice(0, 16).map(item => (
                   <tr key={item.id}>
-                    <td className={td}>{formatTimeHHMM(item.event_ts)}</td>
+                    <td className={td}>{formatTimeHHMM(item.event_ts, workstation)}</td>
                     <td className={td}>{item.event_type === "event" ? "EVENT" : "NOTE"}</td>
                     <td className={td}>{item.title}{item.detail ? <span className="text-gray-500"> | {item.detail}</span> : null}</td>
                   </tr>
@@ -2380,7 +2381,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
         const eventCount = page.axis.reduce((sum, ts) => sum + (timelineEventMarkersByBucket[ts]?.length || 0), 0);
         return (
             <article key={page.startTs} className="report-page flex flex-col rounded-lg border border-gray-300 bg-white p-3 shadow-sm">
-            {renderPageHeader(pageNum, `Timeline ${formatDateTime(page.startTs)} - ${formatDateTime(page.endTs)}`)}
+            {renderPageHeader(pageNum, `Timeline ${formatDateTime(page.startTs, workstation)} - ${formatDateTime(page.endTs, workstation)}`)}
             <section>
               <div className="mb-1 border-b border-gray-400 text-[9px] font-bold uppercase tracking-widest text-gray-600">
                 Classic Timeline Sheet
@@ -2453,7 +2454,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
                 <div className="text-xs uppercase tracking-wide text-[var(--app-muted)]">Case</div>
                 <div className="mt-1 font-medium">HN {currentCase?.hn || "-"} | AN {getText(form.an) || "-"}</div>
                 <div className="text-xs text-[var(--app-muted)]">
-                  Start {currentCase ? formatDateTime(currentCase.start_time) : "-"}
+                  Start {currentCase ? formatDateTime(currentCase.start_time, workstation) : "-"}
                 </div>
               </div>
               <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2">

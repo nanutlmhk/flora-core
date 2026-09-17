@@ -6,6 +6,7 @@ import "@fontsource-variable/inter/wght.css";
 import "@fontsource-variable/noto-sans-thai/wght.css";
 import "./index.css";
 import { ThemeProvider } from "./context/ThemeContext"; // Import provider
+import { LanguageProvider } from "./context/LanguageContext";
 import { installAuthenticatedFetch } from "./api/authenticatedFetch";
 
 installAuthenticatedFetch();
@@ -13,7 +14,9 @@ installAuthenticatedFetch();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <App />
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

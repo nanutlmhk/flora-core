@@ -10,8 +10,13 @@ export const ECG_OPTIONS = [
   { value: "ST elevation", code: "STE" },
 ];
 
+// A persisted reset is different from deleting a cell: deletion would make the
+// timeline inherit the previous rhythm again. This marker stops carry-forward
+// until another rhythm is recorded.
+export const ECG_CLEAR_VALUE = "__ECG_CLEAR__";
+
 export function ecgValueToCode(value?: string) {
-  if (!value) return "";
+  if (!value || value === ECG_CLEAR_VALUE) return "";
   const found = ECG_OPTIONS.find(o => o.value === value);
   return found ? found.code : "";
 }

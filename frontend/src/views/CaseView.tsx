@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { CaseStatus } from "../api/caseApi";
+import { updateCaseStartTime, type CaseStatus } from "../api/caseApi";
 import TimeAxis from "../components/timeaxis/TimeAxis";
 import TimeGrid, {
   type TimeGridEventMarker,
@@ -10,10 +10,17 @@ import type { TimeGridRow, TimeGridValues } from "../components/timegrid/types";
 import TimeChart from "../components/vitals/TimeChart";
 import { useTimeAxis } from "../hooks/useTimeAxis";
 import { useVitalMinutes } from "../hooks/useVitalMinutes";
+import { useWorkstationSettings } from "../hooks/useWorkstationSettings";
+import { formatConfiguredDateTime, type DateTimePreferences } from "../utils/dateTime";
 import { useCaseEvents } from "../hooks/useCaseEvents";
-import { getCaseDiagnosis, getCaseProcedures } from "../api/caseClinicalApi";
+import {
+  getCaseDiagnosis,
+  getCaseProcedures,
+  type CaseDiagnosisRow,
+  type CaseProcedureRow,
+} from "../api/caseClinicalApi";
 import type { AuthUser } from "../auth/useAuth";
-import type { TimelineChange } from "../api/vitalMinutesApi";
+import type { TimelineCellProvenance, TimelineChange, TimelineProvenance } from "../api/vitalMinutesApi";
 import { putTimelineChanges } from "../api/vitalMinutesApi";
 import {
   createCaseEvent,
@@ -43,11 +50,19 @@ import {
 } from "../api/caseIoApi";
 import { createDrugDirectoryEntry } from "../api/drugApi";
 import {
+  createCaseAllergy,
+  deleteCaseAllergy,
   getCaseBloodProducts,
+  getCaseAllergies,
+  getCasePatientInfo,
+  updateCaseAllergy,
   verifyCaseBloodProduct,
+  type CaseAllergyRow,
+  type CasePatientInfo,
   type BloodProductVerificationResult,
 } from "../api/caseHisApi";
 import { getCaseStaff, type StaffMember } from "../api/staffApi";
+import { getObservationParameters, type ObservationParameter } from "../api/terminologyApi";
 import {
   BASE_IVY_ROWS,
   COMMON_EVENT_OPTIONS,
@@ -63,7 +78,6 @@ import {
   type RowGroup,
 } from "./caseview/constants";
 import {
-  getChartVisibilityStorageKey,
   getHiddenRowsStorageKey,
   getTimelineScaleStorageKey,
   getVisibleRowsStorageKey,
@@ -85,6 +99,12 @@ import {
   normalizeTimeInputHHMM,
 } from "../utils/clinicalInput";
 import ConfirmDialog from "../components/common/ConfirmDialog";
+import HeaderCard from "../components/case/HeaderCard";
+import allergyCardIcon from "../assets/card-allergy.png";
+import patientCardIcon from "../assets/card-patient.png";
+import timeCardIcon from "../assets/card-time.png";
+import diagnosisCardIcon from "../assets/card-diagnosis.png";
+import procedureCardIcon from "../assets/card-procedure.png";
 import { clampEditionTimelineScale, getEditionInfo, isTimelineParamAllowed } from "../edition/config";
 
 type IoPreparedModalState = {
@@ -116,11 +136,74 @@ type BloodBoardLocalStatus =
   | "Completed"
   | "Stopped / Reaction";
 
+function parameterReferenceTooltip(parameter: ObservationParameter) {
+  const lines = [
+    parameter.display_name || parameter.local_name || parameter.short_name,
+    `Local ID: ${parameter.local_id || parameter.param_key}`,
+  ];
+  if (parameter.unit) lines.push(`Unit: ${parameter.unit}`);
+  const loinc = parameter.codings?.LOINC;
+  const snomed = parameter.codings?.SNOMED_CT;
+  lines.push(`LOINC: ${loinc?.code ? `${loinc.code}${loinc.display ? ` — ${loinc.display}` : ""}` : "Not mapped"}`);
+  lines.push(`SNOMED CT: ${snomed?.code ? `${snomed.code}${snomed.display ? ` — ${snomed.display}` : ""}` : "Not mapped"}`);
+  return lines.join("\n");
+}
+
+function parameterChartTooltip(parameter: ObservationParameter) {
+  const lines = [parameter.display_name || parameter.local_name || parameter.short_name];
+  const loinc = parameter.codings?.LOINC;
+  const snomed = parameter.codings?.SNOMED_CT;
+  const codes = [
+    loinc?.code ? `LOINC ${loinc.code}` : "",
+    snomed?.code ? `SNOMED CT ${snomed.code}` : "",
+    parameter.unit ? `UCUM ${parameter.unit}` : "",
+  ].filter(Boolean);
+  if (codes.length > 0) lines.push(codes.join(" · "));
+  return lines.join("\n");
+}
+
 type BloodGivingAuthorization = {
   mode: "self" | "supervised";
   name: string;
   username?: string;
 };
+
+type CaseHeaderCardId = "los" | "patient" | "allergy" | "diagnosis" | "operation";
+type SummaryDock = "top" | "left" | "bottom" | "right";
+const DEFAULT_CASE_HEADER_ORDER: CaseHeaderCardId[] = ["los", "patient", "allergy", "diagnosis", "operation"];
+
+function SummaryDockIcon({ position }: { position: SummaryDock }) {
+  const bar = {
+    top: <path d="M5 6h14v3H5z" fill="currentColor" stroke="none" />,
+    left: <path d="M5 5h3v14H5z" fill="currentColor" stroke="none" />,
+    bottom: <path d="M5 15h14v3H5z" fill="currentColor" stroke="none" />,
+    right: <path d="M16 5h3v14h-3z" fill="currentColor" stroke="none" />,
+  }[position];
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2" />
+      {bar}
+    </svg>
+  );
+}
+
+function caseHeaderOrderStorageKey(username: string) {
+  return `flora.caseHeaderOrder.${username || "default"}`;
+}
+
+function readCaseHeaderOrder(username: string): CaseHeaderCardId[] {
+  if (typeof window === "undefined") return DEFAULT_CASE_HEADER_ORDER;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(caseHeaderOrderStorageKey(username)) || "[]") as unknown[];
+    const allowed = new Set<CaseHeaderCardId>(DEFAULT_CASE_HEADER_ORDER);
+    const valid = parsed.filter((value): value is CaseHeaderCardId => allowed.has(value as CaseHeaderCardId));
+    return valid.length === DEFAULT_CASE_HEADER_ORDER.length && new Set(valid).size === valid.length
+      ? valid
+      : DEFAULT_CASE_HEADER_ORDER;
+  } catch {
+    return DEFAULT_CASE_HEADER_ORDER;
+  }
+}
 
 type EforlBloodBoardCondition = "Frozen" | "Warmed";
 type EforlBloodBoardStage = "Pending" | "Received in OR" | "Warmed" | "Given";
@@ -401,20 +484,39 @@ function readWeightFromSavedForm(caseId: number): string {
   }
 }
 
-function formatKronosClock(ts: number): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Bangkok",
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(ts);
+function formatCaseClock(ts: number, preferences: DateTimePreferences): string {
+  return formatConfiguredDateTime(ts, preferences);
 }
 
-function formatKronosElapsed(durationMs: number): string {
+function formatCaseElapsed(durationMs: number): string {
   const totalMinutes = Math.max(0, Math.floor(durationMs / 60_000));
   return `${Math.floor(totalMinutes / 60)} hr ${totalMinutes % 60} min`;
+}
+
+function formatPatientAge(patient: CasePatientInfo | null): string {
+  const savedAge = String(patient?.age_text || "").trim();
+  if (savedAge) return savedAge;
+  const dobText = String(patient?.dob || "").trim();
+  if (!dobText) return "Age not recorded";
+  const dob = new Date(dobText.includes("T") ? dobText : `${dobText}T00:00:00`);
+  if (!Number.isFinite(dob.getTime())) return "Age not recorded";
+  const today = new Date();
+  let years = today.getFullYear() - dob.getFullYear();
+  let months = today.getMonth() - dob.getMonth();
+  if (today.getDate() < dob.getDate()) months -= 1;
+  if (months < 0) { years -= 1; months += 12; }
+  if (years < 0) return "Age not recorded";
+  return years > 0 ? `${years} y${months ? ` ${months} m` : ""}` : `${Math.max(0, months)} m`;
+}
+
+function formatPatientName(patient: CasePatientInfo | null): string {
+  const explicit = String(patient?.patient_name || "").trim();
+  if (explicit) return explicit;
+  const english = [patient?.title_en, patient?.first_name_en, patient?.last_name_en]
+    .map(value => String(value || "").trim()).filter(Boolean).join(" ");
+  if (english) return english;
+  return [patient?.title_th, patient?.first_name, patient?.last_name]
+    .map(value => String(value || "").trim()).filter(Boolean).join(" ") || "Patient name not recorded";
 }
 
 function pickSavedFormText(payload: Record<string, unknown>, keys: string[]): string {
@@ -864,10 +966,13 @@ function medDripGroupTone(category: unknown): string {
 export default function CaseView({
   caseStatus,
   sessionUser,
+  onNavigate,
 }: {
   caseStatus: CaseStatus;
   sessionUser: AuthUser | null;
+  onNavigate?: (view: "patient" | "diagnosis") => void;
 }) {
+  const workstation = useWorkstationSettings();
   const edition = getEditionInfo();
   const availableAxisSteps = edition.allowedTimelineScales;
   const shouldUseBloodBoard = edition.code === "eforl";
@@ -910,15 +1015,67 @@ export default function CaseView({
   const [hiddenRowIds, setHiddenRowIds] = useState<string[]>(() =>
     readHiddenRowsForUser(scopeUsername),
   );
+  const [parameterMaster, setParameterMaster] = useState<ObservationParameter[]>([]);
+  const [parameterMasterLoaded, setParameterMasterLoaded] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void getObservationParameters()
+      .then(rows => { if (active) setParameterMaster(rows); })
+      .catch(() => { if (active) setParameterMaster([]); })
+      .finally(() => { if (active) setParameterMasterLoaded(true); });
+    return () => { active = false; };
+  }, []);
   const [isIoSectionCollapsed, setIsIoSectionCollapsed] = useState(true);
   const [isVitalSectionCollapsed, setIsVitalSectionCollapsed] = useState(false);
   const [isParamMenuOpen, setIsParamMenuOpen] = useState(false);
+  const [parameterSearch, setParameterSearch] = useState("");
+  const [draftHiddenRowIds, setDraftHiddenRowIds] = useState<string[]>([]);
+  const [summaryDock, setSummaryDock] = useState<SummaryDock>(() => {
+    if (typeof window === "undefined") return "top";
+    const saved = window.localStorage.getItem("flora.caseSummaryDock");
+    return saved === "left" || saved === "right" || saved === "bottom" ? saved : "top";
+  });
+  useEffect(() => {
+    window.localStorage.setItem("flora.caseSummaryDock", summaryDock);
+  }, [summaryDock]);
+  const [headerCardOrder, setHeaderCardOrder] = useState<CaseHeaderCardId[]>(() => readCaseHeaderOrder(scopeUsername));
+  const [draggedHeaderCard, setDraggedHeaderCard] = useState<CaseHeaderCardId | null>(null);
+  useEffect(() => {
+    window.localStorage.setItem(caseHeaderOrderStorageKey(scopeUsername), JSON.stringify(headerCardOrder));
+  }, [headerCardOrder, scopeUsername]);
+  const moveHeaderCard = (source: CaseHeaderCardId, target: CaseHeaderCardId) => {
+    if (source === target) return;
+    setHeaderCardOrder(current => {
+      const next = current.filter(id => id !== source);
+      const targetIndex = next.indexOf(target);
+      next.splice(targetIndex < 0 ? next.length : targetIndex, 0, source);
+      return next;
+    });
+  };
+  const moveHeaderCardByOffset = (cardId: CaseHeaderCardId, offset: -1 | 1) => {
+    setHeaderCardOrder(current => {
+      const index = current.indexOf(cardId);
+      const targetIndex = index + offset;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  };
   const { axis, loading: axisLoading, serverOffsetMs, lastSyncedAt } = useTimeAxis(caseId, caseStatus.status, axisStepMin);
   const {
     values: liveValues,
+    provenance: storedCellProvenance,
     loading: vitalsLoading,
     fetchedAxis: vitalsAxis,
   } = useVitalMinutes(caseId, caseStatus.status, axis);
+  const [optimisticCellProvenance, setOptimisticCellProvenance] = useState<TimelineProvenance>({});
+  const cellProvenance = useMemo(() => {
+    const merged: TimelineProvenance = {};
+    for (const [rowId, entries] of Object.entries(storedCellProvenance)) merged[rowId] = { ...entries };
+    for (const [rowId, entries] of Object.entries(optimisticCellProvenance)) merged[rowId] = { ...(merged[rowId] || {}), ...entries };
+    return merged;
+  }, [optimisticCellProvenance, storedCellProvenance]);
   const isAxisInSync = useMemo(() => {
     if (axis.length === 0 || vitalsAxis.length === 0) return false;
     if (axis.length !== vitalsAxis.length) return false;
@@ -931,9 +1088,25 @@ export default function CaseView({
 
   const [clinicalContext, setClinicalContext] = useState<{
     caseId: number | null;
-    diagnosis: string[];
-    operations: string[];
+    diagnosis: CaseDiagnosisRow[];
+    operations: CaseProcedureRow[];
   }>({ caseId: null, diagnosis: [], operations: [] });
+  const [patientContext, setPatientContext] = useState<{
+    caseId: number | null;
+    patient: CasePatientInfo | null;
+    allergies: CaseAllergyRow[];
+  }>({ caseId: null, patient: null, allergies: [] });
+  const [startTimeModalOpen, setStartTimeModalOpen] = useState(false);
+  const [startDateDraft, setStartDateDraft] = useState("");
+  const [startTimeDraft, setStartTimeDraft] = useState("");
+  const [startTimeSaving, setStartTimeSaving] = useState(false);
+  const [startTimeError, setStartTimeError] = useState("");
+  const [allergyModalOpen, setAllergyModalOpen] = useState(false);
+  const [allergyEditingId, setAllergyEditingId] = useState<string | null>(null);
+  const [allergyDeleteId, setAllergyDeleteId] = useState<string | null>(null);
+  const [allergyDraft, setAllergyDraft] = useState({ allergen: "", reaction: "", severity: "" });
+  const [allergySaving, setAllergySaving] = useState(false);
+  const [allergyError, setAllergyError] = useState("");
   useEffect(() => {
     if (caseId == null) return;
     const activeCaseId = caseId;
@@ -947,8 +1120,8 @@ export default function CaseView({
         if (!alive) return;
         setClinicalContext({
           caseId: activeCaseId,
-          diagnosis: diagnosis.map(row => row.diagnosis_text).filter(Boolean),
-          operations: operations.map(row => row.procedure_text).filter(Boolean),
+          diagnosis: [...diagnosis].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0) || (Number(a.event_ts) || 0) - (Number(b.event_ts) || 0)),
+          operations: [...operations].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0) || (Number(a.event_ts) || 0) - (Number(b.event_ts) || 0)),
         });
       } catch {
         if (alive) setClinicalContext({ caseId: activeCaseId, diagnosis: [], operations: [] });
@@ -965,6 +1138,38 @@ export default function CaseView({
     };
   }, [caseId]);
 
+  useEffect(() => {
+    if (caseId == null) return;
+    const activeCaseId = caseId;
+    let alive = true;
+    const refresh = async () => {
+      const [patientResult, allergyResult] = await Promise.allSettled([
+        getCasePatientInfo(activeCaseId),
+        getCaseAllergies(activeCaseId),
+      ]);
+      if (!alive) return;
+      setPatientContext({
+        caseId: activeCaseId,
+        patient: patientResult.status === "fulfilled" ? patientResult.value : null,
+        allergies: allergyResult.status === "fulfilled" ? allergyResult.value : [],
+      });
+    };
+    const onPatientChanged = (event: Event) => {
+      const changedCaseId = Number((event as CustomEvent<{ caseId?: number }>).detail?.caseId);
+      if (!Number.isFinite(changedCaseId) || changedCaseId === activeCaseId) void refresh();
+    };
+    void refresh();
+    window.addEventListener("flora:his-synced", onPatientChanged);
+    window.addEventListener("flora:case-hn-updated", onPatientChanged);
+    window.addEventListener("flora:allergy-changed", onPatientChanged);
+    return () => {
+      alive = false;
+      window.removeEventListener("flora:his-synced", onPatientChanged);
+      window.removeEventListener("flora:case-hn-updated", onPatientChanged);
+      window.removeEventListener("flora:allergy-changed", onPatientChanged);
+    };
+  }, [caseId]);
+
   const caseEvents = useCaseEvents(caseId, caseStatus.status, axis);
   const [caseEventsAll, setCaseEventsAll] = useState<CaseEvent[]>([]);
 
@@ -976,8 +1181,17 @@ export default function CaseView({
   const ivyRows = useMemo(() => {
     const rows = new Map<string, TimeGridRow>();
 
-    // 1. Start with the base rows defined in constants
-    for (const row of BASE_IVY_ROWS) {
+    // The server master is authoritative. Constants remain an offline fallback.
+    const configuredRows = parameterMaster
+      .filter(parameter => parameter.is_active !== 0 && parameter.show_in_table !== 0)
+      .map(parameter => ({
+        id: parameter.param_key,
+        label: parameter.short_name || parameter.display_name,
+        unit: parameter.unit || undefined,
+        referenceTooltip: parameterReferenceTooltip(parameter),
+        type: "vital" as const,
+      }));
+    for (const row of parameterMasterLoaded ? configuredRows : BASE_IVY_ROWS) {
       rows.set(row.id, { ...row });
     }
 
@@ -996,23 +1210,49 @@ export default function CaseView({
       });
     }
 
-    // 3. Force sort the final list to maintain the grouping: Vitals -> Settings -> Measurements
+    const configuredOrder = new Map(parameterMaster.map(parameter => [parameter.param_key, parameter.display_order]));
+    const configuredGroup = new Map(parameterMaster.map(parameter => [parameter.param_key, parameter.table_group]));
     return Array.from(rows.values())
       .filter(row => isTimelineParamAllowed(edition, row.id))
       .sort((a, b) => {
-      const groupA = getRowGroup(a.id);
-      const groupB = getRowGroup(b.id);
+      const groupA = configuredGroup.get(a.id) || getRowGroup(a.id);
+      const groupB = configuredGroup.get(b.id) || getRowGroup(b.id);
       
       const priority = { core: 1, set: 2, measured: 3 };
       if (priority[groupA] !== priority[groupB]) {
         return priority[groupA] - priority[groupB];
       }
       
-      // Secondary sort: keep settings together and measurements together
-      return 0; 
+      return (configuredOrder.get(a.id) ?? 10000) - (configuredOrder.get(b.id) ?? 10000);
     });
-  }, [edition, values]);
+  }, [edition, parameterMaster, parameterMasterLoaded, values]);
+  const chartGroups = useMemo(() => {
+    const groups = new Map<NonNullable<ObservationParameter["chart_group_key"]>, { key: NonNullable<ObservationParameter["chart_group_key"]>; label: string; defaultVisible: boolean; tooltip: string; color?: string; marker?: NonNullable<ObservationParameter["chart_marker"]> }>();
+    for (const parameter of parameterMaster) {
+      if (parameter.is_active === 0 || parameter.show_in_chart === 0 || !parameter.chart_group_key) continue;
+      const existing = groups.get(parameter.chart_group_key);
+      if (existing) {
+        existing.defaultVisible ||= parameter.chart_default_visible !== 0;
+        existing.tooltip += `\n${parameterChartTooltip(parameter)}`;
+      } else {
+        groups.set(parameter.chart_group_key, {
+          key: parameter.chart_group_key,
+          label: parameter.chart_label || parameter.short_name || parameter.display_name,
+          defaultVisible: parameter.chart_default_visible !== 0,
+          tooltip: parameterChartTooltip(parameter),
+          color: parameter.chart_color || undefined,
+          marker: parameter.chart_marker || undefined,
+        });
+      }
+    }
+    return Array.from(groups.values());
+  }, [parameterMaster]);
   const hiddenRowIdSet = useMemo(() => new Set(hiddenRowIds), [hiddenRowIds]);
+  const filteredParameterRows = useMemo(() => {
+    const query = parameterSearch.trim().toLocaleLowerCase();
+    if (!query) return ivyRows;
+    return ivyRows.filter(row => `${row.label} ${row.id} ${row.unit || ""}`.toLocaleLowerCase().includes(query));
+  }, [ivyRows, parameterSearch]);
   const visibleIvyRows = useMemo(
     () => ivyRows.filter(row => !hiddenRowIdSet.has(row.id)),
     [ivyRows, hiddenRowIdSet],
@@ -1230,6 +1470,7 @@ export default function CaseView({
 
   useEffect(() => {
     setEditValues({});
+    setOptimisticCellProvenance({});
   }, [caseId]);
 
   useEffect(() => {
@@ -1603,7 +1844,7 @@ export default function CaseView({
     () => [
       { id: "__io_header__", label: "I/O", type: "event" },
       ...ioPreparedRows,
-      { id: "__vital_agent_header__", label: "Vital&Agent", type: "event" },
+      { id: "__vital_agent_header__", label: "Params", type: "event" },
     ],
     [ioPreparedRows],
   );
@@ -4387,8 +4628,8 @@ export default function CaseView({
     }
   };
 
-  const valueTypeForRow = (rowId: string) =>
-    rowId === "ecg" ? "code" : "number";
+  const valueTypeForRow = (rowId: string, value: unknown) =>
+    rowId === "ecg" ? "code" : typeof value === "number" ? "number" : "text";
 
   const sourceForRow = (rowId: string) =>
     rowId === "ecg" ? "manual" : "override";
@@ -4404,7 +4645,7 @@ export default function CaseView({
         caseId,
         actor,
         changes,
-        "caseview manual edit",
+        "Manual correction in clinical chart",
       );
     } catch (err) {
       console.error("[CaseView] timeline save failed", err);
@@ -4434,6 +4675,10 @@ export default function CaseView({
   };
 
   const handleCellChange = (rowId: string, ts: number, value: unknown) => {
+    const currentValue = values[rowId]?.[ts];
+    const isSameValue = value !== undefined && value !== "" &&
+      (currentValue === value || String(currentValue ?? "") === String(value));
+    if (isSameValue) return;
     const key = `${rowId}:${ts}`;
     if (value === undefined || value === "") {
       pendingChangesRef.current.set(key, {
@@ -4446,12 +4691,38 @@ export default function CaseView({
         ts_minute: ts,
         param_key: rowId,
         value,
-        value_type: valueTypeForRow(rowId),
+        value_type: valueTypeForRow(rowId, value),
         source: sourceForRow(rowId),
         action: "upsert",
       });
     }
     scheduleFlush();
+
+    setOptimisticCellProvenance(previous => {
+      const row = { ...(previous[rowId] || {}) };
+      if (value === undefined || value === "") {
+        delete row[ts];
+      } else if (sourceForRow(rowId) === "override") {
+        const stored = storedCellProvenance[rowId]?.[ts];
+        const detail: TimelineCellProvenance = {
+          source: "override",
+          original_value: stored?.original_value ?? liveValues[rowId]?.[ts],
+          original_source: stored?.original_source || "vector",
+          updated_by: actor.username,
+          actor_username: actor.username,
+          actor_name: actor.name,
+          actor_role: actor.role,
+          edited_at: Date.now(),
+          reason: "Manual correction in clinical chart",
+          audit_count: (stored?.audit_count || 0) + 1,
+        };
+        row[ts] = detail;
+      }
+      const next = { ...previous };
+      if (Object.keys(row).length) next[rowId] = row;
+      else delete next[rowId];
+      return next;
+    });
 
     setEditValues(prev => {
       const row = { ...(prev[rowId] ?? {}) };
@@ -4474,38 +4745,41 @@ export default function CaseView({
     });
   };
 
-  const toggleRowVisibility = (rowId: string) => {
-    setHiddenRowIds(prev => {
+  const openParameterConfig = () => {
+    setDraftHiddenRowIds(hiddenRowIds);
+    setParameterSearch("");
+    setIsParamMenuOpen(true);
+  };
+
+  const toggleDraftRowVisibility = (rowId: string) => {
+    setDraftHiddenRowIds(prev => {
       const next = prev.includes(rowId)
         ? prev.filter(id => id !== rowId)
         : [...prev, rowId];
-      const nextSet = new Set(next);
-      const visibleIds = ivyRows
-        .filter(row => !nextSet.has(row.id))
-        .map(row => row.id);
-      setPreferredVisibleRowIds(visibleIds);
       return next;
     });
   };
 
-  const applyVisibilityPreset = (group: "all" | RowGroup) => {
+  const applyDraftVisibilityPreset = (group: "all" | RowGroup) => {
     if (group === "all") {
-      setHiddenRowIds([]);
-      setPreferredVisibleRowIds(ivyRows.map(row => row.id));
+      setDraftHiddenRowIds([]);
       return;
     }
 
     const nextHidden: string[] = [];
-    const nextVisible: string[] = [];
     for (const row of ivyRows) {
       if (getRowGroup(row.id) !== group) {
         nextHidden.push(row.id);
-      } else {
-        nextVisible.push(row.id);
       }
     }
-    setHiddenRowIds(nextHidden);
-    setPreferredVisibleRowIds(nextVisible);
+    setDraftHiddenRowIds(nextHidden);
+  };
+
+  const saveParameterVisibility = () => {
+    const hiddenSet = new Set(draftHiddenRowIds);
+    setHiddenRowIds(draftHiddenRowIds);
+    setPreferredVisibleRowIds(ivyRows.filter(row => !hiddenSet.has(row.id)).map(row => row.id));
+    setIsParamMenuOpen(false);
   };
 
   const eventModalResolvedTs = useMemo(() => {
@@ -5721,6 +5995,112 @@ export default function CaseView({
     }
   };
 
+  const openStartTimeModal = () => {
+    if (caseStatus.status === "IDLE") return;
+    setStartDateDraft(formatDDMMYYYY(caseStatus.start_time));
+    setStartTimeDraft(formatHHMM(caseStatus.start_time));
+    setStartTimeError("");
+    setStartTimeModalOpen(true);
+  };
+
+  const saveStartTime = async () => {
+    if (caseStatus.status === "IDLE") return;
+    const nextTs = toTsFromDateAndTime(startDateDraft, startTimeDraft);
+    if (nextTs == null) {
+      setStartTimeError("Enter a valid date and time.");
+      return;
+    }
+    if (nextTs > Date.now()) {
+      setStartTimeError("Case start cannot be in the future.");
+      return;
+    }
+    setStartTimeSaving(true);
+    setStartTimeError("");
+    try {
+      await updateCaseStartTime(caseStatus.case_id, nextTs);
+      window.dispatchEvent(new CustomEvent("flora:case-start-time-updated", {
+        detail: { caseId: caseStatus.case_id, startTime: nextTs },
+      }));
+      window.dispatchEvent(new CustomEvent("flora:case-events-changed", { detail: { caseId: caseStatus.case_id } }));
+      window.dispatchEvent(new CustomEvent("flora:case-io-changed", { detail: { caseId: caseStatus.case_id } }));
+      setStartTimeModalOpen(false);
+    } catch (error) {
+      setStartTimeError(error instanceof Error ? error.message : "Failed to update case start.");
+    } finally {
+      setStartTimeSaving(false);
+    }
+  };
+
+  const resetAllergyEditor = () => {
+    setAllergyEditingId(null);
+    setAllergyDeleteId(null);
+    setAllergyDraft({ allergen: "", reaction: "", severity: "" });
+    setAllergyError("");
+  };
+
+  const openAllergyModal = () => {
+    resetAllergyEditor();
+    setAllergyModalOpen(true);
+  };
+
+  const refreshAllergies = async () => {
+    if (caseId == null) return;
+    const next = await getCaseAllergies(caseId);
+    setPatientContext(previous => ({ ...previous, caseId, allergies: next }));
+    window.dispatchEvent(new CustomEvent("flora:allergy-changed", { detail: { caseId } }));
+  };
+
+  const editAllergy = (row: CaseAllergyRow) => {
+    setAllergyEditingId(String(row.id));
+    setAllergyDeleteId(null);
+    setAllergyDraft({
+      allergen: row.allergen || "",
+      reaction: row.reaction || "",
+      severity: row.severity || "",
+    });
+    setAllergyError("");
+  };
+
+  const saveAllergy = async () => {
+    if (caseId == null || !allergyDraft.allergen.trim()) {
+      setAllergyError("Allergen is required.");
+      return;
+    }
+    setAllergySaving(true);
+    setAllergyError("");
+    try {
+      const payload = {
+        allergen: allergyDraft.allergen.trim(),
+        reaction: allergyDraft.reaction.trim(),
+        severity: allergyDraft.severity.trim(),
+        status: "active",
+      };
+      if (allergyEditingId) await updateCaseAllergy(caseId, allergyEditingId, payload);
+      else await createCaseAllergy(caseId, payload);
+      await refreshAllergies();
+      resetAllergyEditor();
+    } catch (error) {
+      setAllergyError(error instanceof Error ? error.message : "Failed to save allergy.");
+    } finally {
+      setAllergySaving(false);
+    }
+  };
+
+  const removeAllergy = async () => {
+    if (caseId == null || allergyDeleteId == null) return;
+    setAllergySaving(true);
+    setAllergyError("");
+    try {
+      await deleteCaseAllergy(caseId, allergyDeleteId);
+      await refreshAllergies();
+      resetAllergyEditor();
+    } catch (error) {
+      setAllergyError(error instanceof Error ? error.message : "Failed to remove allergy.");
+    } finally {
+      setAllergySaving(false);
+    }
+  };
+
   if (caseStatus.status === "IDLE") {
     return <div className="p-6 text-gray-400">No active case</div>;
   }
@@ -5729,12 +6109,69 @@ export default function CaseView({
     ? nowTs
     : caseStatus.discharge_time || nowTs;
   const caseElapsed = Math.max(0, caseEndTs - caseStatus.start_time);
-  const caseDiagnosis = clinicalContext.caseId === caseId
-    ? clinicalContext.diagnosis.join(" · ")
-    : "Loading…";
-  const caseOperations = clinicalContext.caseId === caseId
-    ? clinicalContext.operations.join(" · ")
-    : "Loading…";
+  const diagnosisPrimary = clinicalContext.caseId === caseId ? clinicalContext.diagnosis[0] : null;
+  const operationPrimary = clinicalContext.caseId === caseId ? clinicalContext.operations[0] : null;
+  const additionalDiagnoses = clinicalContext.caseId === caseId ? clinicalContext.diagnosis.slice(1) : [];
+  const additionalOperations = clinicalContext.caseId === caseId ? clinicalContext.operations.slice(1) : [];
+  const patientLoaded = patientContext.caseId === caseId;
+  const patient = patientLoaded ? patientContext.patient : null;
+  const allergies = patientLoaded ? patientContext.allergies : [];
+  const patientName = patientLoaded ? formatPatientName(patient) : "Loading…";
+  const patientAge = patientLoaded ? formatPatientAge(patient) : "Loading…";
+  const patientSex = patientLoaded ? String(patient?.sex || "Sex not recorded").trim() : "Loading…";
+  const allergySummary = !patientLoaded
+    ? "Loading…"
+    : allergies.length
+      ? allergies.map(row => row.allergen).filter(Boolean).join(" · ")
+      : "No allergy recorded";
+  const diagnosisTooltip = clinicalContext.caseId !== caseId
+    ? "DIAGNOSIS\nLoading…"
+    : clinicalContext.diagnosis.length === 0
+      ? "DIAGNOSIS\nNo diagnosis recorded\nClick to add a record"
+      : [
+          `DIAGNOSIS · ${clinicalContext.diagnosis.length} ${clinicalContext.diagnosis.length === 1 ? "RECORD" : "RECORDS"}`,
+          ...clinicalContext.diagnosis.flatMap((row, index) => [
+            `${index + 1}. ${row.diagnosis_text}`,
+            `   ${row.entry_context === "preoperative" ? "Pre-op" : row.entry_context.replaceAll("_", " ")} · ${row.icd_code || "Local"} · ${formatCaseClock(row.event_ts, workstation)}`,
+          ]),
+          "Click to view or edit all records",
+        ].join("\n");
+  const operationTooltip = clinicalContext.caseId !== caseId
+    ? "OPERATION / PROCEDURE\nLoading…"
+    : clinicalContext.operations.length === 0
+      ? "OPERATION / PROCEDURE\nNo procedure recorded\nClick to add a record"
+      : [
+          `OPERATION / PROCEDURE · ${clinicalContext.operations.length} ${clinicalContext.operations.length === 1 ? "RECORD" : "RECORDS"}`,
+          ...clinicalContext.operations.flatMap((row, index) => [
+            `${index + 1}. ${row.procedure_text}`,
+            `   ${row.entry_context === "planned" ? "Planned" : "Performed"} · ${row.icd_code || "Local"} · ${formatCaseClock(row.event_ts, workstation)}`,
+          ]),
+          "Click to view or edit all records",
+        ].join("\n");
+  const allergyTooltip = !patientLoaded
+    ? "ALLERGY\nLoading…"
+    : allergies.length === 0
+      ? "ALLERGY\nNo allergy recorded\nClick to review or add"
+      : [
+          `ALLERGY · ${allergies.length} ${allergies.length === 1 ? "RECORD" : "RECORDS"}`,
+          ...allergies.map((row, index) => `${index + 1}. ${row.allergen}${row.reaction ? ` · ${row.reaction}` : ""}${row.severity ? ` · ${row.severity}` : ""}`),
+          "Click to view or edit all records",
+        ].join("\n");
+  const compactTimeline = viewportWidth > 0 && viewportWidth < 720;
+  const timelineColWidth = compactTimeline ? 68 : 51;
+  const timelineLabelWidth = compactTimeline ? 108 : 124;
+  const timelineNowIndex = axis.findIndex((ts, index) => {
+    const next = axis[index + 1] ?? Infinity;
+    return ts <= nowTs && next > nowTs;
+  });
+  const timelineNowLeft = (() => {
+    if (timelineNowIndex < 0) return null;
+    const bucketStart = axis[timelineNowIndex];
+    const fallbackStep = axis.length > 1 ? Math.max(1, axis[1] - axis[0]) : 60_000;
+    const bucketEnd = axis[timelineNowIndex + 1] ?? bucketStart + fallbackStep;
+    const progress = Math.max(0, Math.min(1, (nowTs - bucketStart) / Math.max(1, bucketEnd - bucketStart)));
+    return timelineLabelWidth + (timelineNowIndex + progress) * timelineColWidth;
+  })();
   const renderTimeGrid = (displaySection: "events-io" | "vitals") => (
     <TimeGrid
       displaySection={displaySection}
@@ -5742,12 +6179,15 @@ export default function CaseView({
       ivyRows={visibleIvyRows}
       rowsAfterEvent={rowsAfterEvent}
       values={combinedGridValues}
+      cellProvenance={cellProvenance}
       ioDripRateByRowTs={ioDripRateByRowTs}
       eventMarkersByTs={eventMarkersByTs}
       preparedMarkersByTs={ioPreparedMarkersByTs}
       nowTs={nowTs}
       scrollLeft={scrollLeft}
       viewportWidth={viewportWidth}
+      colWidth={timelineColWidth}
+      labelColWidth={timelineLabelWidth}
       onChange={handleCellChange}
       onIoCellClick={handleIoCellClick}
       onPreparedMarkerClick={handlePreparedMarkerClick}
@@ -5772,25 +6212,121 @@ export default function CaseView({
       onEventMarkerClick={openEventModalForMarker}
     />
   );
+  const headerCards = {
+    los: (
+      <HeaderCard
+        group="Case LOS"
+        icon={timeCardIcon}
+        main={formatCaseElapsed(caseElapsed)}
+        sub1={<><b>Started</b> {formatCaseClock(caseStatus.start_time, workstation)}</>}
+        tooltip={`CASE LOS\n${formatCaseElapsed(caseElapsed)}\nStarted ${formatCaseClock(caseStatus.start_time, workstation)}\nClick to adjust case start time`}
+        onClick={openStartTimeModal}
+        ariaLabel="Adjust case start date and time"
+        emphasis
+      />
+    ),
+    patient: (
+      <HeaderCard
+        group="Patient"
+        icon={patientCardIcon}
+        main={patientName}
+        sub1={<><b>HN {caseStatus.hn}</b> · {patientAge} · {patientSex}</>}
+        sub2={patient?.an ? <>AN {patient.an}</> : undefined}
+        tooltip={`PATIENT\n${patientName}\nHN ${caseStatus.hn}${patient?.an ? ` · AN ${patient.an}` : ""}\n${patientAge} · ${patientSex}\nClick to view or edit patient information`}
+        onClick={() => onNavigate?.("patient")}
+        ariaLabel="Edit patient information"
+      />
+    ),
+    allergy: (
+      <HeaderCard
+        group="Allergy"
+        count={allergies.length || undefined}
+        icon={allergyCardIcon}
+        main={allergySummary}
+        sub1={allergies.length ? allergies.map(row => [row.reaction, row.severity].filter(Boolean).join(" · ")).filter(Boolean).join(" | ") || "Recorded allergy" : "Review patient allergy"}
+        tooltip={allergyTooltip}
+        onClick={openAllergyModal}
+        ariaLabel="Edit allergy information"
+        tone={allergies.length ? "alert" : "default"}
+      />
+    ),
+    diagnosis: (
+      <HeaderCard
+        group="Diagnosis"
+        count={clinicalContext.caseId === caseId ? clinicalContext.diagnosis.length : undefined}
+        icon={diagnosisCardIcon}
+        main={diagnosisPrimary?.diagnosis_text || (clinicalContext.caseId === caseId ? "Not recorded" : "Loading…")}
+        sub1={diagnosisPrimary ? <>{diagnosisPrimary.entry_context === "preoperative" ? "Pre-op" : diagnosisPrimary.entry_context} · {formatCaseClock(diagnosisPrimary.event_ts, workstation)} · {diagnosisPrimary.icd_code || "Local"}</> : undefined}
+        sub2={additionalDiagnoses.length ? <><b>2.</b> {additionalDiagnoses[0].diagnosis_text}{additionalDiagnoses.length > 1 ? ` · +${additionalDiagnoses.length - 1} more` : ""}</> : undefined}
+        tooltip={diagnosisTooltip}
+        onClick={() => onNavigate?.("diagnosis")}
+        ariaLabel="Open diagnosis records"
+      />
+    ),
+    operation: (
+      <HeaderCard
+        group="Operation"
+        count={clinicalContext.caseId === caseId ? clinicalContext.operations.length : undefined}
+        icon={procedureCardIcon}
+        main={operationPrimary?.procedure_text || (clinicalContext.caseId === caseId ? "Not recorded" : "Loading…")}
+        sub1={operationPrimary ? <>{operationPrimary.entry_context === "planned" ? "Planned" : "Performed"} · {formatCaseClock(operationPrimary.event_ts, workstation)} · {operationPrimary.icd_code || "Local"}</> : undefined}
+        sub2={additionalOperations.length ? <><b>2.</b> {additionalOperations[0].procedure_text}{additionalOperations.length > 1 ? ` · +${additionalOperations.length - 1} more` : ""}</> : undefined}
+        tooltip={operationTooltip}
+        onClick={() => onNavigate?.("diagnosis")}
+        ariaLabel="Open operation records"
+      />
+    ),
+  };
 
   return (
-    <div className="relative h-full min-h-0 p-2 bg-gray-50 dark:bg-gray-900 flex flex-col">
-      <div className="case-kronos mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
-        <div className="case-kronos__clock">
-          <span className="case-kronos__eyebrow">KRONOS · {caseStatus.status === "ACTIVE" ? "LIVE" : "COMPLETED"}</span>
-          <strong className="case-kronos__elapsed">{formatKronosElapsed(caseElapsed)}</strong>
-          <span className="case-kronos__sub">Started {formatKronosClock(caseStatus.start_time)} · Now {formatKronosClock(nowTs)}</span>
+    <div className={`case-workspace case-workspace--${summaryDock} relative h-full min-h-0 p-2 bg-gray-50 dark:bg-gray-900`}>
+      <div className="case-kronos rounded-xl border px-3 py-2 text-xs">
+        <div className="case-header-grid">
+          {headerCardOrder.map(cardId => (
+            <div
+              key={cardId}
+              className={`case-header-card-slot${draggedHeaderCard === cardId ? " case-header-card-slot--dragging" : ""}`}
+              draggable
+              tabIndex={0}
+              aria-label={`${cardId} summary card. Drag to reorder; Alt plus arrow keys also move it.`}
+              onDragStart={event => {
+                setDraggedHeaderCard(cardId);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", cardId);
+              }}
+              onDragEnd={() => setDraggedHeaderCard(null)}
+              onDragOver={event => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={event => {
+                event.preventDefault();
+                const source = (event.dataTransfer.getData("text/plain") || draggedHeaderCard) as CaseHeaderCardId | null;
+                if (source && DEFAULT_CASE_HEADER_ORDER.includes(source)) moveHeaderCard(source, cardId);
+                setDraggedHeaderCard(null);
+              }}
+              onKeyDown={event => {
+                if (!event.altKey) return;
+                if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  moveHeaderCardByOffset(cardId, -1);
+                } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                  event.preventDefault();
+                  moveHeaderCardByOffset(cardId, 1);
+                }
+              }}
+            >
+              {headerCards[cardId]}
+            </div>
+          ))}
         </div>
+      </div>
 
-        <div className="case-kronos__clinical" aria-label="Clinical context">
-          <span title={caseDiagnosis || "Not recorded"}><b>Diagnosis</b> {caseDiagnosis || "Not recorded"}</span>
-          <span title={caseOperations || "Not recorded"}><b>Operation</b> {caseOperations || "Not recorded"}</span>
-        </div>
-
-        <div className="case-kronos__controls">
-          <label className="case-kronos__eyebrow" htmlFor="case-timeline-scale">TIME SCALE</label>
+        <div className="case-kronos__toolbar rounded-xl border px-3 py-2">
+          <div className="case-kronos__controls">
+          <label className="case-kronos__eyebrow" htmlFor="case-timeline-scale">MINUTE SCALE</label>
           <div className="case-kronos__stepper">
-            <button type="button" aria-label="Decrease time scale" disabled={axisStepMin <= minimumScale} onClick={() => changeScale(axisStepMin - 1)}>−</button>
+            <button type="button" aria-label="Decrease minute scale" disabled={axisStepMin <= minimumScale} onClick={() => changeScale(axisStepMin - 1)}>−</button>
             <input
               id="case-timeline-scale"
               type="number"
@@ -5805,101 +6341,51 @@ export default function CaseView({
                 if (event.key === "Escape") { setScaleDraft(String(axisStepMin)); event.currentTarget.blur(); }
               }}
             />
-            <span>min</span>
-            <button type="button" aria-label="Increase time scale" disabled={axisStepMin >= maximumScale} onClick={() => changeScale(axisStepMin + 1)}>+</button>
+            <button type="button" aria-label="Increase minute scale" disabled={axisStepMin >= maximumScale} onClick={() => changeScale(axisStepMin + 1)}>+</button>
           </div>
           <span className="case-kronos__sync" role="status" aria-live="polite">
             {rawTimelineLoading ? "Updating…" : lastSyncedAt ? "Synced" : "Connecting…"}
           </span>
           {!followLatest && caseStatus.status === "ACTIVE" ? (
-            <button type="button" className="case-kronos__latest" onClick={() => setFollowLatest(true)}>Return to latest</button>
+            <button type="button" className="case-kronos__latest" onClick={() => setFollowLatest(true)}>Back to now</button>
           ) : null}
-        </div>
+          </div>
 
-        <div className="relative">
+          <div className="case-summary-dock-control inline-flex items-center overflow-visible rounded border border-[var(--app-border)] bg-[var(--app-control-bg)]" aria-label="Case information position">
+            <span className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-[var(--app-muted)]">Case Info</span>
+            {(["left", "top", "bottom", "right"] as const).map(position => (
+              <button
+                key={position}
+                type="button"
+                onClick={() => setSummaryDock(position)}
+                aria-pressed={summaryDock === position}
+                aria-label={`Place case information at ${position}`}
+                data-tooltip={`Case information: ${position}`}
+                className={`app-tooltip grid h-8 w-8 place-items-center border-l border-[var(--app-border)] transition-colors ${summaryDock === position ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "text-[var(--app-text)] hover:bg-[var(--app-panel-bg)]"}`}
+              >
+                <SummaryDockIcon position={position} />
+              </button>
+            ))}
+          </div>
+
+          <div className="case-kronos__parameters">
           <button
             type="button"
-            onClick={() => setIsParamMenuOpen(prev => !prev)}
-            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1 text-xs"
+            onClick={openParameterConfig}
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)]"
           >
-            Parameters ({visibleIvyRows.length})
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" strokeLinecap="round" /></svg>
+            Parameters <span className="rounded-full bg-[var(--timegrid-focus-bg)] px-1.5 py-0.5 text-[10px]">{visibleIvyRows.length}</span>
           </button>
 
-          {isParamMenuOpen ? (
-            <div className="absolute left-0 z-40 mt-1 w-72 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-2 shadow-lg">
-              <div className="mb-2 flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => applyVisibilityPreset("all")}
-                  className="rounded border border-gray-300 dark:border-gray-700 px-2 py-0.5 text-[10px]"
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyVisibilityPreset("core")}
-                  className="rounded border border-gray-300 dark:border-gray-700 px-2 py-0.5 text-[10px]"
-                >
-                  Vital
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyVisibilityPreset("measured")}
-                  className="rounded border border-gray-300 dark:border-gray-700 px-2 py-0.5 text-[10px]"
-                >
-                  Measured
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyVisibilityPreset("set")}
-                  className="rounded border border-gray-300 dark:border-gray-700 px-2 py-0.5 text-[10px]"
-                >
-                  Set
-                </button>
-              </div>
-
-              <div className="max-h-60 overflow-y-auto space-y-1">
-                {ivyRows.map(row => {
-                  const checked = !hiddenRowIdSet.has(row.id);
-                  const rowGroup = getRowGroup(row.id);
-                  const rowBadgeClass =
-                    rowGroup === "set"
-                      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                      : "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300";
-                  return (
-                    <label key={row.id} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleRowVisibility(row.id)}
-                      />
-                      {rowGroup !== "core" ? (
-                        <span
-                          className={`inline-flex h-3 min-w-3 items-center justify-center rounded px-[2px] text-[8px] leading-none font-semibold ${rowBadgeClass}`}
-                        >
-                          {rowGroup === "set" ? "S" : "M"}
-                        </span>
-                      ) : null}
-                      <span className="truncate">{row.label}</span>
-                      {row.unit ? (
-                        <span className="shrink-0 text-[10px] text-gray-500 dark:text-gray-400">
-                          ({row.unit})
-                        </span>
-                      ) : null}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
+          </div>
         </div>
 
         {quickIoError ? (
-          <div className="w-full text-xs text-red-600 dark:text-red-400">
+          <div className="case-workspace__error w-full text-xs text-red-600 dark:text-red-400">
             {quickIoError}
           </div>
         ) : null}
-      </div>
 
       <div
         ref={scrollRef}
@@ -5908,49 +6394,279 @@ export default function CaseView({
           setScrollLeft(el.scrollLeft);
           setFollowLatest(el.scrollWidth - el.clientWidth - el.scrollLeft < 100);
         }}
-        className="
+        className="case-timeline-scroll
           flex-1 min-h-0
-          overflow-x-auto overflow-y-hidden
+          overflow-auto
           scrollbar-thin
           scrollbar-thumb-gray-400/40
           scrollbar-track-transparent
         "
       >
-        <div className="min-w-max h-full flex flex-col">
-          <TimeAxis axis={axis} nowTs={nowTs} scrollLeft={scrollLeft} viewportWidth={viewportWidth} />
-          <div className="case-kronos__entries max-h-[30vh] overflow-y-auto">
+        <div className="relative min-w-max min-h-full">
+          {timelineNowLeft !== null ? (
+            <div
+              className="timeline-now-rule"
+              style={{ left: timelineNowLeft }}
+              aria-hidden="true"
+            />
+          ) : null}
+          <TimeAxis axis={axis} nowTs={nowTs} scrollLeft={scrollLeft} viewportWidth={viewportWidth} colWidth={timelineColWidth} labelColWidth={timelineLabelWidth} />
+          <div className="case-kronos__entries">
             {renderTimeGrid("events-io")}
           </div>
           <TimeChart
+            key={`chart-${scopeUsername}-${parameterMasterLoaded ? "master" : "fallback"}`}
             axis={axis}
             values={values}
             nowTs={nowTs}
-            storageKey={getChartVisibilityStorageKey(scopeUsername)}
+            configuredGroups={parameterMasterLoaded ? chartGroups : undefined}
+            storageKey={`flora.chartVisibility.${scopeUsername}`}
             scrollLeft={scrollLeft}
             viewportWidth={viewportWidth}
+            colWidth={timelineColWidth}
+            labelColWidth={timelineLabelWidth}
+            height={compactTimeline ? 170 : 150}
           />
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div>
             {renderTimeGrid("vitals")}
           </div>
         </div>
       </div>
 
+      {isParamMenuOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => setIsParamMenuOpen(false)}>
+              <section
+                className="case-modal w-full max-w-3xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="case-parameter-config-title"
+                onMouseDown={event => event.stopPropagation()}
+              >
+                <header className="case-modal__header">
+                  <div className="case-modal__identity">
+                    <span className="case-modal__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" strokeLinecap="round" /></svg>
+                    </span>
+                    <div>
+                      <div className="case-modal__eyebrow">Timeline table</div>
+                      <h2 id="case-parameter-config-title" className="case-modal__title">Visible parameters</h2>
+                      <p className="case-modal__context">{ivyRows.length - draftHiddenRowIds.length} of {ivyRows.length} selected</p>
+                    </div>
+                  </div>
+                  <button type="button" className="case-modal__close" onClick={() => setIsParamMenuOpen(false)} aria-label="Close">×</button>
+                </header>
+
+                <div className="case-modal__body space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {([ ["all", "All"], ["core", "Vital"], ["measured", "Measured"], ["set", "Set"] ] as const).map(([group, label]) => (
+                      <button
+                        key={group}
+                        type="button"
+                        onClick={() => applyDraftVisibilityPreset(group)}
+                        className="case-modal__button min-h-9"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => setDraftHiddenRowIds(ivyRows.map(row => row.id))} className="case-modal__button min-h-9">None</button>
+                    <label className="ml-auto min-w-52 flex-1 sm:max-w-xs">
+                      <span className="sr-only">Search parameters</span>
+                      <input
+                        autoFocus
+                        type="search"
+                        value={parameterSearch}
+                        onChange={event => setParameterSearch(event.target.value)}
+                        placeholder="Search parameter, ID or unit"
+                        className="h-10 w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 text-sm text-[var(--app-text)] outline-none focus:border-[var(--app-accent)]"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid max-h-[58vh] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                    {filteredParameterRows.map(row => {
+                      const selected = !draftHiddenRowIds.includes(row.id);
+                      const rowGroup = getRowGroup(row.id);
+                      return (
+                        <button
+                          key={row.id}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => toggleDraftRowVisibility(row.id)}
+                          className={`flex min-h-12 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${selected ? "border-[var(--app-accent)] bg-[var(--timegrid-focus-bg)] text-[var(--app-text)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-muted)] hover:bg-[var(--app-control-bg-hover)]"}`}
+                        >
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-black ${selected ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-[var(--app-border)]"}`}>{selected ? "✓" : ""}</span>
+                          <span className="min-w-0 flex-1">
+                            <strong className="block truncate text-sm">{row.label}</strong>
+                            <span className="block truncate text-[10px] text-[var(--app-muted)]">{row.id}{row.unit ? ` · ${row.unit}` : ""}</span>
+                          </span>
+                          <span className="shrink-0 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--app-muted)]">{rowGroup}</span>
+                        </button>
+                      );
+                    })}
+                    {filteredParameterRows.length === 0 ? <div className="col-span-full rounded-lg border border-dashed border-[var(--app-border)] px-4 py-8 text-center text-sm text-[var(--app-muted)]">No matching parameters</div> : null}
+                  </div>
+
+                  <footer className="case-modal__actions">
+                    <button type="button" className="case-modal__button" onClick={() => setIsParamMenuOpen(false)}>Cancel</button>
+                    <button type="button" className="case-modal__button case-modal__button--primary" onClick={saveParameterVisibility}>Done</button>
+                  </footer>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {allergyModalOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="app-theme-scope case-modal-backdrop"
+              onMouseDown={() => !allergySaving && setAllergyModalOpen(false)}
+            >
+              <section
+                className="case-modal case-modal--allergy"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="case-allergy-title"
+                onMouseDown={event => event.stopPropagation()}
+              >
+                <header className="case-modal__header">
+                  <div className="case-modal__identity">
+                    <span className="case-modal__icon case-modal__icon--danger" aria-hidden="true">!</span>
+                    <div>
+                      <div className="case-modal__eyebrow">Patient safety</div>
+                      <h2 id="case-allergy-title" className="case-modal__title">Allergy</h2>
+                      <p className="case-modal__context">{patientName} · HN {caseStatus.hn}</p>
+                    </div>
+                  </div>
+                  <button type="button" className="case-modal__close" onClick={() => setAllergyModalOpen(false)} aria-label="Close">×</button>
+                </header>
+
+                <div className="case-modal__body">
+                  <div className="allergy-record-list">
+                    {allergies.length === 0 ? (
+                      <div className="allergy-empty">
+                        <span>No allergy recorded</span>
+                        <small>Confirm the history or add an allergy below.</small>
+                      </div>
+                    ) : allergies.map(row => (
+                      <article key={row.id} className={`allergy-record${allergyEditingId === String(row.id) ? " allergy-record--active" : ""}`}>
+                        <button type="button" className="allergy-record__content" onClick={() => editAllergy(row)}>
+                          <strong>{row.allergen}</strong>
+                          <span>{[row.reaction, row.severity].filter(Boolean).join(" · ") || "Reaction not recorded"}</span>
+                        </button>
+                        <div className="allergy-record__meta">
+                          <span>{row.source || "Manual"}</span>
+                          {allergyDeleteId === String(row.id) ? (
+                            <div className="allergy-record__confirm">
+                              <button type="button" onClick={() => setAllergyDeleteId(null)}>Keep</button>
+                              <button type="button" className="danger" onClick={() => void removeAllergy()} disabled={allergySaving}>Remove</button>
+                            </div>
+                          ) : (
+                            <button type="button" className="allergy-record__remove" onClick={() => setAllergyDeleteId(String(row.id))}>Remove</button>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+
+                  <form className="allergy-editor" onSubmit={event => { event.preventDefault(); void saveAllergy(); }}>
+                    <div className="allergy-editor__heading">
+                      <strong>{allergyEditingId ? "Edit allergy" : "Add allergy"}</strong>
+                      {allergyEditingId ? <button type="button" onClick={resetAllergyEditor}>New entry</button> : null}
+                    </div>
+                    <div className="allergy-editor__grid">
+                      <label className="case-modal__field allergy-editor__allergen">
+                        <span>Allergen</span>
+                        <input autoFocus value={allergyDraft.allergen} onChange={event => setAllergyDraft(previous => ({ ...previous, allergen: event.target.value }))} placeholder="e.g. Penicillin" />
+                      </label>
+                      <label className="case-modal__field">
+                        <span>Reaction</span>
+                        <input value={allergyDraft.reaction} onChange={event => setAllergyDraft(previous => ({ ...previous, reaction: event.target.value }))} placeholder="e.g. Urticaria" />
+                      </label>
+                    </div>
+                    <fieldset className="allergy-severity">
+                      <legend>Severity</legend>
+                      <div>
+                        {["Mild", "Moderate", "Severe", "Unknown"].map(level => (
+                          <button
+                            key={level}
+                            type="button"
+                            aria-pressed={allergyDraft.severity === level}
+                            onClick={() => setAllergyDraft(previous => ({ ...previous, severity: level }))}
+                          >
+                            {level}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    {allergyError ? <p className="case-modal__error">{allergyError}</p> : null}
+                    <footer className="case-modal__actions">
+                      <button type="button" className="case-modal__button" onClick={() => setAllergyModalOpen(false)}>Close</button>
+                      <button type="submit" className="case-modal__button case-modal__button--primary" disabled={allergySaving || !allergyDraft.allergen.trim()}>
+                        {allergySaving ? "Saving…" : allergyEditingId ? "Update allergy" : "Add allergy"}
+                      </button>
+                    </footer>
+                  </form>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {startTimeModalOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => !startTimeSaving && setStartTimeModalOpen(false)}>
+              <form
+                className="case-modal max-w-md"
+                onMouseDown={event => event.stopPropagation()}
+                onSubmit={event => { event.preventDefault(); void saveStartTime(); }}
+              >
+                <header className="case-modal__header">
+                  <div className="case-modal__identity"><span className="case-modal__icon" aria-hidden="true">↺</span><div><div className="case-modal__eyebrow">Case timeline</div><h2 className="case-modal__title">Adjust start time</h2><p className="case-modal__context">All timeline entries remain at their recorded time.</p></div></div>
+                  <button type="button" className="case-modal__close" onClick={() => setStartTimeModalOpen(false)} aria-label="Close">×</button>
+                </header>
+                <div className="case-modal__body">
+                <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3 max-[520px]:grid-cols-1">
+                  <label className="case-modal__field">Date
+                    <input autoFocus value={startDateDraft} onChange={event => setStartDateDraft(formatDateInputDDMMYYYY(event.target.value))} placeholder="DD/MM/YYYY" maxLength={10} />
+                  </label>
+                  <label className="case-modal__field">Time
+                    <input value={startTimeDraft} onChange={event => setStartTimeDraft(formatTimeInputHHMM(event.target.value))} placeholder="HH:mm" maxLength={5} />
+                  </label>
+                </div>
+                {startTimeError ? <p className="case-modal__error">{startTimeError}</p> : null}
+                <footer className="case-modal__actions">
+                  <button type="button" className="case-modal__button" onClick={() => setStartTimeModalOpen(false)}>Cancel</button>
+                  <button type="submit" disabled={startTimeSaving} className="case-modal__button case-modal__button--primary">{startTimeSaving ? "Saving…" : "Save change"}</button>
+                </footer>
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
+
       {eventModalTs != null && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope case-modal-backdrop"
               onMouseDown={closeEventModal}
             >
               <div
                 ref={eventModalRef}
                 tabIndex={-1}
-                className="w-full max-w-2xl rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-3 space-y-2 backdrop-blur"
+                className="case-modal case-modal--event"
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={handleEventModalKeyDown}
               >
-                <div className="text-sm font-semibold">
-                  {eventModalEditingId != null ? "Edit Event / Note" : "Event / Note"}
-                </div>
+                <header className="case-modal__header">
+                  <div className="case-modal__identity"><span className="case-modal__icon" aria-hidden="true">+</span><div><div className="case-modal__eyebrow">Clinical timeline</div><h2 className="case-modal__title">{eventModalEditingId != null ? "Edit entry" : "Add entry"}</h2><p className="case-modal__context">Record an event or clinical note at {eventModalTime}</p></div></div>
+                  <button type="button" className="case-modal__close" onClick={closeEventModal} aria-label="Close">×</button>
+                </header>
+                <div className="case-modal__body space-y-3">
                 <div className="grid grid-cols-[90px_1fr] items-center gap-2">
                   <label className="text-xs text-[var(--app-muted)]">Time</label>
                   <input
@@ -5978,7 +6694,7 @@ export default function CaseView({
                         onClick={() => setEventModalMode("event")}
                         className={`px-3 py-1.5 text-sm ${
                           eventModalMode === "event"
-                            ? "bg-blue-600 text-white"
+                            ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]"
                             : "bg-[var(--app-control-bg)] text-[var(--app-text)] hover:bg-[var(--app-control-bg-hover)]"
                         }`}
                       >
@@ -5989,7 +6705,7 @@ export default function CaseView({
                         onClick={() => setEventModalMode("note")}
                         className={`px-3 py-1.5 text-sm ${
                           eventModalMode === "note"
-                            ? "bg-blue-600 text-white"
+                            ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]"
                             : "bg-[var(--app-control-bg)] text-[var(--app-text)] hover:bg-[var(--app-control-bg-hover)]"
                         }`}
                       >
@@ -6014,7 +6730,7 @@ export default function CaseView({
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-5 gap-2">
+                      <div className="grid max-h-[46vh] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
                         {MANUAL_EVENT_BUTTON_LAYOUT.map(option => {
                           const disabledByAvailability =
                             Boolean(eventModalAvailability[option.title]?.disabled);
@@ -6029,13 +6745,13 @@ export default function CaseView({
                               disabled={disabled}
                               className={`rounded border px-3 py-2 text-center text-sm leading-tight ${
                                 selected
-                                  ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/35 dark:text-blue-200"
+                                  ? "border-[var(--app-accent)] bg-[var(--timegrid-focus-bg)] text-[var(--app-text)]"
                                   : "border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-text)]"
                               } ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--app-control-bg-hover)]"}`}
                               title={option.title}
                             >
-                              <div className="mx-auto mb-1 flex h-5 w-5 items-center justify-center">
-                                <OptionIcon className="h-5 w-5" />
+                              <div className="mx-auto mb-1 flex h-9 w-9 items-center justify-center">
+                                <OptionIcon className="h-9 w-9" />
                               </div>
                               <div>{option.shortLabel}</div>
                             </button>
@@ -6078,7 +6794,7 @@ export default function CaseView({
                 {eventModalError ? (
                   <div className="text-xs text-red-600 dark:text-red-400">{eventModalError}</div>
                 ) : null}
-                <div className="flex justify-end gap-2">
+                <div className="case-modal__actions">
                   <button
                     type="button"
                     onClick={closeEventModal}
@@ -6125,6 +6841,7 @@ export default function CaseView({
                     >
                       {eventModalSaving ? "Saving..." : "Save"}
                     </button>
+                </div>
                 </div>
               </div>
             </div>,

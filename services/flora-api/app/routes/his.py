@@ -10,12 +10,14 @@ from psycopg import Connection
 
 from ..clinical import text
 from ..database import connection
-from .auth_leaf import current_user
+from ..demo_his import demo_patient_catalog, find_demo_patient
+from .auth_leaf import require_permission
 from .cases_lifecycle import editable_case
 
-router = APIRouter(prefix="/api/case", tags=["HIS"])
+router = APIRouter(prefix="/api/case", tags=["HIS"], dependencies=[Depends(require_permission("case.read"))])
 GATEWAY = os.getenv("HIS_GATEWAY_BASE_URL", "http://10.35.202.6:8590").rstrip("/")
 TIMEOUT = max(3, int(os.getenv("HIS_GATEWAY_TIMEOUT_SECONDS", "45")))
+DEMO_MODE = os.getenv("FLORA_HIS_DEMO_MODE", "false").strip().lower() == "true"
 
 PATIENT_COLUMNS = ("hn","an","is_patient","notype","id_card","patient_name","title_th","title_en","first_name",
     "last_name","first_name_en","last_name_en","sex","dob","age_text","weight_kg","height_cm","blood_group_text",
@@ -113,12 +115,12 @@ def snapshot(database, hn):
     labs=database.execute("SELECT id,test_name,test_group,value_text,unit,ref_range,flag,collected_at,source,updated_at FROM his_lab_buffer WHERE hn=%s ORDER BY collected_at DESC NULLS LAST,id DESC",(hn,)).fetchall()
     try: payload=json.loads(patient["raw_payload"] or "{}")
     except ValueError: payload={}
-    return {"row":patient,"allergies":allergies,"labs":labs,"his_payload":payload}
+    return {"row":patient,"allergies":allergies,"labs":labs,"his_payload":payload,"exchange":payload.get("_flora_exchange") if isinstance(payload,dict) else None}
 
 
 def save_buffer(database, hn, patient, payload, allergies, labs, pre_admit_at=None, pre_admit_note=None):
     now=int(time.time()*1000); values={key:patient.get(key) for key in PATIENT_COLUMNS}
-    values.update(source="HIS",raw_payload=json.dumps(payload,ensure_ascii=False),pre_admit_at=pre_admit_at,
+    values.update(source="DEMO_HIS" if isinstance(payload,dict) and payload.get("_flora_exchange") else "HIS",raw_payload=json.dumps(payload,ensure_ascii=False),pre_admit_at=pre_admit_at,
       pre_admit_note=pre_admit_note,his_updated_at=now,created_at=now,updated_at=now)
     keys=list(values)
     database.execute(f"""INSERT INTO his_patient_buffer({','.join(keys)}) VALUES ({','.join(['%s']*len(keys))})
@@ -130,7 +132,9 @@ def save_buffer(database, hn, patient, payload, allergies, labs, pre_admit_at=No
 
 
 def online_lookup(database, hn, labgrp="28", full=True, pre_admit_at=None, pre_admit_note=None):
-    payload=gateway("/api/patient-full" if full else "/api/patient-info",{"hn":hn,"labgrp":labgrp} if full else {"hn":hn})
+    payload=find_demo_patient(hn,full) if DEMO_MODE else None
+    if payload is None:
+        payload=gateway("/api/patient-full" if full else "/api/patient-info",{"hn":hn,"labgrp":labgrp} if full else {"hn":hn})
     info=rows(payload.get("patientInfo") if isinstance(payload,dict) else payload)
     inpatient=rows(payload.get("inpatientAn") if isinstance(payload,dict) else None)
     vitals=rows(payload.get("vital") if isinstance(payload,dict) else None)
@@ -140,11 +144,17 @@ def online_lookup(database, hn, labgrp="28", full=True, pre_admit_at=None, pre_a
     labs=mapped_labs(rows(payload.get("lab") if isinstance(payload,dict) else None),now) if full else []
     with database.transaction(): save_buffer(database,hn,patient,payload,allergies,labs,pre_admit_at,pre_admit_note)
     snap=snapshot(database,hn)
-    return {"ok":True,"hn":hn,"source":"HIS","offline":False,"row":snap["row"],"allergies":snap["allergies"],"labs":snap["labs"],"his_payload":payload,"his_errors":payload.get("errors",{}) if isinstance(payload,dict) else {}}
+    exchange=snap.get("exchange")
+    return {"ok":True,"hn":hn,"source":"DEMO_HIS" if exchange else "HIS","offline":False,"row":snap["row"],"allergies":snap["allergies"],"labs":snap["labs"],"his_payload":payload,"exchange":exchange,"his_errors":payload.get("errors",{}) if isinstance(payload,dict) else {}}
+
+
+@router.get("/his/demo-patients")
+def list_demo_patients(_:dict=Depends(require_permission("case.create"))):
+    return {"enabled":DEMO_MODE,"synthetic":True,"rows":demo_patient_catalog() if DEMO_MODE else []}
 
 
 @router.post("/his/lookup")
-def lookup(payload:dict=Body(...),database:Connection=Depends(connection)):
+def lookup(payload:dict=Body(...),_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"));
     if not hn: raise HTTPException(400,"hn is required")
     try: return online_lookup(database,hn,text(payload.get("labgrp")) or "28")
@@ -155,7 +165,7 @@ def lookup(payload:dict=Body(...),database:Connection=Depends(connection)):
 
 
 @router.post("/his/patient-info-lookup")
-def patient_lookup(payload:dict=Body(...),database:Connection=Depends(connection)):
+def patient_lookup(payload:dict=Body(...),_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"));
     if not hn: raise HTTPException(400,"hn is required")
     try: return online_lookup(database,hn,full=False)
@@ -163,7 +173,7 @@ def patient_lookup(payload:dict=Body(...),database:Connection=Depends(connection
 
 
 @router.post("/his/preload")
-def preload(payload:dict=Body(...),_:dict=Depends(current_user),database:Connection=Depends(connection)):
+def preload(payload:dict=Body(...),_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"));
     if not hn: raise HTTPException(400,"hn is required")
     try: return online_lookup(database,hn,text(payload.get("labgrp")) or "28",True,payload.get("pre_admit_at"),text(payload.get("pre_admit_note")))
@@ -193,7 +203,7 @@ def get_buffer(hn:str,database:Connection=Depends(connection)):
 
 
 @router.delete("/his/buffer/{hn}")
-def delete_buffer(hn:str,_:dict=Depends(current_user),database:Connection=Depends(connection)):
+def delete_buffer(hn:str,_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     with database.transaction():
         if not database.execute("DELETE FROM his_patient_buffer WHERE hn=%s RETURNING hn",(hn,)).fetchone(): raise HTTPException(404,"buffer patient not found")
         database.execute("DELETE FROM his_allergy_buffer WHERE hn=%s",(hn,)); database.execute("DELETE FROM his_lab_buffer WHERE hn=%s",(hn,))
@@ -201,7 +211,7 @@ def delete_buffer(hn:str,_:dict=Depends(current_user),database:Connection=Depend
 
 
 @router.post("/his/buffer/{hn}/pre-admit")
-def pre_admit(hn:str,payload:dict=Body(...),_:dict=Depends(current_user),database:Connection=Depends(connection)):
+def pre_admit(hn:str,payload:dict=Body(...),_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     row=database.execute("UPDATE his_patient_buffer SET pre_admit_at=%s,pre_admit_note=%s,updated_at=%s WHERE hn=%s RETURNING hn,pre_admit_at,pre_admit_note",
       (payload.get("pre_admit_at"),text(payload.get("pre_admit_note")),int(time.time()*1000),hn)).fetchone()
     if not row: raise HTTPException(404,"buffer patient not found")
@@ -225,7 +235,7 @@ def buffered_or_online_rows(database, hn, kind, payload):
 
 
 @router.post("/his/allergy")
-def allergy_fetch(payload:dict=Body(...),database:Connection=Depends(connection)):
+def allergy_fetch(payload:dict=Body(...),_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"));
     if not hn: raise HTTPException(400,"hn is required")
     source,offline,result,errors=buffered_or_online_rows(database,hn,"allergy",payload)
@@ -233,7 +243,7 @@ def allergy_fetch(payload:dict=Body(...),database:Connection=Depends(connection)
 
 
 @router.post("/his/lab")
-def lab_fetch(payload:dict=Body(...),database:Connection=Depends(connection)):
+def lab_fetch(payload:dict=Body(...),_:dict=Depends(require_permission("case.create")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"));
     if not hn: raise HTTPException(400,"hn is required")
     source,offline,result,errors=buffered_or_online_rows(database,hn,"lab",payload)
@@ -257,22 +267,22 @@ def copy_snapshot_to_case(database,case_id,snap):
 
 
 @router.post("/{case_id}/his/sync")
-def sync_all(case_id:int,payload:dict=Body(default={}),_:dict=Depends(current_user),database:Connection=Depends(connection)):
-    case=editable_case(database,case_id); result=lookup({"hn":case["hn"],**payload},database)
+def sync_all(case_id:int,payload:dict=Body(default={}),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
+    case=editable_case(database,case_id); result=lookup({"hn":case["hn"],**payload},actor,database)
     snap=snapshot(database,case["hn"])
     with database.transaction(): copy_snapshot_to_case(database,case_id,snap)
     return {"ok":True,"case_id":case_id,"hn":case["hn"],**{k:result.get(k) for k in ("source","offline","his_errors")},"row":snap["row"],"allergies":snap["allergies"],"labs":snap["labs"]}
 
 
 @router.post("/{case_id}/his/patient-info-sync")
-def sync_patient(case_id:int,payload:dict=Body(default={}),_:dict=Depends(current_user),database:Connection=Depends(connection)):
+def sync_patient(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     case=editable_case(database,case_id); online_lookup(database,case["hn"],full=False); snap=snapshot(database,case["hn"])
     with database.transaction(): copy_snapshot_to_case(database,case_id,{**snap,"allergies":[],"labs":[]})
     return {"ok":True,"case_id":case_id,"hn":case["hn"],"source":"HIS","offline":False,"row":snap["row"],"allergies":[],"labs":[]}
 
 
 @router.post("/{case_id}/his/allergy/sync")
-def sync_allergy(case_id:int,payload:dict=Body(default={}),_:dict=Depends(current_user),database:Connection=Depends(connection)):
+def sync_allergy(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     case=editable_case(database,case_id); source,offline,result,errors=buffered_or_online_rows(database,case["hn"],"allergy",payload)
     with database.transaction():
         database.execute("DELETE FROM case_his_allergy WHERE case_id=%s",(case_id,))
@@ -281,7 +291,7 @@ def sync_allergy(case_id:int,payload:dict=Body(default={}),_:dict=Depends(curren
 
 
 @router.post("/{case_id}/his/lab/sync")
-def sync_lab(case_id:int,payload:dict=Body(default={}),_:dict=Depends(current_user),database:Connection=Depends(connection)):
+def sync_lab(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     case=editable_case(database,case_id); source,offline,result,errors=buffered_or_online_rows(database,case["hn"],"lab",payload)
     with database.transaction():
         database.execute("DELETE FROM case_his_lab WHERE case_id=%s",(case_id,))
@@ -290,7 +300,7 @@ def sync_lab(case_id:int,payload:dict=Body(default={}),_:dict=Depends(current_us
 
 
 @router.post("/{case_id}/his/blood-products")
-def blood_products(case_id:int,payload:dict=Body(default={}),database:Connection=Depends(connection)):
+def blood_products(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     case=case_row(database,case_id)
     try: response=gateway(os.getenv("HIS_BLOOD_PRODUCT_LIST_PATH","/api/blood-product-list"),{"hn":case["hn"],"an":payload.get("an")})
     except RuntimeError as error: raise HTTPException(502,f"HIS gateway request failed: {error}")
@@ -298,7 +308,7 @@ def blood_products(case_id:int,payload:dict=Body(default={}),database:Connection
 
 
 @router.post("/{case_id}/his/blood-product/verify")
-def verify_blood(case_id:int,payload:dict=Body(...),database:Connection=Depends(connection)):
+def verify_blood(case_id:int,payload:dict=Body(...),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     case=case_row(database,case_id); hn=text(payload.get("hn")) or case["hn"]; bag=text(payload.get("dnrno")) or text(payload.get("qr"))
     if not bag: raise HTTPException(400,"qr or dnrno is required")
     try: response=gateway(os.getenv("HIS_BLOOD_PRODUCT_VERIFY_PATH","/api/blood-product-verify"),{"hn":hn,"qr":payload.get("qr"),"dnrno":payload.get("dnrno")})

@@ -8,8 +8,10 @@ services:
       FLORA_API_MODE: leaf
       FLORA_LEAF_WRITE_API: "true"
       FLORA_DEVICE_INGEST_ENABLED: "true"
-      VECTOR_READ_URL: ${VECTOR_READ_URL:-http://host.docker.internal:6789/api/observations}
+      FLORA_LEAF_SERVICE_SECRET: ${FLORA_LEAF_SERVICE_SECRET:-flora-leaf-service-dev-secret-change-me}
+      VECTOR_READ_URL: ${VECTOR_READ_URL:-http://flora-liveagent:8000/api/observations}
       HIS_GATEWAY_BASE_URL: ${HIS_GATEWAY_BASE_URL:-http://10.35.202.6:8590}
+      FLORA_HIS_DEMO_MODE: ${FLORA_HIS_DEMO_MODE:-true}
     ports:
       - "127.0.0.1:${FLORA_LEAF_API_PORT:-6893}:8000"
     volumes:
@@ -18,6 +20,8 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
+        condition: service_healthy
+      flora-liveagent:
         condition: service_healthy
     healthcheck:
       test:

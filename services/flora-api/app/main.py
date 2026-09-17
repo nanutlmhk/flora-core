@@ -20,6 +20,8 @@ from .routes.device_writer import router as device_writer_router
 from .routes.his import router as his_router
 from .routes.fleet_read import router as fleet_read_router
 from .routes.sync_ingest import router as sync_ingest_router
+from .routes.workstation import router as workstation_router
+from .routes.terminology import router as terminology_router
 
 
 @asynccontextmanager
@@ -52,6 +54,8 @@ if API_MODE == "leaf" and os.getenv("FLORA_LEAF_WRITE_API", "false").lower() == 
     app.include_router(ephis_router)
     app.include_router(device_writer_router)
     app.include_router(his_router)
+    app.include_router(workstation_router)
+    app.include_router(terminology_router)
 if API_MODE == "canopy":
     app.include_router(canopy_auth_router)
     app.include_router(fleet_read_router)

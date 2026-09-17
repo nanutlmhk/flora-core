@@ -587,7 +587,7 @@ export default function PatientView({ caseStatus }: Props) {
     allergies: CaseAllergyRow[];
     his_payload?: unknown;
     his_errors?: Record<string, string>;
-    source?: "HIS" | "BUFFER";
+    source?: "HIS" | "BUFFER" | "DEMO_HIS";
     offline?: boolean;
   }) => {
     if (!lookup.row) {

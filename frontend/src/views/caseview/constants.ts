@@ -1,18 +1,39 @@
 import type { TimeGridRow } from "../../components/timegrid/types";
-import type { ComponentType, SVGProps } from "react";
+import { createElement, type ComponentType } from "react";
 import {
   AntibioticIcon,
   BloodIcon,
-  EndAnesthesiaIcon,
-  EndSurgeryIcon,
-  InductionIcon,
-  ReversalIcon,
-  StartAnesthesiaIcon,
-  StartSurgeryIcon,
   TimeoutIcon,
 } from "../../assets/icons";
 
-type SvgIcon = ComponentType<SVGProps<SVGSVGElement>>;
+type EventIcon = ComponentType<{ className?: string }>;
+
+function pngEventIcon(fileName: string, label: string): EventIcon {
+  return function EventArtwork({ className }) {
+    return createElement("img", {
+      src: `/event-icons/${fileName}`,
+      alt: "",
+      title: label,
+      className: `${className || ""} event-artwork rounded-md object-contain`,
+    });
+  };
+}
+
+function RecoveryMarker({ className }: { className?: string }) {
+  return createElement("span", { className: `${className || ""} event-artwork-marker inline-flex items-center justify-center rounded-full font-bold` }, "✦");
+}
+
+const PatientInIcon = pngEventIcon("patientin.png", "Patient In");
+const PatientOutIcon = pngEventIcon("patientout.png", "Patient Out");
+const AnoraInductionIcon = pngEventIcon("induction.png", "Induction");
+const AnoraReversalIcon = pngEventIcon("reversal.png", "Reversal");
+const IntubationIcon = pngEventIcon("intubation.png", "Intubation");
+const ExtubationIcon = pngEventIcon("extubation.png", "Extubation");
+const AnoraStartAnesthesiaIcon = pngEventIcon("startanes.png", "Start Anesthesia");
+const AnoraEndAnesthesiaIcon = pngEventIcon("endanes.png", "End Anesthesia");
+const AnoraStartSurgeryIcon = pngEventIcon("startsurgery.png", "Start Surgery");
+const AnoraEndSurgeryIcon = pngEventIcon("endsurgery.png", "End Surgery");
+const PositioningIcon = pngEventIcon("position.png", "Positioning");
 
 export const AXIS_STEPS = [1, 120] as const;
 export type AxisStepMin = number;
@@ -159,51 +180,67 @@ export function getRowGroup(rowId: string): RowGroup {
 }
 
 export const COMMON_EVENT_OPTIONS = [
-  "Start ANE",
+  "Patient In",
+  "Start Anesthesia",
   "Induction",
-  "SSI Prophylaxis",
-  "Blood Product",
-  "Time Out",
+  "Intubation",
+  "Positioning",
   "Start Surgery",
   "End Surgery",
+  "Extubation",
   "Reversal",
-  "End ANE",
+  "End Anesthesia",
+  "Patient Out",
+  "Start Recovery",
+  "End Recovery",
+  "Time Out",
+  "SSI Prophylaxis",
+  "Blood Product",
 ] as const;
 
 export type CommonEventOption = (typeof COMMON_EVENT_OPTIONS)[number];
 
 export const MANUAL_EVENT_BUTTON_LAYOUT: Array<{
   title: CommonEventOption;
-  icon: SvgIcon;
+  icon: EventIcon;
   shortLabel: string;
 }> = [
+  { title: "Patient In", icon: PatientInIcon, shortLabel: "Patient In" },
+  { title: "Start Anesthesia", icon: AnoraStartAnesthesiaIcon, shortLabel: "Start Anes" },
+  { title: "Induction", icon: AnoraInductionIcon, shortLabel: "Induction" },
+  { title: "Intubation", icon: IntubationIcon, shortLabel: "Intubation" },
+  { title: "Positioning", icon: PositioningIcon, shortLabel: "Positioning" },
+  { title: "Start Surgery", icon: AnoraStartSurgeryIcon, shortLabel: "Start Surg" },
+  { title: "End Surgery", icon: AnoraEndSurgeryIcon, shortLabel: "End Surg" },
+  { title: "Extubation", icon: ExtubationIcon, shortLabel: "Extubation" },
+  { title: "Reversal", icon: AnoraReversalIcon, shortLabel: "Reversal" },
+  { title: "End Anesthesia", icon: AnoraEndAnesthesiaIcon, shortLabel: "End Anes" },
+  { title: "Patient Out", icon: PatientOutIcon, shortLabel: "Patient Out" },
+  { title: "Start Recovery", icon: RecoveryMarker, shortLabel: "Start Recovery" },
+  { title: "End Recovery", icon: RecoveryMarker, shortLabel: "End Recovery" },
   { title: "Time Out", icon: TimeoutIcon, shortLabel: "TimeOut" },
-  { title: "Start ANE", icon: StartAnesthesiaIcon, shortLabel: "Start Anes" },
-  { title: "Start Surgery", icon: StartSurgeryIcon, shortLabel: "Start Surg" },
-  { title: "End Surgery", icon: EndSurgeryIcon, shortLabel: "End Surg" },
-  { title: "End ANE", icon: EndAnesthesiaIcon, shortLabel: "End Anes" },
 ];
 
 const AUTO_EVENT_TITLES = new Set<CommonEventOption>([
-  "Induction",
   "SSI Prophylaxis",
   "Blood Product",
-  "Reversal",
 ]);
 
 export function isAutoEventTitle(title: string): boolean {
   return AUTO_EVENT_TITLES.has(title as CommonEventOption);
 }
 
-export function getEventIconByTitle(title: string): SvgIcon | null {
+export function getEventIconByTitle(title: string): EventIcon | null {
   const normalized = normalizeLifecycleTitle(title);
+  if (normalized === "patient in") return PatientInIcon;
+  if (normalized === "patient out") return PatientOutIcon;
   if (
     normalized === "start ane" ||
     normalized === "start anes" ||
     normalized === "start anesthesia" ||
     normalized === "start anaesthesia"
   ) {
-    return StartAnesthesiaIcon;
+    return AnoraStartAnesthesiaIcon;
   }
   if (
     normalized === "end ane" ||
@@ -211,14 +248,18 @@ export function getEventIconByTitle(title: string): SvgIcon | null {
     normalized === "end anesthesia" ||
     normalized === "end anaesthesia"
   ) {
-    return EndAnesthesiaIcon;
+    return AnoraEndAnesthesiaIcon;
   }
-  if (normalized === "start surg" || normalized === "start surgery") return StartSurgeryIcon;
-  if (normalized === "end surg" || normalized === "end surgery") return EndSurgeryIcon;
-  if (normalized === "induction") return InductionIcon;
+  if (normalized === "start surg" || normalized === "start surgery") return AnoraStartSurgeryIcon;
+  if (normalized === "end surg" || normalized === "end surgery") return AnoraEndSurgeryIcon;
+  if (normalized === "induction") return AnoraInductionIcon;
+  if (normalized === "intubation") return IntubationIcon;
+  if (normalized === "extubation") return ExtubationIcon;
+  if (normalized === "positioning") return PositioningIcon;
+  if (normalized === "start recovery" || normalized === "end recovery") return RecoveryMarker;
   if (normalized === "ssi prophylaxis") return AntibioticIcon;
   if (normalized === "blood product") return BloodIcon;
-  if (normalized === "reversal") return ReversalIcon;
+  if (normalized === "reversal") return AnoraReversalIcon;
   if (normalized === "time out") return TimeoutIcon;
   return null;
 }

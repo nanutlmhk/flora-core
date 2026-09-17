@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import TopBar from "./layout/TopBar";
-import LeftRail from "./layout/LeftRail";
+import AppSidebar, { type AppView } from "./layout/AppSidebar";
 import MainArea from "./layout/MainArea";
-import RightRail from "./layout/RightRail";
 import { getCaseStatus } from "./api/caseApi";
 import type { CaseStatus } from "./api/caseApi";
 import LoginPage from "./auth/LoginPage";
 import { useAuth } from "./auth/useAuth";
 import { useBootstrapStatus } from "./bootstrap/useBootstrapStatus";
 import { getEditionInfo, getSurfaceInfo } from "./edition/config";
+import { useLanguage } from "./context/LanguageContext";
 
-const LEFT_RAIL_COLLAPSED_KEY = "flora.ui.leftRailCollapsed";
-const RIGHT_RAIL_COLLAPSED_KEY = "flora.ui.rightRailCollapsed";
+const NAV_COLLAPSED_KEY = "flora.ui.navigationCollapsed";
 
 function readStoredBool(key: string, fallback: boolean) {
   if (typeof window === "undefined") return fallback;
@@ -21,32 +20,15 @@ function readStoredBool(key: string, fallback: boolean) {
 }
 
 export default function App() {
+  const { t } = useLanguage();
   const { user, ready, isAuthenticated, login, logout, syncSession } = useAuth();
   const bootstrap = useBootstrapStatus();
   const edition = getEditionInfo();
   const surface = getSurfaceInfo();
   const [caseStatus, setCaseStatus] = useState<CaseStatus>({ status: "IDLE" });
-  const [isHistoryMode, setIsHistoryMode] = useState(false);
-  const [isLeftRailOpen, setIsLeftRailOpen] = useState(false);
-  const [isRightRailOpen, setIsRightRailOpen] = useState(false);
-  const [isLeftRailCollapsed, setIsLeftRailCollapsed] = useState(() =>
-    readStoredBool(LEFT_RAIL_COLLAPSED_KEY, false),
-  );
-  const [isRightRailCollapsed, setIsRightRailCollapsed] = useState(() =>
-    readStoredBool(RIGHT_RAIL_COLLAPSED_KEY, false),
-  );
-  const [activeView, setActiveView] = useState<
-    | "case"
-    | "form"
-    | "diagnosis"
-    | "staff"
-    | "drug"
-    | "patient"
-    | "report"
-    | "master"
-    | "fleet"
-    | "history"
-  >(surface.code === "canopy" ? "fleet" : "case");
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false);
+  const [isNavigationCollapsed, setIsNavigationCollapsed] = useState(() => readStoredBool(NAV_COLLAPSED_KEY, false));
+  const [activeView, setActiveView] = useState<AppView>(surface.code === "canopy" ? "fleet" : "case");
   const [shutdownPrompt, setShutdownPrompt] = useState<{
     open: boolean;
     stage: "confirm" | "closing";
@@ -58,13 +40,11 @@ export default function App() {
     backend: "Waiting",
     database: "Waiting",
   });
-  const focusedRailRestoreRef = useRef<{ left: boolean; right: boolean } | null>(null);
 
   const refreshCase = useCallback(async () => {
     try {
       const next = await getCaseStatus();
       setCaseStatus(next);
-      setIsHistoryMode(false);
     } catch (err) {
       console.error("Fetch failed", err);
     }
@@ -73,10 +53,7 @@ export default function App() {
   const openCaseFromHistory = useCallback(
     (nextCase: Exclude<CaseStatus, { status: "IDLE" }>) => {
       setCaseStatus(nextCase);
-      setIsHistoryMode(true);
       setActiveView("report");
-      setIsLeftRailOpen(false);
-      setIsRightRailOpen(false);
     },
     [],
   );
@@ -104,18 +81,23 @@ export default function App() {
   useEffect(() => {
     if (!bootstrap.status.ready) return;
     void syncSession();
-    // This effect synchronizes React with the external backend bootstrap state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    refreshCase();
-  }, [bootstrap.status.ready, refreshCase, syncSession]);
+  }, [bootstrap.status.ready, syncSession]);
 
   useEffect(() => {
     if (!user?.username) return;
     // A changed authenticated session resets navigation to its safe landing view.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveView(surface.code === "canopy" ? "fleet" : "case");
-    setIsHistoryMode(false);
-  }, [surface.code, user?.username]);
+    setActiveView(user.mustChangePassword ? "account" : surface.code === "canopy" ? "fleet" : "case");
+    if (!user.mustChangePassword) void refreshCase();
+  }, [refreshCase, surface.code, user?.mustChangePassword, user?.username]);
+
+  useEffect(() => {
+    if (user?.mustChangePassword && activeView !== "account") {
+      // Password rotation is a mandatory route guard.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveView("account");
+    }
+  }, [activeView, user?.mustChangePassword]);
 
   useEffect(() => {
     if (caseStatus.status === "IDLE" && activeView === "form") {
@@ -144,63 +126,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const needsFocusedLayout = activeView === "master" || activeView === "history" || activeView === "fleet";
-    const needsFormLayout = activeView === "form";
-
-    if (needsFocusedLayout) {
-      if (!focusedRailRestoreRef.current) {
-        focusedRailRestoreRef.current = {
-          left: isLeftRailCollapsed,
-          right: isRightRailCollapsed,
-        };
-      }
-      // Focused views intentionally synchronize their surrounding rail layout.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (!isLeftRailCollapsed) setIsLeftRailCollapsed(true);
-      if (!isRightRailCollapsed) setIsRightRailCollapsed(true);
-      return;
-    }
-
-    if (needsFormLayout) {
-      if (!focusedRailRestoreRef.current) {
-        focusedRailRestoreRef.current = {
-          left: isLeftRailCollapsed,
-          right: isRightRailCollapsed,
-        };
-      }
-      if (!isRightRailCollapsed) setIsRightRailCollapsed(true);
-      return;
-    }
-
-    if (focusedRailRestoreRef.current) {
-      const restore = focusedRailRestoreRef.current;
-      focusedRailRestoreRef.current = null;
-      setIsLeftRailCollapsed(restore.left);
-      setIsRightRailCollapsed(restore.right);
-    }
-  }, [activeView, isLeftRailCollapsed, isRightRailCollapsed]);
+    const onCaseStartTimeUpdated = (event: Event) => {
+      const custom = event as CustomEvent<{ caseId?: unknown; startTime?: unknown }>;
+      const changedCaseId = Number(custom.detail?.caseId);
+      const nextStartTime = Number(custom.detail?.startTime);
+      if (!Number.isFinite(changedCaseId) || !Number.isFinite(nextStartTime)) return;
+      applyStartTimeUpdate(changedCaseId, nextStartTime);
+    };
+    window.addEventListener("flora:case-start-time-updated", onCaseStartTimeUpdated);
+    return () => window.removeEventListener("flora:case-start-time-updated", onCaseStartTimeUpdated);
+  }, [applyStartTimeUpdate]);
 
   useEffect(() => {
     // View changes dismiss transient mobile drawers.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsLeftRailOpen(false);
-    setIsRightRailOpen(false);
+    setIsNavigationOpen(false);
   }, [activeView]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(LEFT_RAIL_COLLAPSED_KEY, isLeftRailCollapsed ? "1" : "0");
-  }, [isLeftRailCollapsed]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, isRightRailCollapsed ? "1" : "0");
-  }, [isRightRailCollapsed]);
+    window.localStorage.setItem(NAV_COLLAPSED_KEY, isNavigationCollapsed ? "1" : "0");
+  }, [isNavigationCollapsed]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.title = edition.code === "full" ? surface.productName : edition.productName;
-  }, [edition.code, edition.productName, surface.productName]);
+    document.title = edition.code === "full" ? t(`product.${surface.code}.name`) : edition.productName;
+  }, [edition.code, edition.productName, surface.code, t]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -387,53 +338,27 @@ export default function App() {
   return (
     <div className="app-shell app-theme-scope h-screen font-sans flex flex-col">
       <TopBar
-        activeView={activeView}
         setActiveView={setActiveView}
         sessionUser={user}
+        caseStatus={caseStatus}
         onLogout={logout}
         onShutdown={handleShutdown}
-        onOpenLeftRail={() => {
-          setIsRightRailOpen(false);
-          setIsLeftRailOpen(true);
-        }}
-        onOpenRightRail={() => {
-          setIsLeftRailOpen(false);
-          setIsRightRailOpen(true);
+        onToggleNavigation={() => {
+          if (window.matchMedia("(min-width: 768px)").matches) setIsNavigationCollapsed(value => !value);
+          else setIsNavigationOpen(true);
         }}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {surface.code !== "leaf" ? null : isLeftRailCollapsed ? (
-          <div className="app-rail hidden lg:flex w-9 border-r items-center justify-center">
-            <button
-              type="button"
-              className="flex h-8 w-7 items-center justify-center rounded-r-md border border-l-0 border-[var(--app-border)] bg-[var(--app-control-bg)] text-sm font-semibold text-[var(--app-text)] shadow-sm hover:bg-[var(--app-panel-bg)]"
-              title="Expand left rail"
-              onClick={() => setIsLeftRailCollapsed(false)}
-            >
-              {">"}
-            </button>
-          </div>
-        ) : (
-          <div className="app-rail hidden lg:block w-[13.5rem] border-r relative">
-            <button
-              type="button"
-              className="absolute -right-3 top-1/2 z-10 flex h-9 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-[var(--app-border)] bg-[var(--app-control-bg)] text-sm font-semibold text-[var(--app-text)] shadow-md hover:bg-[var(--app-panel-bg)]"
-              title="Collapse left rail"
-              onClick={() => setIsLeftRailCollapsed(true)}
-            >
-              {"<"}
-            </button>
-            <LeftRail
-              caseStatus={caseStatus}
-              onCaseChange={refreshCase}
-              historyMode={isHistoryMode}
-              onCurrentCaseStarted={() => setActiveView("case")}
-              onCaseStartTimeUpdated={applyStartTimeUpdate}
-              onCaseDischargeTimeUpdated={applyDischargeTimeUpdate}
-            />
-          </div>
-        )}
+        <AppSidebar
+          activeView={activeView}
+          setActiveView={setActiveView}
+          sessionUser={user}
+          caseStatus={caseStatus}
+          collapsed={isNavigationCollapsed}
+          mobileOpen={isNavigationOpen}
+          onCloseMobile={() => setIsNavigationOpen(false)}
+        />
 
         <div className="app-main flex-1 overflow-auto">
           <MainArea
@@ -442,93 +367,14 @@ export default function App() {
             sessionUser={user}
             onCaseDischargeTimeUpdated={applyDischargeTimeUpdate}
             onOpenCase={openCaseFromHistory}
+            onNavigate={view => setActiveView(view)}
+            onCaseStarted={async () => {
+              await refreshCase();
+              setActiveView("case");
+            }}
           />
         </div>
-
-        {surface.code !== "leaf" ? null : isRightRailCollapsed ? (
-          <div className="app-rail hidden lg:flex w-9 border-l items-center justify-center">
-            <button
-              type="button"
-              className="flex h-8 w-7 items-center justify-center rounded-l-md border border-r-0 border-[var(--app-border)] bg-[var(--app-control-bg)] text-sm font-semibold text-[var(--app-text)] shadow-sm hover:bg-[var(--app-panel-bg)]"
-              title="Expand right rail"
-              onClick={() => setIsRightRailCollapsed(false)}
-            >
-              {"<"}
-            </button>
-          </div>
-        ) : (
-          <div className="app-rail hidden lg:block w-[14.5rem] border-l relative">
-            <button
-              type="button"
-              className="absolute -left-3 top-1/2 z-10 flex h-9 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-[var(--app-border)] bg-[var(--app-control-bg)] text-sm font-semibold text-[var(--app-text)] shadow-md hover:bg-[var(--app-panel-bg)]"
-              title="Collapse right rail"
-              onClick={() => setIsRightRailCollapsed(true)}
-            >
-              {">"}
-            </button>
-            <RightRail caseStatus={caseStatus} sessionUser={user} />
-          </div>
-        )}
       </div>
-
-      {surface.code === "leaf" && isLeftRailOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/45"
-            aria-label="Close case panel"
-            onClick={() => setIsLeftRailOpen(false)}
-          />
-          <div className="app-rail absolute left-0 top-0 h-full w-[88vw] max-w-[340px] border-r shadow-xl flex flex-col">
-            <div className="flex items-center justify-between border-b border-[var(--app-border)] px-3 py-2">
-              <div className="text-xs font-semibold">Case Panel</div>
-              <button
-                type="button"
-                className="rounded border border-[var(--app-border)] px-2 py-1 text-xs"
-                onClick={() => setIsLeftRailOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <LeftRail
-                caseStatus={caseStatus}
-                onCaseChange={refreshCase}
-                historyMode={isHistoryMode}
-                onCurrentCaseStarted={() => setActiveView("case")}
-                onCaseStartTimeUpdated={applyStartTimeUpdate}
-                onCaseDischargeTimeUpdated={applyDischargeTimeUpdate}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {surface.code === "leaf" && isRightRailOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/45"
-            aria-label="Close timeline panel"
-            onClick={() => setIsRightRailOpen(false)}
-          />
-          <div className="app-rail absolute right-0 top-0 h-full w-[88vw] max-w-[360px] border-l shadow-xl flex flex-col">
-            <div className="flex items-center justify-between border-b border-[var(--app-border)] px-3 py-2">
-              <div className="text-xs font-semibold">Timeline Panel</div>
-              <button
-                type="button"
-                className="rounded border border-[var(--app-border)] px-2 py-1 text-xs"
-                onClick={() => setIsRightRailOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <RightRail caseStatus={caseStatus} sessionUser={user} />
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {shutdownOverlay}
 

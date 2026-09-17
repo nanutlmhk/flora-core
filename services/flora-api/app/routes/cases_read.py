@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg import Connection
 
 from ..database import connection
+from .auth_leaf import require_permission
 
 
-router = APIRouter(prefix="/api/case", tags=["cases"])
+router = APIRouter(prefix="/api/case", tags=["cases"], dependencies=[Depends(require_permission("case.read"))])
 MINUTE_MS = 60_000
 ADVANCE_MIN = 5
 
@@ -121,7 +122,7 @@ def round2(value: float) -> float:
 def case_status(database: Connection = Depends(connection)) -> dict:
     row = database.execute(
         """
-        SELECT id, hn, status, start_time, discharge_time
+        SELECT id, hn, status, start_time, discharge_time, admission_source, identity_status
         FROM cases
         WHERE status IN ('active', 'discharged')
         ORDER BY
@@ -139,6 +140,8 @@ def case_status(database: Connection = Depends(connection)) -> dict:
         "hn": row["hn"],
         "start_time": row["start_time"],
         "discharge_time": row["discharge_time"],
+        "admission_source": row["admission_source"],
+        "identity_status": row["identity_status"],
     }
 
 
@@ -154,7 +157,7 @@ def case_list(request: Request, database: Connection = Depends(connection)) -> d
     )
     rows = database.execute(
         """
-        SELECT id, case_code, hn, status, start_time, discharge_time, created_at
+        SELECT id, case_code, hn, status, start_time, discharge_time, created_at, admission_source, identity_status
         FROM cases
         WHERE status = ANY(%s)
         ORDER BY start_time DESC, id DESC
@@ -172,6 +175,8 @@ def case_list(request: Request, database: Connection = Depends(connection)) -> d
                 "start_time": row["start_time"],
                 "discharge_time": row["discharge_time"],
                 "created_at": row["created_at"],
+                "admission_source": row["admission_source"],
+                "identity_status": row["identity_status"],
             }
             for row in rows
         ]
@@ -189,7 +194,7 @@ def vitals(
     from_ts, to_ts = resolve_case_range(case_row, request)
     rows = database.execute(
         """
-        SELECT ts_minute, payload
+        SELECT ts_minute, payload, ivy_source
         FROM vital_minutes
         WHERE case_id = %s AND ts_minute BETWEEN %s AND %s
         ORDER BY ts_minute ASC
@@ -282,7 +287,7 @@ def effective_timeline(
     from_ts, to_ts = resolve_case_range(case_row, request)
     raw_rows = database.execute(
         """
-        SELECT ts_minute, payload
+        SELECT ts_minute, payload, ivy_source
         FROM vital_minutes
         WHERE case_id = %s AND ts_minute BETWEEN %s AND %s
         ORDER BY ts_minute ASC
@@ -291,7 +296,9 @@ def effective_timeline(
     ).fetchall()
     manual_rows = database.execute(
         """
-        SELECT ts_minute, param_key, value_type, value_num, value_text
+        SELECT ts_minute, param_key, value_type, value_num, value_text,
+               unit, source, note, updated_by, updated_at,
+               original_value_type, original_value_num, original_value_text, original_source
         FROM case_timeline_value
         WHERE case_id = %s AND ts_minute BETWEEN %s AND %s
         ORDER BY ts_minute ASC, param_key ASC
@@ -300,17 +307,47 @@ def effective_timeline(
     ).fetchall()
 
     by_minute = {row["ts_minute"]: parse_payload(row["payload"]) for row in raw_rows}
+    source_by_minute = {row["ts_minute"]: row["ivy_source"] for row in raw_rows}
+    audit_rows = database.execute(
+        """SELECT ts_minute,param_key,reason,actor_username,actor_name,actor_role,created_at
+        FROM case_timeline_audit
+        WHERE case_id=%s AND ts_minute BETWEEN %s AND %s
+        ORDER BY created_at ASC,id ASC""",
+        (case_id, from_ts, to_ts),
+    ).fetchall()
+    audit_by_cell: dict[tuple[int,str],dict] = {}
+    for audit in audit_rows:
+        audit_key=(audit["ts_minute"],audit["param_key"])
+        summary=audit_by_cell.setdefault(audit_key,{"audit_count":0})
+        summary["audit_count"]+=1
+        summary.update({
+            "reason":audit["reason"],"actor_username":audit["actor_username"],
+            "actor_name":audit["actor_name"],"actor_role":audit["actor_role"],
+            "edited_at":audit["created_at"],
+        })
+    provenance_by_minute: dict[int,dict] = {}
     for row in manual_rows:
         payload = by_minute.get(row["ts_minute"], {})
         if not isinstance(payload, dict):
             payload = {}
+        original_value = row["original_value_num"] if row["original_value_type"] == "number" else row["original_value_text"]
+        if original_value is None and row["source"] == "override":
+            original_value = payload.get(row["param_key"])
         payload[row["param_key"]] = (
             row["value_num"] if row["value_type"] == "number" else row["value_text"]
         )
         by_minute[row["ts_minute"]] = payload
+        audit = audit_by_cell.get((row["ts_minute"],row["param_key"]),{})
+        provenance_by_minute.setdefault(row["ts_minute"],{})[row["param_key"]]={
+            "source":row["source"],
+            "original_value":original_value,
+            "original_source":row["original_source"] or source_by_minute.get(row["ts_minute"]),
+            "updated_by":row["updated_by"],"updated_at":row["updated_at"],"note":row["note"],
+            **audit,
+        }
 
     rows = [
-        {"ts_minute": timestamp, "payload": by_minute[timestamp]}
+        {"ts_minute": timestamp, "payload": by_minute[timestamp], "provenance": provenance_by_minute.get(timestamp,{})}
         for timestamp in sorted(by_minute)
     ]
     return {"case_id": case_id, "from": from_ts, "to": to_ts, "rows": rows}
@@ -469,12 +506,13 @@ def diagnosis(case_id_raw: str, database: Connection = Depends(connection)) -> d
                CASE WHEN upper(COALESCE(d.icd_version, '')) = 'ICD-10'
                     THEN COALESCE(NULLIF(m.name_en, ''), NULLIF(m.name_th, ''), d.icd_text)
                     ELSE d.icd_text END AS icd_text,
-               d.icd_code, d.icd_version, d.seq, d.created_at
+               d.icd_code, d.icd_version, d.concept_id, d.coding_snapshot,
+               d.seq, d.event_ts, d.entry_context, d.created_at
         FROM case_diagnosis d
         LEFT JOIN icd10_master m
           ON (m.icd10 = d.icd_code OR m.icd10who = d.icd_code)
         WHERE d.case_id = %s
-        ORDER BY d.seq ASC, d.id ASC
+        ORDER BY d.seq ASC, d.event_ts ASC, d.id ASC
         """,
         (case_id,),
     ).fetchall()
@@ -490,12 +528,13 @@ def procedures(case_id_raw: str, database: Connection = Depends(connection)) -> 
                CASE WHEN upper(COALESCE(p.icd_version, '')) = 'ICD-9'
                     THEN COALESCE(NULLIF(m.name_en, ''), p.icd_text)
                     ELSE p.icd_text END AS icd_text,
-               p.icd_code, p.icd_version, p.seq, p.created_at
+               p.icd_code, p.icd_version, p.concept_id, p.coding_snapshot,
+               p.seq, p.event_ts, p.entry_context, p.created_at
         FROM case_procedure p
         LEFT JOIN icd9cm_master m
           ON m.icd9cm = replace(replace(COALESCE(p.icd_code, ''), '.', ''), ' ', '')
         WHERE p.case_id = %s
-        ORDER BY p.seq ASC, p.id ASC
+        ORDER BY p.seq ASC, p.event_ts ASC, p.id ASC
         """,
         (case_id,),
     ).fetchall()
@@ -513,7 +552,7 @@ def case_staff(case_id_raw: str, database: Connection = Depends(connection)) -> 
         SELECT id, hospital_id, personal_id, email, th_first_name, th_last_name,
                en_first_name, en_last_name, innovian_id,
                staff_role_id AS role_id, staff_name AS name, staff_role AS role,
-               entry_year, seq
+               entry_year, profile_data, seq
         FROM case_staff
         WHERE case_id = %s
         ORDER BY seq ASC, id ASC

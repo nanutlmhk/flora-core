@@ -3,12 +3,17 @@ import type { CaseStatus } from "../api/caseApi";
 import type { AuthUser } from "../auth/useAuth";
 import {
   createStaffDirectoryEntry,
+  createStaffField,
   deactivateStaffDirectoryEntry,
+  deactivateStaffField,
   getCaseStaff,
   getStaffDirectory,
+  getStaffFields,
   getStaffRoles,
   saveCaseStaff,
+  updateStaffField,
   updateStaffDirectoryEntry,
+  type StaffFieldDefinition,
   type StaffLibraryItem,
   type StaffMember,
   type StaffRole,
@@ -62,6 +67,7 @@ function defaultStaff(roleId: string): StaffMember {
     innovian_id: "",
     role_id: roleId,
     entry_year: null,
+    profile_data: {},
     name: "",
     role: "",
   };
@@ -70,6 +76,14 @@ function defaultStaff(roleId: string): StaffMember {
 function fillDisplayName(row: StaffMember): string {
   const explicit = String(row.name || "").trim();
   if (explicit) return explicit;
+  const profile = row.profile_data || {};
+  const profileName = String(profile.display_name || "").trim();
+  if (profileName) return profileName;
+  const international = [profile.given_name, profile.middle_name, profile.family_name]
+    .map(v => String(v || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  if (international) return international;
   const en = [row.en_first_name, row.en_last_name]
     .map(v => String(v || "").trim())
     .filter(Boolean)
@@ -115,7 +129,7 @@ function normalizeCaseStaff(
   return rows;
 }
 
-function toTooltip(row: StaffMember): string {
+function toTooltip(row: StaffMember, fields: StaffFieldDefinition[]): string {
   const parts: string[] = [];
   if (row.th_first_name || row.th_last_name) {
     parts.push(
@@ -131,14 +145,37 @@ function toTooltip(row: StaffMember): string {
   if (row.personal_id) parts.push(`Personal ID: ${row.personal_id}`);
   if (row.email) parts.push(`Email: ${row.email}`);
   if (row.entry_year) parts.push(`Entry Year: ${row.entry_year}`);
+  for (const [key, value] of Object.entries(row.profile_data || {})) {
+    if (value == null || value === "" || ["display_name", "hospital_id", "email", "personal_id", "entry_year"].includes(key)) continue;
+    const label = fields.find(field => field.field_key === key)?.label || key.replaceAll("_", " ");
+    parts.push(`${label}: ${value}`);
+  }
   return parts.join("\n");
 }
+
+const EMPTY_FIELD: Omit<StaffFieldDefinition, "id"> = {
+  field_key: "",
+  label: "",
+  field_type: "text",
+  language_code: "",
+  name_part: "",
+  core_mapping: "",
+  options: [],
+  is_required: 0,
+  is_active: 1,
+  sort_order: 100,
+};
 
 export default function StaffView({ caseStatus, sessionUser, defaultTab = "current" }: Props) {
   const caseId = caseStatus.status === "IDLE" ? null : caseStatus.case_id;
   const [tab] = useState<StaffTab>(defaultTab);
 
   const [roles, setRoles] = useState<StaffRole[]>(FALLBACK_ROLES);
+  const [fields, setFields] = useState<StaffFieldDefinition[]>([]);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState<number | null>(null);
+  const [fieldDraft, setFieldDraft] = useState(EMPTY_FIELD);
+  const [fieldSaving, setFieldSaving] = useState(false);
   const [directory, setDirectory] = useState<StaffLibraryItem[]>([]);
   const [directoryLoading, setDirectoryLoading] = useState(false);
   const [directorySaving, setDirectorySaving] = useState(false);
@@ -230,8 +267,17 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
     }
   };
 
+  const loadFields = async () => {
+    try {
+      setFields(await getStaffFields(true));
+    } catch (err) {
+      setDirectoryError(err instanceof Error ? err.message : "Failed to load staff fields");
+    }
+  };
+
   useEffect(() => {
     void loadRoles();
+    void loadFields();
   }, []);
 
   useEffect(() => {
@@ -301,13 +347,60 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
   const directoryPayloadFromForm = (): StaffMember => {
     const roleId = String(form.role_id || activeRoleId).trim();
     const role = roleNameById.get(roleId) || "";
+    const mappedNameKey = fields.find(field => field.is_active && field.core_mapping === "staff_name")?.field_key;
+    const assembledName = fields
+      .filter(field => field.is_active && field.name_part)
+      .map(field => String(form.profile_data?.[field.field_key] || "").trim())
+      .filter(Boolean)
+      .join(" ");
     return {
       ...form,
       role_id: roleId,
       role,
-      name: fillDisplayName(form),
+      name: String((mappedNameKey && form.profile_data?.[mappedNameKey]) || "").trim() || fillDisplayName(form) || assembledName,
       entry_year: form.entry_year || null,
     };
+  };
+
+  const editField = (field: StaffFieldDefinition) => {
+    const { id, ...draft } = field;
+    setEditingFieldId(id);
+    setFieldDraft(draft);
+  };
+
+  const clearField = () => {
+    setEditingFieldId(null);
+    setFieldDraft(EMPTY_FIELD);
+  };
+
+  const saveField = async () => {
+    setFieldSaving(true);
+    setDirectoryError("");
+    try {
+      if (editingFieldId == null) await createStaffField(fieldDraft);
+      else await updateStaffField(editingFieldId, fieldDraft);
+      await loadFields();
+      clearField();
+      setNote("Staff profile fields updated");
+    } catch (err) {
+      setDirectoryError(err instanceof Error ? err.message : "Failed to save staff field");
+    } finally {
+      setFieldSaving(false);
+    }
+  };
+
+  const disableField = async () => {
+    if (editingFieldId == null) return;
+    setFieldSaving(true);
+    try {
+      await deactivateStaffField(editingFieldId);
+      await loadFields();
+      clearField();
+    } catch (err) {
+      setDirectoryError(err instanceof Error ? err.message : "Failed to deactivate staff field");
+    } finally {
+      setFieldSaving(false);
+    }
   };
 
   const saveDirectory = async () => {
@@ -493,7 +586,7 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
                     <div
                       key={`${item.id}-${item.name}-${item.role_id}`}
                       className="app-tooltip rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5"
-                      data-tooltip={toTooltip(item)}
+                      data-tooltip={toTooltip(item, fields)}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <button
@@ -597,7 +690,7 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
                         <div
                           key={`${fillDisplayName(row)}-${row.role_id || row.role}-${row.hospital_id || "-"}-${index}`}
                           className="app-tooltip flex items-center justify-between gap-2 rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5"
-                          data-tooltip={toTooltip(row)}
+                          data-tooltip={toTooltip(row, fields)}
                         >
                           <div className="min-w-0">
                             <div className="truncate">
@@ -718,7 +811,7 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
                           ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400"
                           : "border-gray-200 dark:border-gray-800"
                       }`}
-                      data-tooltip={toTooltip(item)}
+                      data-tooltip={toTooltip(item, fields)}
                     >
                       <button
                         type="button"
@@ -763,6 +856,98 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
           </div>
 
           <div className="rounded border border-gray-200 dark:border-gray-800 p-3 space-y-3 min-h-0 lg:h-[calc(100vh-21rem)] overflow-y-auto">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setFieldsOpen(open => !open)}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+              >
+                <span>
+                  <span className="block text-sm font-semibold">Staff profile fields</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">
+                    {fields.filter(field => field.is_active).length} active fields
+                  </span>
+                </span>
+                <span aria-hidden="true">{fieldsOpen ? "−" : "+"}</span>
+              </button>
+              {fieldsOpen ? (
+                <div className="border-t border-gray-200 dark:border-gray-700 p-3 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {fields.map(field => (
+                      <button
+                        key={field.id}
+                        type="button"
+                        onClick={() => editField(field)}
+                        className={`rounded-full border px-2.5 py-1 text-xs ${
+                          editingFieldId === field.id
+                            ? "border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
+                            : field.is_active
+                              ? "border-gray-300 dark:border-gray-600"
+                              : "border-gray-200 text-gray-400 line-through dark:border-gray-800"
+                        }`}
+                      >
+                        {field.label}{field.language_code ? ` · ${field.language_code.toUpperCase()}` : ""}
+                      </button>
+                    ))}
+                    <button type="button" onClick={clearField} className="rounded-full border border-dashed border-gray-400 px-2.5 py-1 text-xs">
+                      + Field
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className="text-xs font-medium">
+                      Label
+                      <input className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={fieldDraft.label} onChange={e => setFieldDraft(draft => ({ ...draft, label: e.target.value }))} />
+                    </label>
+                    <label className="text-xs font-medium">
+                      Field key
+                      <input className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" placeholder="middle_name" value={fieldDraft.field_key} onChange={e => setFieldDraft(draft => ({ ...draft, field_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") }))} />
+                    </label>
+                    <label className="text-xs font-medium">
+                      Input
+                      <select className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={fieldDraft.field_type} onChange={e => setFieldDraft(draft => ({ ...draft, field_type: e.target.value as StaffFieldDefinition["field_type"] }))}>
+                        <option value="text">Text</option><option value="email">Email</option><option value="number">Number</option><option value="date">Date</option><option value="select">Selection</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-medium">
+                      Language (optional)
+                      <input className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" placeholder="en, th, ar…" value={fieldDraft.language_code} onChange={e => setFieldDraft(draft => ({ ...draft, language_code: e.target.value.toLowerCase().slice(0, 12) }))} />
+                    </label>
+                    <label className="text-xs font-medium">
+                      Name part
+                      <select className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={fieldDraft.name_part} onChange={e => setFieldDraft(draft => ({ ...draft, name_part: e.target.value as StaffFieldDefinition["name_part"] }))}>
+                        <option value="">Not a name part</option><option value="prefix">Prefix</option><option value="given">Given</option><option value="middle">Middle</option><option value="family">Family</option><option value="suffix">Suffix</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-medium">
+                      System mapping
+                      <select className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={fieldDraft.core_mapping} onChange={e => setFieldDraft(draft => ({ ...draft, core_mapping: e.target.value as StaffFieldDefinition["core_mapping"] }))}>
+                        <option value="">Profile only</option><option value="staff_name">Display name</option><option value="hospital_id">Hospital ID</option><option value="email">Email</option><option value="personal_id">Personal ID</option><option value="entry_year">Entry year</option><option value="innovian_id">Innovian ID</option>
+                      </select>
+                    </label>
+                    {fieldDraft.field_type === "select" ? (
+                      <label className="text-xs font-medium sm:col-span-2">
+                        Options (one per line)
+                        <textarea className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" rows={2} value={fieldDraft.options.join("\n")} onChange={e => setFieldDraft(draft => ({ ...draft, options: e.target.value.split("\n").map(value => value.trim()).filter(Boolean) }))} />
+                      </label>
+                    ) : null}
+                    <label className="text-xs font-medium">
+                      Order
+                      <input type="number" min="0" className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={fieldDraft.sort_order} onChange={e => setFieldDraft(draft => ({ ...draft, sort_order: Number(e.target.value) || 0 }))} />
+                    </label>
+                    <div className="flex items-end gap-4 pb-1 text-xs">
+                      <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(fieldDraft.is_required)} onChange={e => setFieldDraft(draft => ({ ...draft, is_required: e.target.checked ? 1 : 0 }))} /> Required</label>
+                      <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(fieldDraft.is_active)} onChange={e => setFieldDraft(draft => ({ ...draft, is_active: e.target.checked ? 1 : 0 }))} /> Active</label>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={fieldSaving || !fieldDraft.label || !fieldDraft.field_key} onClick={() => void saveField()} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">{fieldSaving ? "Saving…" : editingFieldId == null ? "Add field" : "Save field"}</button>
+                    {editingFieldId != null ? <button type="button" disabled={fieldSaving} onClick={() => void disableField()} className="rounded border border-red-400 px-3 py-1.5 text-xs text-red-600 dark:text-red-300">Deactivate</button> : null}
+                    <button type="button" onClick={clearField} className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-xs">Clear</button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="space-y-1">
               <div className="text-sm font-semibold">
                 {editingDirectoryId == null ? "Create Staff Entry" : `Edit Entry #${editingDirectoryId}`}
@@ -773,55 +958,29 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="Hospital ID"
-                value={form.hospital_id || ""}
-                onChange={e => setForm(prev => ({ ...prev, hospital_id: e.target.value }))}
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="Entry Year"
-                value={form.entry_year || ""}
-                onChange={e =>
-                  setForm(prev => ({
-                    ...prev,
-                    entry_year: e.target.value ? Number(e.target.value) : null,
-                  }))
-                }
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="TH First Name"
-                value={form.th_first_name || ""}
-                onChange={e => setForm(prev => ({ ...prev, th_first_name: e.target.value }))}
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="TH Last Name"
-                value={form.th_last_name || ""}
-                onChange={e => setForm(prev => ({ ...prev, th_last_name: e.target.value }))}
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="EN First Name"
-                value={form.en_first_name || ""}
-                onChange={e => setForm(prev => ({ ...prev, en_first_name: e.target.value }))}
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="EN Last Name"
-                value={form.en_last_name || ""}
-                onChange={e => setForm(prev => ({ ...prev, en_last_name: e.target.value }))}
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="Display Name"
-                value={form.name || ""}
-                onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
-              />
+              {fields.filter(field => field.is_active).map(field => {
+                const value = form.profile_data?.[field.field_key] ?? "";
+                const updateValue = (next: string) => setForm(prev => ({
+                  ...prev,
+                  profile_data: { ...(prev.profile_data || {}), [field.field_key]: next },
+                }));
+                return (
+                  <label key={field.id} className="text-xs font-medium">
+                    {field.label}{field.language_code ? ` (${field.language_code.toUpperCase()})` : ""}{field.is_required ? " *" : ""}
+                    {field.field_type === "select" ? (
+                      <select className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={String(value)} onChange={e => updateValue(e.target.value)}>
+                        <option value="">Select…</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ) : (
+                      <input type={field.field_type === "number" ? "number" : field.field_type === "date" ? "date" : field.field_type === "email" ? "email" : "text"} className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm" value={String(value)} onChange={e => updateValue(e.target.value)} />
+                    )}
+                  </label>
+                );
+              })}
+              <label className="text-xs font-medium">
+                Clinical role *
               <select
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
+                className="mt-1 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
                 value={form.role_id || activeRoleId}
                 onChange={e => setForm(prev => ({ ...prev, role_id: e.target.value }))}
               >
@@ -831,18 +990,7 @@ export default function StaffView({ caseStatus, sessionUser, defaultTab = "curre
                   </option>
                 ))}
               </select>
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="Email"
-                value={form.email || ""}
-                onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
-              />
-              <input
-                className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                placeholder="Personal ID"
-                value={form.personal_id || ""}
-                onChange={e => setForm(prev => ({ ...prev, personal_id: e.target.value }))}
-              />
+              </label>
             </div>
 
             <div className="flex flex-wrap gap-2">

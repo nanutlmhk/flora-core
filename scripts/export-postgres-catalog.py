@@ -9,9 +9,14 @@ import psycopg
 from psycopg.rows import dict_row
 
 DESCRIPTIONS = {
-    "auth_user": "User accounts, password hashes/salts, roles, activation and theme preferences. Passwords are not stored as plaintext.",
+    "auth_user": "Login accounts, password hashes/salts, roles, activation, personal workspace preferences and an optional clinical staff-directory link. Passwords are not stored as plaintext.",
+    "io_group_master": "Configurable medication, fluid and output groups used to organize catalog items and clinical entry workflows.",
     "auth_session": "Opaque login sessions. Stores token hashes, user ownership, expiry, last-seen and revocation times.",
     "auth_audit": "Authentication and account-administration audit records, including actor, target, outcome and JSON details.",
+    "auth_role": "Authorization role profiles. Clinical job titles are deliberately kept separate in staff_role.",
+    "auth_permission": "Stable application permission catalog used by FastAPI authorization dependencies.",
+    "auth_role_permission": "Many-to-many grants connecting authorization roles to permissions.",
+    "auth_user_role": "User role assignments with scope fields ready for global, hospital, care-unit or Leaf authorization.",
     "cases": "Root clinical encounter: case code, HN, start/capture/discharge/archive times and lifecycle status. Most clinical tables reference this ID.",
     "vital_minutes": "Device observations grouped into a JSON-text payload per case, source and minute. This is device data, not manual chart overrides.",
     "case_device_ingest_audit": "Device import provenance: requested intervals, source endpoint, row counts, actor, outcome and diagnostic details.",
@@ -34,10 +39,11 @@ DESCRIPTIONS = {
     "his_patient_buffer": "Preloaded HIS demographics before association with a case, keyed by HN.",
     "his_allergy_buffer": "Preloaded HIS allergies associated with the HN buffer rather than a case ID.",
     "his_lab_buffer": "Preloaded HIS laboratory results associated with the HN buffer rather than a case ID.",
-    "case_staff": "Ordered staff assignments for a case with identity, role and authorship. Current schema has no explicit staff time-in/time-out columns.",
-    "staff_directory": "Reusable staff directory: identifiers, names, role, activation, usage counts and last-use metadata.",
+    "case_staff": "Ordered staff assignments for a case with a configurable profile snapshot, role and authorship. Current schema has no explicit staff time-in/time-out columns.",
+    "staff_directory": "Reusable staff directory with a site-configurable international profile plus compatibility identifiers, activation and usage metadata.",
+    "staff_field_master": "Admin-managed staff profile field definitions: label, input type, language, name part, core mapping, requirement and order.",
     "staff_role": "Staff role codes and display labels used by the directory and case assignments.",
-    "io_item_master": "Medication, fluid and output item definitions with code, name, default unit, category, activation and usage ranking.",
+    "io_item_master": "Medication, fluid and output item definitions linked to configurable groups and clinical terminology.",
     "case_io_run": "A case administration/output row for an item: route, bolus/drip mode, start/stop interval and balance inclusion.",
     "case_io_segment": "Rate/dose/carrier intervals within an I/O run. The summary calculates delivered volume over interval overlap.",
     "case_io_event": "Discrete I/O administrations or outputs with timestamp, volume/dose, units and balance inclusion. Links to case and item; there is no run_id column.",
@@ -46,6 +52,16 @@ DESCRIPTIONS = {
     "sync_message": "Received synchronization envelopes. Unique (leaf_id, message_id) supports duplicate-delivery rejection.",
     "sync_case_index": "Canopy's per-Leaf case index and JSONB snapshot, using a global UUID plus the source Leaf case ID.",
     "case_clinical_audit": "Native Python clinical mutation audit for patient identity, diagnoses, procedures, staff and forms. Introduced by migration 0005.",
+    "language_master": "Supported application languages available to the login screen and user profiles.",
+    "theme_scheme_master": "Six-slot semantic color schemes used by login and authenticated user profiles.",
+    "language_translation": "Database-backed i18n vocabulary overrides keyed by language profile and application translation key.",
+    "workstation_context": "Singleton Leaf workstation identity, location, timezone, date format and 12/24-hour display preference.",
+    "clinical_concept": "Local clinical concepts by domain. Local IDs/names remain authoritative while optional standard terminology mappings are attached separately.",
+    "clinical_concept_coding": "Reusable mappings from a Flora clinical concept to SNOMED CT, ICD-10, ICD-9-CM, LOINC, RxNorm, ATC or UCUM codes and displays.",
+    "clinical_parameter_master": "Observation parameter registry linking stable chart keys—including vital signs and anesthetic-agent measurements—to clinical concepts, display names, value types and units.",
+    "terminology_release": "Versioned terminology packages with source, license, release state, import date and entry count. Licensed packages are referenced here, not committed to source control.",
+    "terminology_entry": "Searchable codes and displays from a specific terminology release, separated by clinical domain while preserving source metadata.",
+    "terminology_synonym": "Language-tagged alternate terms used to search terminology entries without changing their canonical displays.",
 }
 
 
@@ -78,7 +94,7 @@ lines=["# Flora PostgreSQL structure", "", f"Generated from PostgreSQL catalog m
     "This describes the inspected database, not an idealized future schema. No patient rows, passwords, tokens, payload contents or connection credentials are included.", "",
     "See [backend responsibilities](BACKEND-ARCHITECTURE.md), [route inventory](BACKEND-API-INVENTORY.md), and [schema-only SQL](database/flora-schema.sql).",
     "", "## Storage conventions and important distinctions", "",
-    "- Clinical timestamps such as `start_time`, `event_ts`, `ts_minute` and most `created_at` columns are bigint Unix epoch **milliseconds**. Display them in Asia/Bangkok; they are not PostgreSQL timestamp columns.",
+    "- Clinical timestamps such as `start_time`, `event_ts`, `ts_minute` and most `created_at` columns are bigint Unix epoch **milliseconds**. Display them using the configured workstation IANA timezone; they are not PostgreSQL timestamp columns.",
     "- Sync heartbeat/envelope timestamps use `timestamp with time zone`. Check each column below instead of applying a single conversion to every timestamp.",
     "- Imported clinical JSON commonly uses `text` (`payload`, `raw_payload`, `form_draft_json`, audit JSON). Sync snapshots/envelopes use `jsonb`.",
     "- Imported boolean-like flags commonly use bigint `0`/`1`. Defaults, nullability and CHECK constraints below are authoritative.",
@@ -89,12 +105,12 @@ lines=["# Flora PostgreSQL structure", "", f"Generated from PostgreSQL catalog m
     "- `case_io_event` references the case and master item, not a run. Do not invent a run foreign key when joining administrations.",
     "- A schema-only SQL export is not a data backup and does not contain master lookup rows or populated sequence positions.",
     "", "## Deployed schema migrations", "",
-    "Migration [0005-leaf-writes.sql](../infrastructure/postgres/0005-leaf-writes.sql) supplies PostgreSQL sequences and the clinical mutation audit used by the FastAPI Leaf service. Migration [0006-native-object-names.sql](../infrastructure/postgres/0006-native-object-names.sql) replaces legacy-derived database object names. The catalog below is generated from the deployed Leaf database.",
+    "Migrations [0005-leaf-writes.sql](../infrastructure/postgres/0005-leaf-writes.sql) through [0018-terminology-releases.sql](../infrastructure/postgres/0018-terminology-releases.sql) add native Leaf writes, normalized object names, preferences, admission workflow, workstation/date-time configuration, translation profiles, clinical terminology, configurable international staff profiles, clinical domain taxonomy, account/staff linking, I/O groups, role-based access control and versioned terminology releases. The catalog below is generated from the deployed Leaf database.",
     "", "## Table purposes", "", "| Table | Responsibility |", "| --- | --- |"]
 for table in tables:
     name=table["tablename"]
     lines.append(f"| [{name}](#{name.replace('_','-')}) | {DESCRIPTIONS.get(name,'Inspect application usage; no purpose annotation has been assigned.')} |")
-lines.extend(["", "## Relationship overview", "", "```text", "auth_user ── auth_session / auth_audit", "cases ── patient snapshots / HIS patient, allergies, labs", "      ├─ diagnoses / procedures / staff / form detail", "      ├─ vital_minutes / timeline values + audit / events + audit", "      └─ I/O runs ── segments", "         I/O events ── io_item_master", "         I/O audits", "his_patient_buffer ── HIS allergy/lab buffers", "sync_leaf_node ── sync_message / sync_case_index (JSONB snapshots)", "```", "", "This is a conceptual ownership map. The per-table FOREIGN KEY definitions below identify the relationships actually enforced by PostgreSQL.", "", "## Table definitions"])
+lines.extend(["", "## Relationship overview", "", "```text", "auth_user ── auth_session / auth_audit", "    ├─ auth_user_role ── auth_role ── auth_role_permission ── auth_permission", "    └─ optional staff_directory identity link", "cases ── patient snapshots / HIS patient, allergies, labs", "      ├─ diagnoses / procedures / staff / form detail", "      ├─ vital_minutes / timeline values + audit / events + audit", "      └─ I/O runs ── segments", "         I/O events ── io_item_master ── io_group_master", "         I/O audits", "his_patient_buffer ── HIS allergy/lab buffers", "sync_leaf_node ── sync_message / sync_case_index (JSONB snapshots)", "```", "", "This is a conceptual ownership map. The per-table FOREIGN KEY definitions below identify the relationships actually enforced by PostgreSQL.", "", "## Table definitions"])
 for table in tables:
     name=table["tablename"]
     lines.extend(["",f"<a id=\"{name.replace('_','-')}\"></a>",f"### `{name}`","",DESCRIPTIONS.get(name,""),"",

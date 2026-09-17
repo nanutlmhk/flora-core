@@ -28,6 +28,7 @@ services:
       FLORA_LEAF_API_URL: http://flora-leaf-api:8000
       FLORA_CANOPY_SYNC_URL: http://flora-sync-api:8000
       FLORA_SYNC_SHARED_SECRET: ${FLORA_SYNC_SHARED_SECRET:-flora-sync-dev-secret-change-me}
+      FLORA_LEAF_SERVICE_SECRET: ${FLORA_LEAF_SERVICE_SECRET:-flora-leaf-service-dev-secret-change-me}
       FLORA_LEAF_ID: ${FLORA_LEAF_ID:-leaf-dev-01}
       FLORA_HOSPITAL_ID: ${FLORA_HOSPITAL_ID:-hospital-dev}
       FLORA_LEAF_NAME: ${FLORA_LEAF_NAME:-Development Leaf}

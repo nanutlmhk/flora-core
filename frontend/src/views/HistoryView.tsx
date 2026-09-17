@@ -1,20 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { getCaseList } from "../api/caseApi";
 import type { CaseListRow, CaseStatus } from "../api/caseApi";
+import { useWorkstationSettings } from "../hooks/useWorkstationSettings";
+import { formatConfiguredDateTime, wallClockInputToTimestamp } from "../utils/dateTime";
 
 type StatusFilter = "all" | "ACTIVE" | "DISCHARGED" | "ARCHIVED";
-
-function formatDateTime(ts: number | undefined) {
-  if (!ts) return "—";
-  const d = new Date(ts);
-  return (
-    d.toLocaleDateString() +
-    " " +
-    String(d.getHours()).padStart(2, "0") +
-    ":" +
-    String(d.getMinutes()).padStart(2, "0")
-  );
-}
 
 function formatDuration(startTs: number, endTs?: number) {
   const ms = (endTs ?? Date.now()) - startTs;
@@ -40,6 +30,7 @@ interface Props {
 }
 
 export default function HistoryView({ onOpenCase }: Props) {
+  const workstation = useWorkstationSettings();
   const [rows, setRows] = useState<CaseListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [hnQuery, setHnQuery] = useState("");
@@ -56,15 +47,15 @@ export default function HistoryView({ onOpenCase }: Props) {
 
   const filtered = useMemo(() => {
     const hn = hnQuery.trim().toLowerCase();
-    const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
-    const toTs = dateTo ? new Date(dateTo + "T23:59:59").getTime() : Infinity;
+    const fromTs = dateFrom ? wallClockInputToTimestamp(`${dateFrom}T00:00`, workstation.timezone) ?? 0 : 0;
+    const toTs = dateTo ? (wallClockInputToTimestamp(`${dateTo}T23:59`, workstation.timezone) ?? Infinity) + 59_999 : Infinity;
     return rows.filter((r) => {
       if (hn && !r.hn.toLowerCase().includes(hn)) return false;
       if (r.start_time < fromTs || r.start_time > toTs) return false;
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       return true;
     });
-  }, [rows, hnQuery, dateFrom, dateTo, statusFilter]);
+  }, [rows, hnQuery, dateFrom, dateTo, statusFilter, workstation.timezone]);
 
   const hasFilter = hnQuery || dateFrom || dateTo || statusFilter !== "all";
 
@@ -82,7 +73,7 @@ export default function HistoryView({ onOpenCase }: Props) {
     <div className="mx-auto max-w-5xl p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-base font-semibold text-[var(--app-text)]">
-          Case History
+          Archive
         </h1>
         <span className="text-xs text-[var(--app-muted)]">
           {loading
@@ -183,11 +174,11 @@ export default function HistoryView({ onOpenCase }: Props) {
                     {row.hn}
                   </td>
                   <td className="px-3 py-2.5 text-[var(--app-muted)]">
-                    {formatDateTime(row.start_time)}
+                    {formatConfiguredDateTime(row.start_time, workstation)}
                   </td>
                   <td className="px-3 py-2.5 text-[var(--app-muted)]">
                     {row.discharge_time
-                      ? formatDateTime(row.discharge_time)
+                      ? formatConfiguredDateTime(row.discharge_time, workstation)
                       : "—"}
                   </td>
                   <td className="px-3 py-2.5 text-[var(--app-muted)]">

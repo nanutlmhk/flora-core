@@ -1,18 +1,20 @@
 import json
+import hashlib
 import re
 from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 from psycopg import Connection, sql
+from psycopg.types.json import Jsonb
 from ..database import connection
 from ..clinical import insert,update,text,number,timestamp,case_audit
-from .auth_leaf import current_user,now_ms
+from .auth_leaf import now_ms,require_permission
 from .cases_lifecycle import editable_case
 
 router=APIRouter(prefix="/api/case",tags=["clinical entry"])
 
 
 @router.put("/{case_id}/patient")
-def patient(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def patient(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"))
     if not hn: raise HTTPException(400,"hn is required")
     with database.transaction():
@@ -38,13 +40,13 @@ def save_draft(db,case_id,draft,actor):
 
 
 @router.put("/{case_id}/detail-draft")
-def draft(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def draft(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     if not isinstance(payload.get("draft"),dict): raise HTTPException(400,"draft object required")
     return save_draft(database,case_id,payload["draft"],actor)
 
 
 @router.delete("/{case_id}/detail-draft")
-def clear_draft(case_id:int,actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def clear_draft(case_id:int,actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     return save_draft(database,case_id,None,actor)
 
 
@@ -57,10 +59,29 @@ def register_context_routes(path,table,required):
             return {required:name,**{k:text(payload.get(k,old.get(k))) for k in ("reaction","severity")},
                 "status":text(payload.get("status",old.get("status"))) or "active",
                 "updated_at":now_ms(),"his_updated_at":now_ms()}
+        domain="diagnosis" if path=="diagnosis" else "procedure"
+        terminology_entry_id=number(payload.get("terminology_entry_id"),"terminology_entry_id",1)
+        terminology_entry=None
+        if terminology_entry_id:
+            terminology_entry=db.execute("""SELECT entry.*,release.system_key,release.system_uri,release.version
+              FROM terminology_entry entry JOIN terminology_release release ON release.id=entry.release_id
+              WHERE entry.id=%s AND entry.is_active=1 AND release.status='active'""",(int(terminology_entry_id),)).fetchone()
+            if not terminology_entry: raise HTTPException(400,"terminology entry not found or inactive")
+            if terminology_entry["domain"]!=domain: raise HTTPException(400,"terminology entry does not match entry type")
         code=text(payload.get("icd_code",old.get("icd_code")))
         code=re.sub(r"\s+","",code).upper() if code else None
         version=text(payload.get("icd_version",old.get("icd_version"))) or ("ICD-10" if path=="diagnosis" else "ICD-9") if code else text(payload.get("icd_version",old.get("icd_version")))
         label=text(payload.get("icd_text",old.get("icd_text")))
+        if terminology_entry:
+            external_system=terminology_entry["system_key"]
+            if external_system in {"ICD_10","ICD_10_TM","ICD_10_CM","ICD_10_WHO"}:
+                code=terminology_entry["code"]
+                version="ICD-10"
+                label=terminology_entry["display"]
+            elif external_system=="ICD_9_CM":
+                code=terminology_entry["code"].replace(".","")
+                version="ICD-9"
+                label=terminology_entry["display"]
         if code and version=="ICD-10":
             found=db.execute("SELECT coalesce(nullif(name_en,''),name_th) AS name FROM icd10_master WHERE icd10=%s OR icd10who=%s LIMIT 1",(code,code)).fetchone()
             if found: label=found["name"] or label
@@ -69,9 +90,60 @@ def register_context_routes(path,table,required):
             found=db.execute("SELECT name_en AS name FROM icd9cm_master WHERE icd9cm=%s LIMIT 1",(code,)).fetchone()
             if found: label=found["name"] or label
         seq=number(payload.get("seq",old.get("seq",1)),"seq",1)
-        return {required:name,"icd_code":code,"icd_version":version,"icd_text":label,"seq":int(seq or 1)}
+        event_ts=timestamp(payload.get("event_ts",old.get("event_ts")),"event_ts",now_ms())
+        default_context="intraoperative" if path=="diagnosis" else "performed"
+        entry_context=text(payload.get("entry_context",old.get("entry_context"))) or default_context
+        allowed_contexts={"preoperative","intraoperative","postoperative"} if path=="diagnosis" else {"planned","performed"}
+        if entry_context not in allowed_contexts: raise HTTPException(400,"invalid entry_context")
+        concept_id=number(payload.get("concept_id",old.get("concept_id")),"concept_id",1)
+        concept=None
+        if concept_id:
+            concept=db.execute("SELECT * FROM clinical_concept WHERE id=%s AND domain=%s",(int(concept_id),domain)).fetchone()
+            if not concept: raise HTTPException(400,"clinical concept does not match entry type")
+        coding_key=None
+        coding_code=None
+        if terminology_entry:
+            coding_key="ICD_10" if terminology_entry["system_key"] in {"ICD_10_TM","ICD_10_CM","ICD_10_WHO"} else terminology_entry["system_key"]
+            coding_code=terminology_entry["code"]
+            concept=db.execute("""SELECT concept.* FROM clinical_concept concept JOIN clinical_concept_coding coding ON coding.concept_id=concept.id
+              WHERE concept.domain=%s AND coding.system_key=%s AND coding.code=%s ORDER BY concept.is_active DESC LIMIT 1""",(domain,coding_key,coding_code)).fetchone()
+        if not concept and code:
+            system_key="ICD_10" if version=="ICD-10" else "ICD_9_CM" if version=="ICD-9" else None
+            if system_key:
+                concept=db.execute("""SELECT concept.* FROM clinical_concept concept JOIN clinical_concept_coding coding ON coding.concept_id=concept.id
+                  WHERE concept.domain=%s AND coding.system_key=%s AND coding.code=%s ORDER BY concept.is_active DESC LIMIT 1""",(domain,system_key,code)).fetchone()
+        if not concept:
+            local_id=text(payload.get("local_id"))
+            if local_id: concept=db.execute("SELECT * FROM clinical_concept WHERE domain=%s AND local_id=%s",(domain,local_id)).fetchone()
+        if not concept:
+            concept=db.execute("SELECT * FROM clinical_concept WHERE domain=%s AND lower(local_name)=lower(%s) ORDER BY is_active DESC LIMIT 1",(domain,name)).fetchone()
+        if not concept:
+            generated_id=("standard-"+terminology_entry["system_key"].lower().replace("_","-")+"-"+re.sub(r"[^a-z0-9]+","-",terminology_entry["code"].lower()).strip("-"))[:120] if terminology_entry else "local-"+hashlib.sha1((domain+"|"+name.strip().lower()).encode()).hexdigest()[:16]
+            concept=db.execute("""INSERT INTO clinical_concept(domain,local_id,local_name,is_active,created_at,updated_at)
+              VALUES (%s,%s,%s,1,%s,%s) ON CONFLICT(domain,local_id) DO UPDATE SET local_name=excluded.local_name,updated_at=excluded.updated_at RETURNING *""",
+              (domain,generated_id,name,now_ms(),now_ms())).fetchone()
+        if terminology_entry and concept:
+            db.execute("""INSERT INTO clinical_concept_coding(concept_id,system_key,system_uri,code,display,version,is_preferred,terminology_entry_id,created_at,updated_at)
+              VALUES (%s,%s,%s,%s,%s,%s,1,%s,%s,%s)
+              ON CONFLICT(concept_id,system_key,code) DO UPDATE SET display=excluded.display,version=excluded.version,
+                terminology_entry_id=excluded.terminology_entry_id,is_preferred=1,updated_at=excluded.updated_at""",
+              (concept["id"],coding_key,terminology_entry["system_uri"],coding_code,terminology_entry["display"],terminology_entry["version"],terminology_entry["id"],now_ms(),now_ms()))
+        snapshot={"local_name":name,"standard_name":label,"icd10_id":code if version=="ICD-10" else None,"icd9cm_id":code if version=="ICD-9" else None}
+        if terminology_entry:
+            snapshot.update(terminology_entry_id=terminology_entry["id"],terminology_system=terminology_entry["system_key"],terminology_version=terminology_entry["version"])
+        if concept:
+            snapshot.update(local_id=concept["local_id"])
+            codings=db.execute("SELECT system_key,code,display FROM clinical_concept_coding WHERE concept_id=%s AND is_preferred=1",(concept["id"],)).fetchall()
+            for coding in codings:
+                prefix={"SNOMED_CT":"snomed","ICD_10":"icd10","ICD_9_CM":"icd9cm","LOINC":"loinc","RXNORM":"rxnorm","ATC":"atc","UCUM":"ucum"}[coding["system_key"]]
+                snapshot[prefix+"_id"]=coding["code"]
+                if coding["display"]: snapshot[prefix+"_name"]=coding["display"]
+        snapshot={key:value for key,value in snapshot.items() if value is not None}
+        return {required:name,"icd_code":code,"icd_version":version,"icd_text":label,"seq":int(seq or 1),
+            "event_ts":event_ts,"entry_context":entry_context,
+            "concept_id":concept["id"] if concept else None,"coding_snapshot":Jsonb(snapshot)}
 
-    def create(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+    def create(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
         with database.transaction():
             editable_case(database,case_id)
             data={"case_id":case_id,**values(database,payload),"created_at":now_ms()}
@@ -80,7 +152,7 @@ def register_context_routes(path,table,required):
             case_audit(database,case_id,path+".insert",None,row,actor)
         return {"ok":True,"id":row["id"],"row":row}
 
-    def edit(case_id:int,entry_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+    def edit(case_id:int,entry_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
         with database.transaction():
             editable_case(database,case_id)
             old=database.execute(sql.SQL("SELECT * FROM {} WHERE id=%s AND case_id=%s").format(sql.Identifier(table)),(entry_id,case_id)).fetchone()
@@ -89,7 +161,7 @@ def register_context_routes(path,table,required):
             case_audit(database,case_id,path+".update",old,row,actor)
         return {"ok":True,"row":row}
 
-    def delete(case_id:int,entry_id:int,actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+    def delete(case_id:int,entry_id:int,actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
         with database.transaction():
             editable_case(database,case_id)
             old=database.execute(sql.SQL("DELETE FROM {} WHERE id=%s AND case_id=%s RETURNING *").format(sql.Identifier(table)),(entry_id,case_id)).fetchone()
@@ -158,7 +230,7 @@ def write_event(db,case_id,payload,actor,old=None):
 
 
 @router.post("/{case_id}/events")
-def create_event(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def create_event(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id)
         row=write_event(database,case_id,payload,actor)
@@ -166,7 +238,7 @@ def create_event(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_u
 
 
 @router.put("/{case_id}/events/{event_id}")
-def edit_event(case_id:int,event_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def edit_event(case_id:int,event_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id)
         old=database.execute("SELECT * FROM case_event_note WHERE id=%s AND case_id=%s AND is_deleted=0",(event_id,case_id)).fetchone()
@@ -176,7 +248,7 @@ def edit_event(case_id:int,event_id:int,payload:dict=Body(...),actor:dict=Depend
 
 
 @router.delete("/{case_id}/events/{event_id}")
-def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id)
         old=database.execute("SELECT * FROM case_event_note WHERE id=%s AND case_id=%s AND is_deleted=0",(event_id,case_id)).fetchone()
@@ -187,7 +259,7 @@ def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:di
 
 
 @router.put("/{case_id}/timeline")
-def timeline(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def timeline(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     changes=payload.get("changes")
     if not isinstance(changes,list) or not changes: raise HTTPException(400,"changes required")
     counts=dict(inserted=0,updated=0,deleted=0,skipped=0)
@@ -210,10 +282,35 @@ def timeline(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user)
             else:
                 value=item["value"]
                 numeric=item.get("value_type")=="number" or isinstance(value,(int,float))
+                source="override" if item.get("source",previous.get("source"))=="override" else "manual"
+                original={
+                    "original_value_type":previous.get("original_value_type"),
+                    "original_value_num":previous.get("original_value_num"),
+                    "original_value_text":previous.get("original_value_text"),
+                    "original_source":previous.get("original_source"),
+                }
+                if source=="override" and not old:
+                    minute=database.execute(
+                        "SELECT ivy_source,payload FROM vital_minutes WHERE case_id=%s AND ts_minute=%s LIMIT 1",
+                        (case_id,ts),
+                    ).fetchone()
+                    raw_payload=minute.get("payload") if minute else None
+                    if isinstance(raw_payload,str):
+                        try: raw_payload=json.loads(raw_payload)
+                        except json.JSONDecodeError: raw_payload={}
+                    raw_value=raw_payload.get(key) if isinstance(raw_payload,dict) else None
+                    if raw_value is not None:
+                        raw_numeric=isinstance(raw_value,(int,float)) and not isinstance(raw_value,bool)
+                        original={
+                            "original_value_type":"number" if raw_numeric else "text",
+                            "original_value_num":float(raw_value) if raw_numeric else None,
+                            "original_value_text":None if raw_numeric else text(raw_value),
+                            "original_source":minute.get("ivy_source") if minute else None,
+                        }
                 data=dict(value_type="number" if numeric else item.get("value_type") if item.get("value_type") in ("text","code") else "code" if key=="ecg" else "text",
                     value_num=number(value,key) if numeric else None,value_text=None if numeric else text(value),
                     unit=text(item.get("unit")) or previous.get("unit"),note=text(item.get("note",previous.get("note"))),
-                    source="override" if item.get("source",previous.get("source"))=="override" else "manual")
+                    source=source,**original)
                 if old and all(old[k]==v for k,v in data.items()):
                     counts["skipped"]+=1
                     continue
@@ -225,6 +322,7 @@ def timeline(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user)
                 audit["old_"+field]=previous.get(field)
                 audit["new_"+field]=after.get(field) if after else None
             audit.update({k:(after or old).get(k) for k in ("unit","source","note")})
+            audit.update({k:(after or old).get(k) for k in ("original_value_type","original_value_num","original_value_text","original_source")})
             audit.update(reason=text(payload.get("reason")),actor_username=actor["username"],actor_name=actor.get("name"),actor_role=actor.get("role"),created_at=now_ms())
             insert(database,"case_timeline_audit",audit)
             counts[{"insert":"inserted","update":"updated","delete":"deleted"}[action]]+=1

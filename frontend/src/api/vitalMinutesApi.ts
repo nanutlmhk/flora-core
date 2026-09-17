@@ -5,7 +5,25 @@ const BASE = `${BACKEND_BASE}/api/case`;
 export type VitalMinuteRow = {
   ts_minute: number;
   payload: Record<string, unknown>;
+  provenance?: Record<string, TimelineCellProvenance>;
 };
+
+export type TimelineCellProvenance = {
+  source: "manual" | "override";
+  original_value?: unknown;
+  original_source?: string | null;
+  updated_by?: string | null;
+  updated_at?: number | null;
+  note?: string | null;
+  reason?: string | null;
+  actor_username?: string | null;
+  actor_name?: string | null;
+  actor_role?: string | null;
+  edited_at?: number | null;
+  audit_count?: number;
+};
+
+export type TimelineProvenance = Record<string, Record<number, TimelineCellProvenance>>;
 
 type VitalMinuteResponse = {
   rows: VitalMinuteRow[];

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   clearStoredAuthToken,
   type AuthApiUser,
@@ -38,6 +38,12 @@ function readStoredUser(): AuthUser | null {
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
   const ready = true;
+
+  useEffect(() => {
+    const refreshStoredUser = () => setUser(readStoredUser());
+    window.addEventListener("flora:auth-changed", refreshStoredUser);
+    return () => window.removeEventListener("flora:auth-changed", refreshStoredUser);
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     const session = await loginWithPassword(username, password);

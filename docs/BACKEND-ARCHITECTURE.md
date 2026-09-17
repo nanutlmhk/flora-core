@@ -62,6 +62,13 @@ upserts minute payloads into `vital_minutes`. Every successful, empty, or failed
 read is recorded in `case_device_ingest_audit`. Writer status and manual refetch
 are exposed by `routes/device_writer.py`.
 
+For online demonstrations, `flora-liveagent` implements the same observation
+read contract with deterministic synthetic patient-monitor and anesthesia-machine
+values. It runs as an independent container and is explicitly marked
+`synthetic-demo-only`; it is not a medical device simulator for validation or
+production use. A real deployment replaces `VECTOR_READ_URL` with Vector without
+changing the Leaf writer, chart API, or PostgreSQL schema.
+
 ### EPHIS import
 
 `routes/ephis.py` validates the daily TSV format, parses dates, performs a
@@ -95,6 +102,7 @@ database and never exposes clinical mutation routes.
 | Canopy UI | 6894 |
 | Canopy API | 6895 |
 | Sync API | 6896 |
+| Demo LiveAgent (loopback development binding) | 6897 |
 | Vector observation API | 6789 by default; configurable |
 
 ## Important environment variables

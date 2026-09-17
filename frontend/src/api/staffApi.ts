@@ -20,9 +20,24 @@ export type StaffMember = {
   innovian_id?: string;
   role_id?: string;
   entry_year?: number | null;
+  profile_data?: Record<string, string | number | boolean | null>;
   is_active?: number;
   name: string;
   role: string;
+};
+
+export type StaffFieldDefinition = {
+  id: number;
+  field_key: string;
+  label: string;
+  field_type: "text" | "email" | "number" | "date" | "select";
+  language_code: string;
+  name_part: "" | "prefix" | "given" | "middle" | "family" | "suffix";
+  core_mapping: "" | "hospital_id" | "staff_name" | "email" | "personal_id" | "entry_year" | "innovian_id";
+  options: string[];
+  is_required: number;
+  is_active: number;
+  sort_order: number;
 };
 
 export type StaffLibraryItem = StaffMember & {
@@ -42,6 +57,7 @@ function numberOrNull(value: unknown): number | null {
 }
 
 function parseStaffRow(row: Record<string, unknown>): StaffMember {
+  const profile = row.profile_data;
   return {
     id: numberOrNull(row.id) ?? undefined,
     hospital_id: text(row.hospital_id),
@@ -52,12 +68,71 @@ function parseStaffRow(row: Record<string, unknown>): StaffMember {
     en_first_name: text(row.en_first_name),
     en_last_name: text(row.en_last_name),
     innovian_id: text(row.innovian_id),
-    role_id: text(row.role_id),
+    role_id: text(row.role_id || row.staff_role_id),
     entry_year: numberOrNull(row.entry_year),
+    profile_data:
+      profile && typeof profile === "object" && !Array.isArray(profile)
+        ? (profile as Record<string, string | number | boolean | null>)
+        : {},
     is_active: numberOrNull(row.is_active) ?? undefined,
-    name: text(row.name),
-    role: text(row.role),
+    name: text(row.name || row.staff_name),
+    role: text(row.role || row.staff_role),
   };
+}
+
+function parseField(row: Record<string, unknown>): StaffFieldDefinition {
+  return {
+    id: Number(row.id),
+    field_key: text(row.field_key),
+    label: text(row.label),
+    field_type: (text(row.field_type) || "text") as StaffFieldDefinition["field_type"],
+    language_code: text(row.language_code),
+    name_part: text(row.name_part) as StaffFieldDefinition["name_part"],
+    core_mapping: text(row.core_mapping) as StaffFieldDefinition["core_mapping"],
+    options: Array.isArray(row.options) ? row.options.map(String) : [],
+    is_required: Number(row.is_required) || 0,
+    is_active: Number(row.is_active) || 0,
+    sort_order: Number(row.sort_order) || 0,
+  };
+}
+
+export async function getStaffFields(includeInactive = false): Promise<StaffFieldDefinition[]> {
+  const res = await fetch(`${BASE}/staff/fields?include_inactive=${includeInactive}`);
+  if (!res.ok) throw new Error(`staff fields failed ${res.status}`);
+  const json = (await res.json()) as { rows?: Array<Record<string, unknown>> };
+  return (json.rows || []).map(parseField);
+}
+
+export async function createStaffField(
+  field: Omit<StaffFieldDefinition, "id">,
+): Promise<StaffFieldDefinition> {
+  const res = await fetch(`${BASE}/staff/fields`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(field),
+  });
+  if (!res.ok) throw new Error(`staff field create failed ${res.status}`);
+  const json = (await res.json()) as { row: Record<string, unknown> };
+  return parseField(json.row);
+}
+
+export async function updateStaffField(
+  id: number,
+  field: Omit<StaffFieldDefinition, "id">,
+): Promise<StaffFieldDefinition> {
+  const res = await fetch(`${BASE}/staff/fields/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(field),
+  });
+  if (!res.ok) throw new Error(`staff field update failed ${res.status}`);
+  const json = (await res.json()) as { row: Record<string, unknown> };
+  return parseField(json.row);
+}
+
+export async function deactivateStaffField(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/staff/fields/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`staff field deactivate failed ${res.status}`);
 }
 
 export async function getStaffRoles(): Promise<StaffRole[]> {
@@ -278,11 +353,13 @@ export type StaffMyCaseRow = {
 };
 
 export async function getStaffMyCases(opts: {
+  staffDirectoryId?: number;
   hospitalId?: string;
   personalId?: string;
   email?: string;
 }): Promise<StaffMyCaseRow[]> {
   const params = new URLSearchParams();
+  if (Number.isFinite(opts.staffDirectoryId)) params.set("staff_directory_id", String(opts.staffDirectoryId));
   if (opts.hospitalId) params.set("hospital_id", opts.hospitalId);
   if (opts.personalId) params.set("personal_id", opts.personalId);
   if (opts.email)      params.set("email", opts.email);

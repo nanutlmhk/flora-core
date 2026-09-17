@@ -17,6 +17,23 @@ services:
       - ../infrastructure/postgres/0003-create-view-role.sql:/docker-entrypoint-initdb.d/0003-create-view-role.sql:ro
       - ../infrastructure/postgres/0004-leaf-canopy-sync.sql:/docker-entrypoint-initdb.d/0004-leaf-canopy-sync.sql:ro
       - ../infrastructure/postgres/0005-leaf-writes.sql:/docker-entrypoint-initdb.d/0005-leaf-writes.sql:ro
+      - ../infrastructure/postgres/0007-preference-masters.sql:/docker-entrypoint-initdb.d/0007-preference-masters.sql:ro
+      - ../infrastructure/postgres/0008-case-admission.sql:/docker-entrypoint-initdb.d/0008-case-admission.sql:ro
+      - ../infrastructure/postgres/0009-workstation-context.sql:/docker-entrypoint-initdb.d/0009-workstation-context.sql:ro
+      - ../infrastructure/postgres/0010-language-translations.sql:/docker-entrypoint-initdb.d/0010-language-translations.sql:ro
+      - ../infrastructure/postgres/0011-datetime-preferences.sql:/docker-entrypoint-initdb.d/0011-datetime-preferences.sql:ro
+      - ../infrastructure/postgres/0012-clinical-terminology.sql:/docker-entrypoint-initdb.d/0012-clinical-terminology.sql:ro
+      - ../infrastructure/postgres/0013-configurable-staff-profile.sql:/docker-entrypoint-initdb.d/0013-configurable-staff-profile.sql:ro
+      - ../infrastructure/postgres/0014-clinical-domain-taxonomy.sql:/docker-entrypoint-initdb.d/0014-clinical-domain-taxonomy.sql:ro
+      - ../infrastructure/postgres/0015-account-settings-staff-link.sql:/docker-entrypoint-initdb.d/0015-account-settings-staff-link.sql:ro
+      - ../infrastructure/postgres/0016-io-group-master.sql:/docker-entrypoint-initdb.d/0016-io-group-master.sql:ro
+      - ../infrastructure/postgres/0017-rbac.sql:/docker-entrypoint-initdb.d/0017-rbac.sql:ro
+      - ../infrastructure/postgres/0018-terminology-releases.sql:/docker-entrypoint-initdb.d/0018-terminology-releases.sql:ro
+      - ../infrastructure/postgres/0019-clinical-context-time.sql:/docker-entrypoint-initdb.d/0019-clinical-context-time.sql:ro
+      - ../infrastructure/postgres/0020-light-theme-schemes.sql:/docker-entrypoint-initdb.d/0020-light-theme-schemes.sql:ro
+      - ../infrastructure/postgres/0021-observation-parameter-layout.sql:/docker-entrypoint-initdb.d/0021-observation-parameter-layout.sql:ro
+      - ../infrastructure/postgres/0022-timeline-device-provenance.sql:/docker-entrypoint-initdb.d/0022-timeline-device-provenance.sql:ro
+      - ../infrastructure/postgres/0023-chart-series-appearance.sql:/docker-entrypoint-initdb.d/0023-chart-series-appearance.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

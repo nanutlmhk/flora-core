@@ -12,6 +12,7 @@ import httpx
 LEAF_API = os.getenv("FLORA_LEAF_API_URL", "http://flora-leaf-api:8000").rstrip("/")
 CANOPY_SYNC_API = os.getenv("FLORA_CANOPY_SYNC_URL", "http://flora-sync-api:8000").rstrip("/")
 SYNC_SECRET = os.environ["FLORA_SYNC_SHARED_SECRET"]
+LEAF_SERVICE_SECRET = os.environ["FLORA_LEAF_SERVICE_SECRET"]
 LEAF_ID = os.getenv("FLORA_LEAF_ID", "leaf-dev-01").strip()
 HOSPITAL_ID = os.getenv("FLORA_HOSPITAL_ID", "hospital-dev").strip()
 DISPLAY_NAME = os.getenv("FLORA_LEAF_NAME", LEAF_ID).strip()
@@ -22,7 +23,7 @@ INITIAL_SYNC_COMPLETE = False
 
 
 def get_json(client: httpx.Client, path: str) -> Any:
-    response = client.get(f"{LEAF_API}{path}")
+    response = client.get(f"{LEAF_API}{path}", headers={"X-FLORA-Service-Secret": LEAF_SERVICE_SECRET})
     response.raise_for_status()
     return response.json()
 

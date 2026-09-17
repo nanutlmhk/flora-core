@@ -131,7 +131,7 @@ export default function CanopyFleetView() {
               <div className="rounded-xl border border-[var(--app-border)] p-4"><div className="text-xs uppercase text-[var(--app-muted)]">Events</div><div className="mt-1 text-xl font-semibold">{sectionRows("events").length} entries</div></div>
               <div className="rounded-xl border border-[var(--app-border)] p-4"><div className="text-xs uppercase text-[var(--app-muted)]">I/O</div><div className="mt-1 text-xl font-semibold">{sectionRows("io_events").length} entries</div></div>
             </div>
-            <div className="px-5 pb-5 text-sm text-[var(--app-muted)]">The synchronized chart payload is available. Full Kronos chart rendering is the next viewer increment.</div>
+            <div className="px-5 pb-5 text-sm text-[var(--app-muted)]">The synchronized chart payload is available. Full live chart rendering is the next viewer increment.</div>
           </section>
         </div>
       ) : null}

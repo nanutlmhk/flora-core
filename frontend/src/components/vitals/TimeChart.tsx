@@ -1,19 +1,24 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TimeGridValues } from "../timegrid/types";
 import { COL_WIDTH, LABEL_COL_WIDTH } from "../timegrid/layout";
 import { useVirtualColumns } from "../../hooks/useVirtualColumns";
+import ClinicalReferenceTooltip from "../common/ClinicalReferenceTooltip";
+import { formatConfiguredTime, getStoredDateTimePreferences } from "../../utils/dateTime";
+import { useTheme } from "../../context/ThemeContext";
 
-type VitalGroup = "spo2" | "hr" | "pr" | "nibp" | "art" | "cvp" | "temp";
+export type VitalGroup = "spo2" | "hr" | "pr" | "nibp" | "art" | "cvp" | "temp";
 
-type VisibilityState = {
-  spo2: boolean;
-  hr: boolean;
-  pr: boolean;
-  nibp: boolean;
-  art: boolean;
-  cvp: boolean;
-  temp: boolean;
+export type ChartGroupConfig = {
+  key: VitalGroup;
+  label: string;
+  defaultVisible: boolean;
+  tooltip?: string;
+  color?: string;
+  marker?: ChartMarker;
 };
+
+export type ChartMarker = "circle" | "heart" | "diamond" | "square" | "triangle" | "range";
 
 type XY = {
   ts: number;
@@ -27,17 +32,17 @@ type Props = {
   values: TimeGridValues;
   nowTs: number;
   height?: number;
-  storageKey?: string;
   colWidth?: number;
   labelColWidth?: number;
   scrollLeft?: number;
   viewportWidth?: number;
+  configuredGroups?: ChartGroupConfig[];
+  storageKey?: string;
 };
 
 const CHART_MIN = 0;
 const CHART_MAX = 200;
 const CHART_PADDING_Y = 10;
-const NOW_HIGHLIGHT_STROKE = "var(--timegrid-now-line)";
 const GRID_STROKE = "var(--chart-grid-line)";
 const SPO2_COLOR = "var(--chart-spo2)";
 const NIBP_COLOR = "var(--chart-nibp)";
@@ -47,50 +52,108 @@ const TEMP_COLOR = "var(--chart-temp)";
 const HR_COLOR = "var(--chart-hr)";
 const PR_COLOR = "var(--chart-pr, var(--chart-spo2))";
 const MINUTE_MS = 60_000;
-const LEGACY_STORAGE_KEY = "flora.chartVisible";
 const VITAL_LINE_STROKE = 1;
 const CONNECTOR_LINE_STROKE = 0.9;
 const DOT_RADIUS = 1.6;
 const TRIANGLE_HALF_WIDTH = 3;
 const TRIANGLE_HALF_HEIGHT = 3;
 const Y_TICKS = [200, 180, 160, 140, 120, 100, 80, 60, 40, 20, 0];
+// The nonlinear focus scale intentionally compresses both ends. Keep their
+// grid lines, but omit the two labels that would collide with 200 and 0.
+const Y_LABEL_TICKS = Y_TICKS.filter(value => value !== 180 && value !== 20);
 
-const DEFAULT_VISIBILITY: VisibilityState = {
-  spo2: true,
-  hr: true,
-  pr: true,
-  nibp: true,
-  art: false,
-  cvp: false,
-  temp: false,
-};
+const FALLBACK_GROUPS: ChartGroupConfig[] = [
+  { key: "spo2", label: "SpO2", defaultVisible: true, marker: "circle" },
+  { key: "hr", label: "HR", defaultVisible: true, marker: "heart" },
+  { key: "pr", label: "PR/PLS", defaultVisible: true, marker: "circle" },
+  { key: "nibp", label: "NIBP", defaultVisible: true, marker: "range" },
+  { key: "art", label: "ART", defaultVisible: false, marker: "range" },
+  { key: "cvp", label: "CVP", defaultVisible: false, marker: "diamond" },
+  { key: "temp", label: "Temp", defaultVisible: false, marker: "diamond" },
+];
 
-function parseVisibility(raw: string | null): VisibilityState | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<Record<VitalGroup, unknown>>;
-    return {
-      spo2: parsed.spo2 === undefined ? DEFAULT_VISIBILITY.spo2 : Boolean(parsed.spo2),
-      hr: parsed.hr === undefined ? DEFAULT_VISIBILITY.hr : Boolean(parsed.hr),
-      pr: parsed.pr === undefined ? DEFAULT_VISIBILITY.pr : Boolean(parsed.pr),
-      nibp: parsed.nibp === undefined ? DEFAULT_VISIBILITY.nibp : Boolean(parsed.nibp),
-      art: parsed.art === undefined ? DEFAULT_VISIBILITY.art : Boolean(parsed.art),
-      cvp: parsed.cvp === undefined ? DEFAULT_VISIBILITY.cvp : Boolean(parsed.cvp),
-      temp: parsed.temp === undefined ? DEFAULT_VISIBILITY.temp : Boolean(parsed.temp),
-    };
-  } catch {
-    return null;
+function initialVisibleGroups(groups: ChartGroupConfig[], storageKey?: string): VitalGroup[] {
+  const available = new Set(groups.map(group => group.key));
+  if (storageKey && typeof window !== "undefined") {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]") as unknown;
+      if (Array.isArray(saved)) {
+        const valid = saved.filter((key): key is VitalGroup => typeof key === "string" && available.has(key as VitalGroup));
+        if (valid.length > 0) return valid;
+      }
+    } catch {
+      // Ignore stale or malformed preferences and use the configured defaults.
+    }
   }
+  return groups.filter(group => group.defaultVisible).map(group => group.key);
 }
 
-function readVisibility(storageKey?: string): VisibilityState {
-  if (typeof window === "undefined") return DEFAULT_VISIBILITY;
-  const keys = [storageKey, LEGACY_STORAGE_KEY].filter(Boolean) as string[];
-  for (const key of keys) {
-    const parsed = parseVisibility(window.localStorage.getItem(key));
-    if (parsed) return parsed;
+function smartContrastKey(storageKey?: string) {
+  return `${storageKey || "flora.chart"}.smartContrast`;
+}
+
+function initialSmartContrast(storageKey?: string) {
+  if (typeof window === "undefined") return true;
+  return window.localStorage.getItem(smartContrastKey(storageKey)) !== "0";
+}
+
+type Rgb = { r: number; g: number; b: number };
+
+function parseHexColor(color: string): Rgb | null {
+  const match = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (!match) return null;
+  return {
+    r: Number.parseInt(match[1].slice(0, 2), 16),
+    g: Number.parseInt(match[1].slice(2, 4), 16),
+    b: Number.parseInt(match[1].slice(4, 6), 16),
+  };
+}
+
+function mixRgb(from: Rgb, to: Rgb, amount: number): Rgb {
+  return {
+    r: Math.round(from.r + (to.r - from.r) * amount),
+    g: Math.round(from.g + (to.g - from.g) * amount),
+    b: Math.round(from.b + (to.b - from.b) * amount),
+  };
+}
+
+function rgbToHex(color: Rgb) {
+  return `#${[color.r, color.g, color.b].map(value => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function relativeLuminance(color: Rgb) {
+  const channel = (value: number) => {
+    const normalized = value / 255;
+    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+}
+
+function contrastRatio(first: Rgb, second: Rgb) {
+  const light = Math.max(relativeLuminance(first), relativeLuminance(second));
+  const dark = Math.min(relativeLuminance(first), relativeLuminance(second));
+  return (light + 0.05) / (dark + 0.05);
+}
+
+function smartContrastColor(color: string, background: Rgb, enabled: boolean) {
+  if (!enabled) return color;
+  const source = parseHexColor(color);
+  if (!source || contrastRatio(source, background) >= 4.5) return color;
+  const black = { r: 0, g: 0, b: 0 };
+  const white = { r: 255, g: 255, b: 255 };
+  const target = contrastRatio(black, background) >= contrastRatio(white, background) ? black : white;
+  for (let amount = 0.1; amount <= 1; amount += 0.1) {
+    const adjusted = mixRgb(source, target, amount);
+    if (contrastRatio(adjusted, background) >= 4.5) return rgbToHex(adjusted);
   }
-  return DEFAULT_VISIBILITY;
+  return rgbToHex(target);
+}
+
+function groupColor(key: VitalGroup) {
+  return {
+    spo2: SPO2_COLOR, hr: HR_COLOR, pr: PR_COLOR, nibp: NIBP_COLOR,
+    art: ART_COLOR, cvp: CVP_COLOR, temp: TEMP_COLOR,
+  }[key];
 }
 
 function toNumber(value: unknown): number | undefined {
@@ -218,21 +281,66 @@ function HeartDot({ x, y }: { x: number; y: number }) {
   );
 }
 
+function PointMarker({ x, y, color, marker = "circle" }: { x: number; y: number; color: string; marker?: ChartMarker }) {
+  if (marker === "heart") return <g style={{ color }}><HeartDot x={x} y={y} /></g>;
+  if (marker === "diamond") return <path d={`M ${x} ${y - 3.5} L ${x + 3.5} ${y} L ${x} ${y + 3.5} L ${x - 3.5} ${y} Z`} fill={color} />;
+  if (marker === "square") return <rect x={x - 2.8} y={y - 2.8} width={5.6} height={5.6} rx={0.6} fill={color} />;
+  if (marker === "triangle") return <TriangleUp x={x} y={y} color={color} />;
+  return <CircleDot x={x} y={y} color={color} />;
+}
+
+function SeriesGlyph({ marker = "circle", color, className = "h-3 w-3" }: { marker?: ChartMarker; color: string; className?: string }) {
+  return <svg viewBox="0 0 16 16" className={`${className} shrink-0`} aria-hidden="true">
+    {marker === "heart" ? <path d="M8 13C6.5 11.5 2 8.8 2 5.3 2 2.4 5.6 1.5 8 4c2.4-2.5 6-1.6 6 1.3 0 3.5-4.5 6.2-6 7.7Z" fill={color} />
+      : marker === "diamond" ? <path d="M8 1.8 14.2 8 8 14.2 1.8 8Z" fill={color} />
+      : marker === "square" ? <rect x="2.3" y="2.3" width="11.4" height="11.4" rx="1.5" fill={color} />
+      : marker === "triangle" ? <path d="M8 2 14 13H2Z" fill={color} />
+      : marker === "range" ? <><path d="M8 2v12" stroke={color} strokeWidth="1.8"/><path d="m4.5 4 3.5-2 3.5 2ZM4.5 12l3.5 2 3.5-2Z" fill={color}/><circle cx="8" cy="8" r="1.8" fill={color}/></>
+      : <circle cx="8" cy="8" r="5.5" fill={color} />}
+  </svg>;
+}
+
 export default function TimeChart({
   axis,
   values,
   nowTs,
   height = 150,
-  storageKey,
   colWidth = COL_WIDTH,
   labelColWidth = LABEL_COL_WIDTH,
   scrollLeft = 0,
   viewportWidth = 0,
+  configuredGroups,
+  storageKey,
 }: Props) {
-  const [visible, setVisible] = useState<VisibilityState>(() =>
-    readVisibility(storageKey),
+  const { color: themeCode, schemes } = useTheme();
+  const chartGroups = useMemo(
+    () => configuredGroups === undefined ? FALLBACK_GROUPS : configuredGroups,
+    [configuredGroups],
   );
+  const groupConfig = useMemo(() => new Map(chartGroups.map(group => [group.key, group])), [chartGroups]);
   const [hoverColumnIndex, setHoverColumnIndex] = useState<number | null>(null);
+  const [rulerValue, setRulerValue] = useState<number | null>(null);
+  const [visibleGroups, setVisibleGroups] = useState<VitalGroup[]>(() => initialVisibleGroups(chartGroups, storageKey));
+  const [configOpen, setConfigOpen] = useState(false);
+  const [draftVisibleGroups, setDraftVisibleGroups] = useState<VitalGroup[]>(visibleGroups);
+  const [smartContrast, setSmartContrast] = useState(() => initialSmartContrast(storageKey));
+  const [draftSmartContrast, setDraftSmartContrast] = useState(smartContrast);
+  const activeTheme = schemes.find(theme => theme.code === themeCode);
+  const themeCanvas = parseHexColor(activeTheme?.colors[0] || "#FFFFFF") || { r: 255, g: 255, b: 255 };
+  const themeSurface = parseHexColor(activeTheme?.colors[1] || "#FFFFFF") || themeCanvas;
+  const chartBackground = mixRgb(themeCanvas, themeSurface, 0.2);
+  const seriesColor = (key: VitalGroup) => {
+    const configured = groupConfig.get(key)?.color;
+    return configured ? smartContrastColor(configured, chartBackground, smartContrast) : groupColor(key);
+  };
+  const seriesMarker = (key: VitalGroup) => groupConfig.get(key)?.marker || (key === "hr" ? "heart" : key === "nibp" || key === "art" ? "range" : "circle");
+  const spo2Color = seriesColor("spo2");
+  const hrColor = seriesColor("hr");
+  const prColor = seriesColor("pr");
+  const nibpColor = seriesColor("nibp");
+  const artColor = seriesColor("art");
+  const cvpColor = seriesColor("cvp");
+  const tempColor = seriesColor("temp");
 
   const { startIndex, endIndex } = useVirtualColumns(
     scrollLeft,
@@ -242,23 +350,25 @@ export default function TimeChart({
     10 // larger overscan for chart to handle lines better
   );
 
-  useEffect(() => {
-    setVisible(readVisibility(storageKey));
-  }, [storageKey]);
+  const enabledGroups = new Set(visibleGroups);
+  const isVisible = (key: VitalGroup) => enabledGroups.has(key);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !storageKey) return;
-    window.localStorage.setItem(storageKey, JSON.stringify(visible));
-  }, [storageKey, visible]);
+  const openConfig = () => {
+    setDraftVisibleGroups(visibleGroups);
+    setDraftSmartContrast(smartContrast);
+    setConfigOpen(true);
+  };
 
-  useEffect(() => {
-    setHoverColumnIndex(prev =>
-      prev != null && prev >= axis.length ? null : prev,
-    );
-  }, [axis.length]);
-
-  const toggle = (key: VitalGroup) => {
-    setVisible(prev => ({ ...prev, [key]: !prev[key] }));
+  const applyConfig = () => {
+    setVisibleGroups(draftVisibleGroups);
+    setSmartContrast(draftSmartContrast);
+    if (storageKey && typeof window !== "undefined") {
+      window.localStorage.setItem(storageKey, JSON.stringify(draftVisibleGroups));
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(smartContrastKey(storageKey), draftSmartContrast ? "1" : "0");
+    }
+    setConfigOpen(false);
   };
 
   if (axis.length === 0) return null;
@@ -269,8 +379,8 @@ export default function TimeChart({
   );
   if (!hasChartReadings) {
     return (
-      <div className="flex h-12 items-center border-b border-gray-200 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400" style={{ width: labelColWidth + axis.length * colWidth }}>
-        <strong className="timechart-sticky-label sticky left-0 z-[100] shrink-0 border-r border-gray-200 px-3 py-4 text-gray-700 dark:border-gray-800 dark:text-gray-200" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
+      <div className="timechart-empty flex h-12 items-center border-b text-xs" style={{ width: labelColWidth + axis.length * colWidth }}>
+        <strong className="timechart-sticky-label timegrid-cell-border sticky left-0 z-[100] shrink-0 border-r px-3 py-4 text-[var(--app-text)]" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
         <span className="px-4">No vital readings in this time window</span>
       </div>
     );
@@ -284,10 +394,11 @@ export default function TimeChart({
 
   const yFor = (value: number) => {
     const clamped = Math.min(CHART_MAX, Math.max(CHART_MIN, value));
-    return (
-      CHART_PADDING_Y +
-      ((CHART_MAX - clamped) / (CHART_MAX - CHART_MIN)) * innerHeight
-    );
+    const normalized = (clamped - CHART_MIN) / (CHART_MAX - CHART_MIN);
+    // Smoothstep creates a symmetric focus scale: the clinically dense middle
+    // receives more room while both extremes are compressed equally.
+    const focused = normalized * normalized * (3 - 2 * normalized);
+    return CHART_PADDING_Y + (1 - focused) * innerHeight;
   };
 
   const xForTs = (ts: number) =>
@@ -360,12 +471,7 @@ export default function TimeChart({
     const bucketStart = axis[i];
     const bucketEnd = axis[i + 1] ?? endExclusiveTs;
     const lines: string[] = [];
-    const fmtTime = (ts: number) => {
-      const d = new Date(ts);
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${hh}:${mm}`;
-    };
+    const fmtTime = (ts: number) => formatConfiguredTime(ts, getStoredDateTimePreferences());
     lines.push(`Time ${fmtTime(bucketStart)}`);
 
     const pushLastInBucket = (label: string, points: XY[]) => {
@@ -396,6 +502,9 @@ export default function TimeChart({
     const next = axis[i + 1] ?? Infinity;
     return ts <= nowTs && next > nowTs;
   });
+  const nowX = nowIndex >= 0
+    ? Math.max(0, Math.min(chartWidth, ((nowTs - startTs) / stepMs) * colWidth))
+    : null;
   const hoverTooltipLines =
     hoverColumnIndex == null
       ? []
@@ -408,102 +517,125 @@ export default function TimeChart({
       : hoverColumnIndex * colWidth + colWidth / 2;
 
   return (
-    <div className="flex border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
+    <div className="timechart-shell relative z-[101] flex border-b">
       <div
         style={{
           width: labelColWidth,
           minWidth: labelColWidth,
           height,
         }}
-        className="timechart-sticky-label sticky left-0 z-[100] shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900"
+        className="timechart-sticky-label timegrid-cell-border sticky left-0 z-[100] shrink-0 border-r"
       >
-        {/* Legend Checkboxes */}
         <div className="relative z-10 p-2 space-y-1">
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.spo2}
-              onChange={() => toggle("spo2")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">SpO2</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.hr}
-              onChange={() => toggle("hr")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">HR</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.pr}
-              onChange={() => toggle("pr")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">PR/PLS</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.nibp}
-              onChange={() => toggle("nibp")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">NIBP</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.art}
-              onChange={() => toggle("art")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">ART</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.cvp}
-              onChange={() => toggle("cvp")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">CVP</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 shrink-0"
-              checked={visible.temp}
-              onChange={() => toggle("temp")}
-            />
-            <span className="truncate text-[11px] font-medium leading-none">Temp</span>
-          </label>
+          <div className="mb-1 flex items-center gap-2">
+            <span className="text-[9px] font-extrabold uppercase tracking-[0.12em] text-[var(--app-muted)]">Chart</span>
+            <button
+              type="button"
+              onClick={openConfig}
+              className="app-tooltip inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-text)] hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)]"
+              data-tooltip="Configure chart"
+              aria-label="Configure chart parameters"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          {chartGroups.filter(group => enabledGroups.has(group.key)).map(group => (
+            <ClinicalReferenceTooltip key={group.key} text={group.tooltip || group.label} helpCursor className="timegrid-legend-option flex items-center gap-2 rounded">
+              <SeriesGlyph marker={group.marker} color={seriesColor(group.key)} className="h-3 w-3" />
+              <span className="truncate text-[11px] font-medium leading-none">{group.label}</span>
+            </ClinicalReferenceTooltip>
+          ))}
         </div>
 
         {/* Y-Axis Labels - Absolutely positioned to match SVG yFor logic */}
-        <div className="absolute inset-0 pointer-events-none border-t border-gray-200 dark:border-gray-800 mt-[-1px]">
-          {Y_TICKS.map(val => {
+        <div className="timegrid-cell-border absolute inset-0 border-t mt-[-1px]">
+          {Y_LABEL_TICKS.map(val => {
             const y = yFor(val);
+            const selected = rulerValue === val;
             return (
-              <div
+              <button
+                type="button"
                 key={val}
-                className="absolute right-1.5 -translate-y-1/2 text-[9px] font-mono"
+                onClick={() => setRulerValue(current => current === val ? null : val)}
+                aria-pressed={selected}
+                aria-label={`${selected ? "Remove" : "Draw"} ruler at ${val}`}
+                className={`absolute right-0 z-20 flex h-6 min-w-10 -translate-y-1/2 items-center justify-end rounded-l px-1.5 font-mono text-[9px] transition-colors ${selected ? "bg-[var(--app-accent)] font-black text-[var(--app-accent-contrast)]" : "text-[var(--chart-axis-text)] hover:bg-[var(--app-control-bg-hover)] hover:font-extrabold"}`}
                 style={{
                   top: y,
-                  color: "var(--chart-axis-text)",
-                  textShadow: "0 1px 0 var(--chart-axis-text-shadow)",
+                  textShadow: selected ? "none" : "0 1px 0 var(--chart-axis-text-shadow)",
                 }}
               >
                 {val}
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
+
+      {configOpen && typeof document !== "undefined" ? createPortal(
+        <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => setConfigOpen(false)}>
+          <section
+            className="case-modal w-full max-w-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chart-quick-config-title"
+            onMouseDown={event => event.stopPropagation()}
+          >
+            <header className="case-modal__header">
+              <div className="case-modal__identity">
+                <span className="case-modal__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" strokeLinecap="round" /></svg>
+                </span>
+                <div>
+                  <div className="case-modal__eyebrow">Chart</div>
+                  <h2 id="chart-quick-config-title" className="case-modal__title">Visible parameters</h2>
+                </div>
+              </div>
+              <button type="button" className="case-modal__close" onClick={() => setConfigOpen(false)} aria-label="Close">×</button>
+            </header>
+            <div className="case-modal__body">
+              <div className="grid grid-cols-2 gap-2">
+                {chartGroups.map(group => {
+                  const selected = draftVisibleGroups.includes(group.key);
+                  return (
+                    <button
+                      key={group.key}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setDraftVisibleGroups(current => selected ? current.filter(key => key !== group.key) : [...current, group.key])}
+                      className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors ${selected ? "border-[var(--app-accent)] bg-[var(--timegrid-focus-bg)] text-[var(--app-text)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-muted)] hover:bg-[var(--app-control-bg-hover)]"}`}
+                    >
+                      <SeriesGlyph marker={group.marker} color={draftSmartContrast && group.color ? smartContrastColor(group.color, chartBackground, true) : group.color || groupColor(group.key)} className="h-4 w-4" />
+                      <span className="truncate">{group.label}</span>
+                      <span className="ml-auto text-base leading-none" aria-hidden="true">{selected ? "✓" : ""}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={draftSmartContrast}
+                  onChange={event => setDraftSmartContrast(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[var(--app-accent)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-[var(--app-text)]">Smart invert color</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">Automatically darken or lighten chart colors that blend into the current scheme.</span>
+                </span>
+              </label>
+              <footer className="case-modal__actions">
+                <button type="button" className="case-modal__button" onClick={() => setDraftVisibleGroups(chartGroups.filter(group => group.defaultVisible).map(group => group.key))}>Defaults</button>
+                <button type="button" className="case-modal__button" onClick={() => setConfigOpen(false)}>Cancel</button>
+                <button type="button" className="case-modal__button case-modal__button--primary" onClick={applyConfig}>Done</button>
+              </footer>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
 
       <div
         className="relative shrink-0"
@@ -527,6 +659,19 @@ export default function TimeChart({
               strokeWidth={val % 40 === 0 ? 0.85 : 0.65}
             />
           ))}
+
+          {rulerValue != null ? (
+            <line
+              x1={0}
+              y1={yFor(rulerValue)}
+              x2={chartWidth}
+              y2={yFor(rulerValue)}
+              stroke="var(--app-accent)"
+              strokeWidth={2}
+              opacity={0.95}
+              pointerEvents="none"
+            />
+          ) : null}
 
           {/* Virtualized Vertical Grid Lines */}
           {axis.slice(startIndex, endIndex + 1).map((ts, i) => {
@@ -553,60 +698,38 @@ export default function TimeChart({
             strokeWidth={1}
           />
 
-          {Y_TICKS.map(val => (
-            <line
-              key={`axis-right-tick-${val}`}
-              x1={chartWidth - 6}
-              y1={yFor(val)}
-              x2={chartWidth}
-              y2={yFor(val)}
-              stroke="var(--chart-grid-line-strong)"
-              strokeWidth={1}
-            />
-          ))}
-
           {nowIndex >= 0 && nowIndex >= startIndex && nowIndex <= endIndex && (
-            <>
-              <line
-                x1={nowIndex * colWidth}
-                y1={0}
-                x2={nowIndex * colWidth}
-                y2={height}
-                stroke={NOW_HIGHLIGHT_STROKE}
-                strokeWidth={1.2}
-              />
-              <line
-                x1={(nowIndex + 1) * colWidth}
-                y1={0}
-                x2={(nowIndex + 1) * colWidth}
-                y2={height}
-                stroke={NOW_HIGHLIGHT_STROKE}
-                strokeWidth={1.2}
-              />
-            </>
+            <rect
+              x={nowIndex * colWidth}
+              y={0}
+              width={colWidth}
+              height={height}
+              fill="var(--chart-now-col)"
+            />
           )}
 
-          {visible.spo2 && spo2Points.length > 1 && (
+          {isVisible("spo2") && spo2Points.length > 1 && (
             <path
               d={buildPath(spo2Points)}
               fill="none"
-              stroke={SPO2_COLOR}
+              stroke={spo2Color}
               strokeWidth={VITAL_LINE_STROKE}
             />
           )}
 
-          {visible.spo2 &&
+          {isVisible("spo2") &&
             spo2Points.map((p, i) => (
-              <CircleDot
+              <PointMarker
                 key={`spo2-dot-${i}-${p.ts}`}
                 x={p.x}
                 y={p.y}
-                color={SPO2_COLOR}
+                color={spo2Color}
+                marker={seriesMarker("spo2")}
               />
             ))}
 
-          {visible.hr && (
-            <g style={{ color: HR_COLOR }}>
+          {isVisible("hr") && (
+            <g style={{ color: hrColor }}>
               {hrSegments.map(segment =>
                 segment.length > 1 ? (
                   <path
@@ -619,12 +742,12 @@ export default function TimeChart({
                 ) : null,
               )}
               {hrPoints.map(p => (
-                <HeartDot key={`hr-dot-${p.ts}`} x={p.x} y={p.y} />
+                <PointMarker key={`hr-dot-${p.ts}`} x={p.x} y={p.y} color={hrColor} marker={seriesMarker("hr")} />
               ))}
             </g>
           )}
 
-          {visible.pr && (
+          {isVisible("pr") && (
             <>
               {prSegments.map(segment =>
                 segment.length > 1 ? (
@@ -632,23 +755,24 @@ export default function TimeChart({
                     key={`pr-seg-${segment[0].ts}`}
                     d={buildPath(segment)}
                     fill="none"
-                    stroke={PR_COLOR}
+                    stroke={prColor}
                     strokeWidth={VITAL_LINE_STROKE}
                   />
                 ) : null,
               )}
               {prPoints.map(p => (
-                <CircleDot
+                <PointMarker
                   key={`pr-dot-${p.ts}`}
                   x={p.x}
                   y={p.y}
-                  color={PR_COLOR}
+                  color={prColor}
+                  marker={seriesMarker("pr")}
                 />
               ))}
             </>
           )}
 
-          {visible.nibp &&
+          {isVisible("nibp") &&
             nibpConnectors.map(line => (
               <line
                 key={line.key}
@@ -656,41 +780,36 @@ export default function TimeChart({
                 y1={line.yMin}
                 x2={line.x}
                 y2={line.yMax}
-                stroke={NIBP_COLOR}
+                stroke={nibpColor}
                 strokeWidth={CONNECTOR_LINE_STROKE}
                 opacity={0.8}
               />
             ))}
 
-          {visible.nibp &&
+          {isVisible("nibp") &&
             nibpSysPoints.map(p => (
-              <TriangleDown
-                key={`nibp-sys-${p.ts}`}
-                x={p.x}
-                y={p.y}
-                color={NIBP_COLOR}
-              />
+              seriesMarker("nibp") === "range"
+                ? <TriangleDown key={`nibp-sys-${p.ts}`} x={p.x} y={p.y} color={nibpColor} />
+                : <PointMarker key={`nibp-sys-${p.ts}`} x={p.x} y={p.y} color={nibpColor} marker={seriesMarker("nibp")} />
             ))}
-          {visible.nibp &&
+          {isVisible("nibp") &&
             nibpMapPoints.map(p => (
-              <CircleDot
+              <PointMarker
                 key={`nibp-map-${p.ts}`}
                 x={p.x}
                 y={p.y}
-                color={NIBP_COLOR}
+                color={nibpColor}
+                marker={seriesMarker("nibp") === "range" ? "circle" : seriesMarker("nibp")}
               />
             ))}
-          {visible.nibp &&
+          {isVisible("nibp") &&
             nibpDiaPoints.map(p => (
-              <TriangleUp
-                key={`nibp-dia-${p.ts}`}
-                x={p.x}
-                y={p.y}
-                color={NIBP_COLOR}
-              />
+              seriesMarker("nibp") === "range"
+                ? <TriangleUp key={`nibp-dia-${p.ts}`} x={p.x} y={p.y} color={nibpColor} />
+                : <PointMarker key={`nibp-dia-${p.ts}`} x={p.x} y={p.y} color={nibpColor} marker={seriesMarker("nibp")} />
             ))}
 
-          {visible.art &&
+          {isVisible("art") &&
             artConnectors.map(line => (
               <line
                 key={line.key}
@@ -698,67 +817,76 @@ export default function TimeChart({
                 y1={line.yMin}
                 x2={line.x}
                 y2={line.yMax}
-                stroke={ART_COLOR}
+                stroke={artColor}
                 strokeWidth={CONNECTOR_LINE_STROKE}
                 opacity={0.8}
               />
             ))}
 
-          {visible.art &&
+          {isVisible("art") &&
             artSysPoints.map(p => (
-              <TriangleDown
-                key={`art-sys-${p.ts}`}
-                x={p.x}
-                y={p.y}
-                color={ART_COLOR}
-              />
+              seriesMarker("art") === "range"
+                ? <TriangleDown key={`art-sys-${p.ts}`} x={p.x} y={p.y} color={artColor} />
+                : <PointMarker key={`art-sys-${p.ts}`} x={p.x} y={p.y} color={artColor} marker={seriesMarker("art")} />
             ))}
-          {visible.art &&
+          {isVisible("art") &&
             artMapPoints.map(p => (
-              <CircleDot
+              <PointMarker
                 key={`art-map-${p.ts}`}
                 x={p.x}
                 y={p.y}
-                color={ART_COLOR}
+                color={artColor}
+                marker={seriesMarker("art") === "range" ? "circle" : seriesMarker("art")}
               />
             ))}
-          {visible.art &&
+          {isVisible("art") &&
             artDiaPoints.map(p => (
-              <TriangleUp
-                key={`art-dia-${p.ts}`}
-                x={p.x}
-                y={p.y}
-                color={ART_COLOR}
-              />
+              seriesMarker("art") === "range"
+                ? <TriangleUp key={`art-dia-${p.ts}`} x={p.x} y={p.y} color={artColor} />
+                : <PointMarker key={`art-dia-${p.ts}`} x={p.x} y={p.y} color={artColor} marker={seriesMarker("art")} />
             ))}
 
-          {visible.cvp &&
+          {isVisible("cvp") &&
             cvpPoints.map(p => (
-              <CircleDot
+              <PointMarker
                 key={`cvp-${p.ts}`}
                 x={p.x}
                 y={p.y}
-                color={CVP_COLOR}
+                color={cvpColor}
+                marker={seriesMarker("cvp")}
               />
             ))}
 
-          {visible.temp && tempPoints.length > 1 ? (
+          {isVisible("temp") && tempPoints.length > 1 ? (
             <path
               d={buildPath(tempPoints)}
               fill="none"
-              stroke={TEMP_COLOR}
+              stroke={tempColor}
               strokeWidth={VITAL_LINE_STROKE}
             />
           ) : null}
-          {visible.temp &&
+          {isVisible("temp") &&
             tempPoints.map(p => (
-              <CircleDot
+              <PointMarker
                 key={`temp-${p.ts}`}
                 x={p.x}
                 y={p.y}
-                color={TEMP_COLOR}
+                color={tempColor}
+                marker={seriesMarker("temp")}
               />
             ))}
+
+          {nowX !== null && nowIndex >= startIndex && nowIndex <= endIndex ? (
+            <line
+              x1={nowX}
+              y1={0}
+              x2={nowX}
+              y2={height}
+              stroke="var(--timegrid-now-line)"
+              strokeWidth={2}
+              pointerEvents="none"
+            />
+          ) : null}
 
           {/* Virtualized Tooltip Rects */}
           {axis.slice(startIndex, endIndex + 1).map((ts, i) => {
@@ -779,29 +907,14 @@ export default function TimeChart({
         </svg>
         {hoverColumnIndex != null && hoverTooltipLines.length > 0 ? (
           <div
-            className="pointer-events-none absolute z-40 -translate-x-1/2 rounded-md border border-[var(--app-tooltip-border)] bg-[var(--app-tooltip-bg)] px-2 py-1 text-[10px] leading-tight text-[var(--app-tooltip-text)] shadow-[var(--app-tooltip-shadow)]"
+            className="chart-tooltip pointer-events-none absolute z-[110] -translate-x-1/2"
             style={{ left: hoverTooltipLeft, top: 4 }}
           >
             {hoverTooltipLines.map((line, index) => (
-              <div key={`${hoverColumnIndex}-${index}`}>{line}</div>
+              <div key={`${hoverColumnIndex}-${index}`} className={index === 0 ? "chart-tooltip__time" : "chart-tooltip__reading"}>{line}</div>
             ))}
           </div>
         ) : null}
-        <div className="absolute inset-y-0 right-0 pointer-events-none">
-          {Y_TICKS.map(val => (
-            <div
-              key={`right-y-label-${val}`}
-              className="absolute right-1 -translate-y-1/2 text-[9px] font-mono"
-              style={{
-                top: yFor(val),
-                color: "var(--chart-axis-text)",
-                textShadow: "0 1px 0 var(--chart-axis-text-shadow)",
-              }}
-            >
-              {val}
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

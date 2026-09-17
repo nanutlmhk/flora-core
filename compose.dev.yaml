@@ -2,6 +2,7 @@ name: flora-core
 
 include:
   - path: ./compose/postgres.yaml
+  - path: ./compose/flora-liveagent.yaml
   - path: ./compose/flora-leaf-api.yaml
   - path: ./compose/flora-leaf.yaml
   - path: ./compose/flora-canopy.yaml

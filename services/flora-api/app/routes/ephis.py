@@ -7,9 +7,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from psycopg import Connection
 
 from ..database import connection
-from .auth_leaf import current_user
+from .auth_leaf import require_permission
 
-router = APIRouter(prefix="/api/ephis", tags=["EPHIS"])
+router = APIRouter(prefix="/api/ephis", tags=["EPHIS"], dependencies=[Depends(require_permission("case.read"))])
 
 
 def summary(database: Connection) -> dict:
@@ -56,7 +56,7 @@ def parse_date(value: str):
 
 
 @router.post("/import-daily-cases")
-def import_daily_cases(payload: dict = Body(...), _: dict = Depends(current_user), database: Connection = Depends(connection)):
+def import_daily_cases(payload: dict = Body(...), _: dict = Depends(require_permission("case.create")), database: Connection = Depends(connection)):
     lines = [line.rstrip("\r") for line in str(payload.get("tsvText") or "").splitlines() if line.strip()]
     if len(lines) < 2:
         raise HTTPException(400, "TSV must include a header row and at least one data row")

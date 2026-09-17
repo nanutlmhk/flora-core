@@ -1,20 +1,17 @@
-import { ECG_OPTIONS, ecgValueToCode } from "./ecgOptions";
+import { ECG_CLEAR_VALUE, ECG_OPTIONS, ecgValueToCode } from "./ecgOptions";
 import { COL_WIDTH, LABEL_COL_WIDTH } from "./layout";
 import type { TimeGridRow, TimeGridValues } from "./types";
-import { useState, type CSSProperties } from "react";
+import type { TimelineCellProvenance, TimelineProvenance } from "../../api/vitalMinutesApi";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualColumns } from "../../hooks/useVirtualColumns";
+import { useWorkstationSettings } from "../../hooks/useWorkstationSettings";
+import { formatConfiguredDateTime, formatConfiguredTime, type DateTimePreferences } from "../../utils/dateTime";
 import {
-  AntibioticIcon,
-  BloodIcon,
-  EndAnesthesiaIcon,
-  EndSurgeryIcon,
-  InductionIcon,
   NoteIcon,
-  ReversalIcon,
-  StartAnesthesiaIcon,
-  StartSurgeryIcon,
-  TimeoutIcon,
 } from "../../assets/icons";
+import { getEventIconByTitle } from "../../views/caseview/constants";
+import ClinicalReferenceTooltip from "../common/ClinicalReferenceTooltip";
 
 export type TimeGridEventMarker = {
   id: number;
@@ -40,6 +37,7 @@ interface Props {
   ivyRows: TimeGridRow[];
   rowsAfterEvent?: TimeGridRow[];
   values: TimeGridValues;
+  cellProvenance?: TimelineProvenance;
   ioDripRateByRowTs?: Record<string, Record<number, number>>;
   eventMarkersByTs?: Record<number, TimeGridEventMarker[]>;
   preparedMarkersByTs?: Record<number, TimeGridPreparedMarker[]>;
@@ -109,6 +107,200 @@ type IoDisplayCellValue = {
   segmentRateUnit?: string | null;
   minuteValues?: Array<{ ts: number; amount: number }>;
 };
+
+function EditableCellInput({ value, numeric, fallback, editedDeviceValue, ariaLabel, onCommit }: {
+  value: string;
+  numeric: boolean;
+  fallback: boolean;
+  editedDeviceValue?: boolean;
+  ariaLabel: string;
+  onCommit: (value: unknown) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [focused, setFocused] = useState(false);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) return onCommit(undefined);
+    if (!numeric) return onCommit(trimmed);
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return setDraft(value);
+    onCommit(parsed);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode={numeric ? "decimal" : "text"}
+      aria-label={ariaLabel}
+      className={`timegrid-edit-input h-full w-full bg-transparent text-center text-[10px] leading-none font-inherit focus:outline-none relative z-10 ${fallback ? "text-amber-600 dark:text-amber-400 font-medium" : "text-[var(--app-text)]"} ${editedDeviceValue ? "underline decoration-dotted decoration-2 underline-offset-2" : ""}`}
+      value={focused ? draft : value}
+      placeholder="—"
+      onFocus={event => { setDraft(value); setFocused(true); event.currentTarget.select(); }}
+      onChange={event => setDraft(event.target.value)}
+      onBlur={() => { commit(); setFocused(false); }}
+      onKeyDown={event => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") { setDraft(value); event.currentTarget.blur(); }
+      }}
+    />
+  );
+}
+
+function EcgPicker({ value, displayCode, onChange }: {
+  value: string;
+  displayCode: string;
+  onChange: (value: string) => void;
+}) {
+  const isExplicitlyCleared = value === ECG_CLEAR_VALUE;
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [position, setPosition] = useState<CSSProperties>({});
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const filtered = ECG_OPTIONS.filter(option => `${option.code} ${option.value}`.toLowerCase().includes(query.trim().toLowerCase()));
+
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+    setActiveIndex(0);
+  };
+
+  const openPicker = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 270;
+      const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
+      const openAbove = window.innerHeight - rect.bottom < 330 && rect.top > window.innerHeight - rect.bottom;
+      setPosition(openAbove
+        ? { left, width, bottom: window.innerHeight - rect.top + 6 }
+        : { left, width, top: rect.bottom + 6 });
+    }
+    setOpen(true);
+    setActiveIndex(Math.max(0, ECG_OPTIONS.findIndex(option => option.value === value)));
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!buttonRef.current?.contains(target) && !menuRef.current?.contains(target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const onViewportChange = () => close();
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
+    };
+  }, [open]);
+
+  const choose = (nextValue: string) => {
+    onChange(nextValue);
+    close();
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => open ? close() : openPicker()}
+        className={`flex h-full w-full items-center justify-center gap-1 bg-transparent px-1 text-[10px] font-semibold outline-none transition-colors hover:bg-[var(--app-control-bg-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${displayCode ? "text-[var(--app-text)]" : "text-[var(--app-muted)]"}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`ECG rhythm: ${displayCode || "not recorded"}`}
+      >
+        <span>{displayCode || "–"}</span>
+        <svg viewBox="0 0 12 12" className={`h-2.5 w-2.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m2 4 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && typeof document !== "undefined" ? createPortal(
+        <div
+          ref={menuRef}
+          className="app-theme-scope fixed z-[1000] overflow-hidden rounded-xl border border-[var(--app-tooltip-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] shadow-2xl"
+          style={position}
+          role="dialog"
+          aria-label="Choose ECG rhythm"
+        >
+          <div className="border-b border-[var(--app-border)] p-2">
+            <div className="text-[9px] font-extrabold uppercase tracking-[0.12em] text-[var(--app-muted)]">ECG rhythm</div>
+            <input
+              autoFocus
+              value={query}
+              onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
+              onKeyDown={event => {
+                if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex(index => Math.min(filtered.length - 1, index + 1)); }
+                if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex(index => Math.max(0, index - 1)); }
+                if (event.key === "Enter" && filtered[activeIndex]) { event.preventDefault(); choose(filtered[activeIndex].value); }
+              }}
+              placeholder="Search code or rhythm…"
+              className="mt-1.5 h-9 w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 text-xs outline-none focus:border-[var(--app-accent)]"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1.5" role="listbox">
+            <button
+              type="button"
+              onClick={() => choose(ECG_CLEAR_VALUE)}
+              className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-xs ${isExplicitlyCleared ? "bg-[var(--timegrid-focus-bg)] text-[var(--app-text)]" : "text-[var(--app-muted)] hover:bg-[var(--app-control-bg-hover)]"}`}
+            >
+              <span className="w-10 text-center font-mono font-bold">–</span>
+              <span>Clear recorded rhythm</span>
+              {isExplicitlyCleared ? <span className="ml-auto text-[var(--app-accent)]">✓</span> : null}
+            </button>
+            {filtered.map((option, index) => {
+              const selected = value === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => choose(option.value)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${index === activeIndex ? "bg-[var(--timegrid-focus-bg)]" : "hover:bg-[var(--app-control-bg-hover)]"}`}
+                >
+                  <span className={`w-10 rounded-md px-1.5 py-1 text-center font-mono font-black ${selected ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "bg-[var(--app-control-bg)] text-[var(--app-accent)]"}`}>{option.code}</span>
+                  <span className="min-w-0 flex-1 font-medium">{option.value}</span>
+                  {selected ? <span className="text-[var(--app-accent)]">✓</span> : null}
+                </button>
+              );
+            })}
+            {filtered.length === 0 ? <div className="px-3 py-5 text-center text-xs text-[var(--app-muted)]">No matching rhythm</div> : null}
+          </div>
+        </div>,
+        document.body,
+      ) : null}
+    </>
+  );
+}
+
+function clinicalCellTooltip(value: string, fallbackHint: string, preferences: DateTimePreferences, detail?: TimelineCellProvenance) {
+  if (!detail || detail.source !== "override") return fallbackHint ? `${value} (${fallbackHint})` : value;
+  const original = detail.original_value == null || detail.original_value === "" ? "No device reading" : String(detail.original_value);
+  const source = String(detail.original_source || "medical device").replace(/^./, character => character.toUpperCase());
+  const actor = detail.actor_name || detail.updated_by || detail.actor_username || "Unknown user";
+  const editedAt = Number(detail.edited_at || detail.updated_at);
+  const lines = [
+    `Edited value: ${value || "—"}`,
+    `Original ${source}: ${original}`,
+    `Edited by: ${actor}`,
+  ];
+  if (Number.isFinite(editedAt)) lines.push(`Edited: ${formatConfiguredDateTime(editedAt, preferences)}`);
+  if (detail.reason) lines.push(`Reason: ${detail.reason}`);
+  if (detail.note) lines.push(`Note: ${detail.note}`);
+  if ((detail.audit_count || 0) > 0) lines.push(`Audit entries: ${detail.audit_count}`);
+  if (fallbackHint) lines.push(fallbackHint);
+  return lines.join("\n");
+}
 
 function dripToneStyle(tone?: string): CSSProperties | undefined {
   switch (tone) {
@@ -190,6 +382,7 @@ export default function TimeGrid({
   ivyRows,
   rowsAfterEvent = [],
   values,
+  cellProvenance,
   ioDripRateByRowTs = {},
   eventMarkersByTs = {},
   preparedMarkersByTs = {},
@@ -209,7 +402,41 @@ export default function TimeGrid({
   colWidth = COL_WIDTH,
   labelColWidth = LABEL_COL_WIDTH,
 }: Props) {
+  const workstation = useWorkstationSettings();
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [eventStack, setEventStack] = useState<{
+    ts: number;
+    markers: TimeGridEventMarker[];
+    position: CSSProperties;
+  } | null>(null);
+
+  const openEventStack = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    ts: number,
+    markers: TimeGridEventMarker[],
+  ) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = Math.min(320, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
+    const roomBelow = window.innerHeight - rect.bottom;
+    setEventStack({
+      ts,
+      markers,
+      position: roomBelow >= 280
+        ? { position: "fixed", left, top: rect.bottom + 8, width, maxHeight: Math.min(360, roomBelow - 16) }
+        : { position: "fixed", left, bottom: window.innerHeight - rect.top + 8, width, maxHeight: Math.min(360, rect.top - 16) },
+    });
+  };
+
+  useEffect(() => {
+    if (!eventStack) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEventStack(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [eventStack]);
 
   const { startIndex, endIndex } = useVirtualColumns(
     scrollLeft,
@@ -262,12 +489,7 @@ export default function TimeGrid({
     return ecgValueToCode(last);
   };
 
-  const formatHHMM = (ts: number) => {
-    const d = new Date(ts);
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
-  };
+  const formatHHMM = (ts: number) => formatConfiguredTime(ts, workstation);
 
   const formatAmount = (value: number) => {
     if (!Number.isFinite(value)) return "";
@@ -327,77 +549,14 @@ export default function TimeGrid({
     }
 
     const title = normalizeEventTitle(marker.title);
-    if (
-      title === "start ane" ||
-      title === "start anes" ||
-      title === "start anesthesia" ||
-      title === "start anaesthesia"
-    ) {
+    const eventIcon = getEventIconByTitle(marker.title);
+    if (eventIcon) {
+      const ending = title.startsWith("end ") || title === "patient out" || title === "extubation" || title === "reversal";
+      const starting = title.startsWith("start ") || title === "patient in";
       return {
-        label: "Start ANE",
-        iconSrc: StartAnesthesiaIcon,
-        className: "badge-start",
-      };
-    }
-    if (
-      title === "end ane" ||
-      title === "end anes" ||
-      title === "end anesthesia" ||
-      title === "end anaesthesia"
-    ) {
-      return {
-        label: "End ANE",
-        iconSrc: EndAnesthesiaIcon,
-        className: "badge-end",
-      };
-    }
-    if (title === "start surg" || title === "start surgery") {
-      return {
-        label: "Start Surg",
-        iconSrc: StartSurgeryIcon,
-        className: "badge-start",
-      };
-    }
-    if (title === "end surg" || title === "end surgery") {
-      return {
-        label: "End Surg",
-        iconSrc: EndSurgeryIcon,
-        className: "badge-end",
-      };
-    }
-    if (title === "induction") {
-      return {
-        label: "Induction",
-        iconSrc: InductionIcon,
-        className: "badge-mid",
-      };
-    }
-    if (title === "ssi prophylaxis") {
-      return {
-        label: "SSI",
-        iconSrc: AntibioticIcon,
-        className: "badge-mid",
-      };
-    }
-    if (title === "blood product") {
-      return {
-        label: "Blood Product",
-        iconSrc: BloodIcon,
-        className: "badge-mid",
-      };
-    }
-    if (title === "time out") {
-      return {
-        label: "Time Out",
-        iconSrc: TimeoutIcon,
-        className: "badge-timeout",
-      };
-    }
-    if (title === "reversal") {
-      return {
-        label: "Reversal",
-        iconSrc: ReversalIcon,
-        className: "badge-mid",
+        label: marker.title,
+        iconSrc: eventIcon,
+        className: title === "time out" ? "badge-timeout" : ending ? "badge-end" : starting ? "badge-start" : "badge-mid",
       };
     }
 
@@ -470,6 +629,7 @@ export default function TimeGrid({
   const visibleColumns = columns.slice(startIndex, endIndex + 1);
 
   return (
+    <>
     <table
       className="timegrid-compact border-collapse table-fixed text-[11px] leading-none"
       style={{ width: tableWidth, minWidth: tableWidth }}
@@ -477,7 +637,7 @@ export default function TimeGrid({
       <tbody>
         {rows.map((row, rowIndex) => {
           const rowTypeMarker = markerForRowType(row);
-          const fullLabel = [
+          const fullLabel = row.referenceTooltip || [
             row.unit ? `${row.label} (${row.unit})` : row.label,
             row.ioStatus ? `status: ${row.ioStatus}` : "",
             row.ioDetail || "",
@@ -526,7 +686,7 @@ export default function TimeGrid({
               : "timegrid-cell-odd";
           const baseLabelClass =
             isRowActive
-              ? "font-semibold text-blue-700 dark:text-blue-200"
+              ? "font-semibold text-[var(--app-accent)]"
               : "";
           const specialLabelClass = isEventRowLabel
             ? "badge-event font-semibold"
@@ -541,7 +701,7 @@ export default function TimeGrid({
           const rowClass = isSpecialRow
             ? "transition-colors"
             : `timegrid-row ${rowToneClass} ${isRowActive ? "timegrid-row-active" : ""} transition-colors`;
-          const rowHeightClass = isEventRowLabel || isExpandedIoRow ? "h-12" : "h-6";
+          const rowHeightClass = isEventRowLabel || isExpandedIoRow ? "h-11" : "h-7";
 
           return (
             <tr
@@ -560,21 +720,21 @@ export default function TimeGrid({
                 style={{
                   width: labelColWidth,
                   minWidth: labelColWidth,
-                  transform: `translateX(${scrollLeft}px)`,
                 }}
                 className={`
                   sticky left-0 z-[100] timegrid-sticky-label
                   ${labelToneClass}
-                  border-r border-gray-200 dark:border-gray-800
+                  timegrid-cell-border border-r
                   px-2 py-1
                   text-[11px] leading-none
-                  text-gray-800 dark:text-gray-200
+                  text-[var(--app-text)]
                   whitespace-nowrap
                 `}
               >
-                <div
-                  data-tooltip={fullLabel}
-                  className={`app-tooltip rounded px-1 py-0.5 w-full flex items-center gap-1 min-w-0 ${labelClass}`}
+                <ClinicalReferenceTooltip
+                  text={fullLabel}
+                  helpCursor={Boolean(row.referenceTooltip)}
+                  className={`rounded px-1 py-0.5 w-full flex items-center gap-1 min-w-0 ${labelClass}`}
                 >
                   {rowTypeMarker ? (
                     <span
@@ -590,17 +750,20 @@ export default function TimeGrid({
                         event.stopPropagation();
                         onSectionCollapseToggle?.(isIoSectionHeaderRow ? "io" : "vital");
                       }}
-                      className="flex-1 min-w-0 inline-flex items-center justify-between rounded px-1 py-0.5 hover:bg-white/10"
-                      title={sectionCollapsed ? "Show" : "Hide"}
+                      className="timegrid-section-button flex-1 min-w-0 inline-flex items-center justify-between rounded px-1 py-0.5"
+                      aria-label={`${sectionCollapsed ? "Show" : "Hide"} ${row.label}`}
+                      aria-expanded={!sectionCollapsed}
                     >
-                      <span className="truncate block text-[11px] font-medium text-gray-800 dark:text-gray-200">
+                      <span className={`truncate block text-[var(--app-text)] ${isVitalSectionHeaderRow ? "timegrid-group-title" : "text-[11px] font-medium"}`}>
                         {row.label}
                       </span>
-                      <span className="ml-1 text-[11px] leading-none">{sectionCollapsed ? "+" : "-"}</span>
+                      <svg viewBox="0 0 16 16" className={`ml-1 h-3.5 w-3.5 shrink-0 transition-transform ${sectionCollapsed ? "" : "rotate-90"}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                        <path d="m6 3 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </button>
                   ) : (
                     <div className={`flex-1 min-w-0 flex ${isExpandedIoRow ? "flex-col items-start gap-0.5" : "items-center gap-1"}`}>
-                      <span className="truncate text-[11px] font-bold text-gray-900 dark:text-gray-100 max-w-full">
+                      <span className={`truncate text-[var(--app-text)] max-w-full ${isEventRowLabel ? "timegrid-group-title" : "text-[11px] font-bold"}`}>
                         {row.label}
                       </span>
                       <div className="min-w-0 flex items-center gap-1">
@@ -641,7 +804,7 @@ export default function TimeGrid({
                           </span>
                         )}
                         {row.displayMode === "drip" && row.ioDetail ? (
-                          <span className="truncate text-[9px] leading-none font-medium text-gray-700 dark:text-gray-300">
+                          <span className="truncate text-[9px] leading-none font-medium text-[var(--app-muted)]">
                             {row.ioDetail}
                           </span>
                         ) : null}
@@ -662,7 +825,7 @@ export default function TimeGrid({
                       x
                     </button>
                   ) : null}
-                </div>
+                </ClinicalReferenceTooltip>
             </td>
 
             {startIndex > 0 && (
@@ -676,7 +839,7 @@ export default function TimeGrid({
 
               const cellClass = `
                 timegrid-row-cell
-                border-r border-gray-200 dark:border-gray-800
+                timegrid-cell-border border-r
                 text-center ${rowHeightClass}
                 relative
                 ${rowCellToneClass}
@@ -690,16 +853,17 @@ export default function TimeGrid({
                 const isVitalAgentHeaderRow = row.id === "__vital_agent_header__";
                 const markers = isPrimaryEventRow ? eventMarkersByTs[ts] ?? [] : [];
                 const prepared = isFluidMedHeaderRow ? preparedMarkersByTs[ts] ?? [] : [];
+                const visibleEventCount = colWidth < 88 ? 1 : 2;
                 const canOpenEvent = isPrimaryEventRow && Boolean(onEventCellClick);
                 const cellActionClass = canOpenEvent
-                  ? "cursor-pointer hover:bg-blue-500/15"
+                  ? "timegrid-cell-action cursor-pointer"
                   : "";
                 const emptyTooltip = isPrimaryEventRow
                   ? "Add Event/Note"
                   : isFluidMedHeaderRow
                     ? "Fluid&Med segment"
                     : isVitalAgentHeaderRow
-                      ? "Vital&Agent segment"
+                      ? "Params segment"
                       : "";
 
                 return (
@@ -717,16 +881,15 @@ export default function TimeGrid({
                     }
                   >
                     {markers.length > 0 || prepared.length > 0 ? (
-                      <div className="h-full w-full flex items-center justify-center gap-0.5 overflow-visible">
-                        {markers.slice(0, 3).map(marker => {
+                      <div className="h-full w-full flex items-center justify-center gap-0.5">
+                        {markers.slice(0, visibleEventCount).map(marker => {
                           const token = markerForEvent(marker);
                           return (
                             <button
                               key={marker.id}
                               type="button"
                               className={`app-tooltip inline-flex h-8 min-w-8 items-center justify-center rounded px-0.5 leading-none font-semibold ${token.className}`}
-                              data-tooltip={marker.title}
-                              title={marker.title}
+                              data-tooltip={`${marker.event_type === "note" ? "NOTE" : "EVENT"} · ${formatHHMM(marker.event_ts)}\n${marker.title}\nClick to view or edit`}
                               onClick={event => {
                                 event.stopPropagation();
                                 onEventMarkerClick?.(marker);
@@ -764,13 +927,20 @@ export default function TimeGrid({
                             </button>
                           );
                         })}
-                        {markers.length > 3 ? (
-                          <span
-                            className="app-tooltip text-[8px] leading-none text-gray-600 dark:text-gray-300"
-                            data-tooltip={`${markers.length - 3} more events`}
+                        {markers.length > visibleEventCount ? (
+                          <button
+                            type="button"
+                            className="app-tooltip inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] bg-[var(--app-control-bg)] px-1 text-[9px] font-extrabold leading-none text-[var(--app-text)] hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)]"
+                            data-tooltip={[
+                              `${markers.length} EVENTS · ${formatHHMM(ts)}`,
+                              ...markers.slice(0, 4).map((marker, index) => `${index + 1}. ${marker.title}`),
+                              ...(markers.length > 4 ? [`+${markers.length - 4} more`] : []),
+                            ].join("\n")}
+                            aria-label={`Show all ${markers.length} events at ${formatHHMM(ts)}`}
+                            onClick={event => openEventStack(event, ts, markers)}
                           >
-                            +{markers.length - 3}
-                          </span>
+                            +{markers.length - visibleEventCount}
+                          </button>
                         ) : null}
                         {prepared.length > 2 ? (
                           <span
@@ -794,33 +964,13 @@ export default function TimeGrid({
                     key={ts}
                     style={{ width: colWidth, minWidth: colWidth }}
                     className={`app-tooltip ${cellClass}`}
-                    data-tooltip={(values.ecg?.[ts] as string) ?? ""}
+                    data-tooltip={values.ecg?.[ts] === ECG_CLEAR_VALUE ? "Rhythm cleared at this time" : (values.ecg?.[ts] as string) ?? ""}
                   >
-                    <select
-                      className="
-                        w-full h-full
-                        bg-transparent
-                        text-center
-                        text-[10px] leading-none
-                        text-gray-900 dark:text-gray-100
-                        font-inherit
-                        focus:outline-none
-                        cursor-pointer
-                      "
+                    <EcgPicker
                       value={(values.ecg?.[ts] as string) ?? ""}
-                      onChange={e => onChange?.("ecg", ts, e.target.value)}
-                    >
-                      <option value="">{displayCode || "-"}</option>
-                      {ECG_OPTIONS.map(o => (
-                        <option
-                          key={o.value}
-                          value={o.value}
-                          className="bg-gray-50 dark:bg-gray-900 text-[10px] leading-none"
-                        >
-                          {o.code}
-                        </option>
-                      ))}
-                    </select>
+                      displayCode={displayCode}
+                      onChange={value => onChange?.("ecg", ts, value)}
+                    />
                   </td>
                 );
               }
@@ -955,7 +1105,7 @@ export default function TimeGrid({
                         relative
                         flex ${hasDrip ? "flex-col items-center justify-center gap-0.5" : "items-center justify-center"}
                         text-[10px] leading-none
-                        text-gray-900 dark:text-gray-100
+                        text-[var(--app-text)]
                         truncate
                       `}
                     >
@@ -981,69 +1131,24 @@ export default function TimeGrid({
                 displayCell.isFallback && displayCell.sourceTs != null
                   ? `Nearest from ${formatHHMM(displayCell.sourceTs)}`
                   : "";
-
-              if (value !== "" && !isNumericLike(raw)) {
-                return (
-                  <td
-                    key={ts}
-                    style={{ width: colWidth, minWidth: colWidth }}
-                    className={`app-tooltip ${cellClass}`}
-                    data-tooltip={fallbackHint ? `${value} (${fallbackHint})` : value}
-                  >
-                    <div
-                      className="
-                        h-full w-full overflow-hidden
-                        px-1
-                        flex items-center justify-center
-                        text-[10px] leading-none
-                        text-gray-900 dark:text-gray-100
-                        whitespace-nowrap
-                      "
-                    >
-                      <span
-                        className={`block w-full truncate ${
-                          displayCell.isFallback
-                            ? "text-amber-700 dark:text-amber-300"
-                            : ""
-                        }`}
-                      >
-                        {value}
-                      </span>
-                    </div>
-                  </td>
-                );
-              }
+              const provenanceTs = displayCell.sourceTs ?? ts;
+              const provenance = cellProvenance?.[row.id]?.[provenanceTs];
+              const editedDeviceValue = provenance?.source === "override";
 
               return (
                 <td
                   key={ts}
                   style={{ width: colWidth, minWidth: colWidth }}
-                  className={`app-tooltip ${cellClass}`}
-                  data-tooltip={fallbackHint ? `${value} (${fallbackHint})` : value}
+                  className={`app-tooltip ${cellClass} ${editedDeviceValue ? "timegrid-edited-device-cell" : ""}`}
+                  data-tooltip={clinicalCellTooltip(value, fallbackHint, workstation, provenance)}
                 >
-                  <input
-                    type="number"
-                    step="any"
-                    className={`
-                      w-full h-full
-                      bg-transparent
-                      text-center
-                      text-[10px] leading-none
-                      ${displayCell.isFallback ? "text-amber-600 dark:text-amber-400 font-medium" : "text-gray-900 dark:text-gray-100"}
-                      font-inherit
-                      focus:outline-none
-                      relative z-10
-                    `}
+                  <EditableCellInput
                     value={value}
-                    onWheel={e => e.currentTarget.blur()}
-                    onChange={e => {
-                      const nextValue = e.target.value.trim();
-                      onChange?.(
-                        row.id,
-                        ts,
-                        nextValue === "" ? undefined : Number(nextValue),
-                      );
-                    }}
+                    numeric={value === "" || isNumericLike(raw)}
+                    fallback={displayCell.isFallback}
+                    editedDeviceValue={editedDeviceValue}
+                    ariaLabel={`${row.label} at ${formatHHMM(ts)}`}
+                    onCommit={nextValue => onChange?.(row.id, ts, nextValue)}
                   />
                 </td>
               );
@@ -1057,5 +1162,62 @@ export default function TimeGrid({
         })}
       </tbody>
     </table>
+    {eventStack && typeof document !== "undefined" ? createPortal(
+      <div className="app-theme-scope">
+        <button
+          type="button"
+          className="fixed inset-0 z-[1190] cursor-default bg-transparent"
+          aria-label="Close event list"
+          onClick={() => setEventStack(null)}
+        />
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Events at ${formatHHMM(eventStack.ts)}`}
+          className="fixed z-[1200] flex flex-col overflow-hidden rounded-xl border border-[var(--app-tooltip-border)] bg-[var(--app-tooltip-bg)] text-[var(--app-tooltip-text)] shadow-2xl"
+          style={eventStack.position}
+        >
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--app-border)] px-3 py-2.5">
+            <div>
+              <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--app-muted)]">Event stack</div>
+              <div className="text-sm font-bold">{formatHHMM(eventStack.ts)} · {eventStack.markers.length} events</div>
+            </div>
+            <button type="button" onClick={() => setEventStack(null)} className="grid h-8 w-8 place-items-center rounded-lg text-lg text-[var(--app-muted)] hover:bg-[var(--app-control-bg-hover)] hover:text-[var(--app-text)]" aria-label="Close">×</button>
+          </header>
+          <div className="min-h-0 overflow-y-auto p-2">
+            {eventStack.markers.map(marker => {
+              const token = markerForEvent(marker);
+              return (
+                <button
+                  key={marker.id}
+                  type="button"
+                  onClick={() => {
+                    setEventStack(null);
+                    onEventMarkerClick?.(marker);
+                  }}
+                  className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-[var(--app-control-bg-hover)]"
+                >
+                  <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${token.className}`}>
+                    {token.iconSrc ? (() => { const TokenIcon = token.iconSrc; return <TokenIcon className="h-6 w-6" />; })() : <span className="text-xs font-bold">{token.label}</span>}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-[var(--app-text)]">{marker.title}</span>
+                    <span className="block text-[10px] uppercase tracking-wide text-[var(--app-muted)]">{marker.event_type === "note" ? "Note" : "Clinical event"} · {formatHHMM(marker.event_ts)}</span>
+                  </span>
+                  <span aria-hidden="true" className="text-[var(--app-muted)]">›</span>
+                </button>
+              );
+            })}
+          </div>
+          {onEventCellClick ? (
+            <footer className="shrink-0 border-t border-[var(--app-border)] p-2">
+              <button type="button" onClick={() => { const ts = eventStack.ts; setEventStack(null); onEventCellClick(ts); }} className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm font-semibold text-[var(--app-text)] hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)]">+ Add another event</button>
+            </footer>
+          ) : null}
+        </section>
+      </div>,
+      document.body,
+    ) : null}
+    </>
   );
 }

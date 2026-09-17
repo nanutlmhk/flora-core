@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   changeOwnPassword,
+  createManagedUser,
+  getAuthRoles,
   getManagedUsers,
   getSelfManagedUser,
+  linkManagedUserStaff,
   resetManagedUserPassword,
   setManagedUserActive,
+  updateManagedUserAccess,
+  type AuthRole,
   type ManagedAuthUser,
 } from "../api/authApi";
-import { getStaffMyCases, type StaffMyCaseRow } from "../api/staffApi";
+import { getStaffDirectory, getStaffMyCases, type StaffLibraryItem, type StaffMyCaseRow } from "../api/staffApi";
 import type { AuthUser } from "../auth/useAuth";
 
 type Props = {
@@ -35,7 +40,7 @@ function sourceLabel(source?: string) {
 }
 
 export default function UsersView({ sessionUser }: Props) {
-  const isAdmin = String(sessionUser?.role || "").trim().toLowerCase() === "admin";
+  const isAdmin = sessionUser?.permissions?.includes("account.manage") === true || String(sessionUser?.role || "").trim().toLowerCase() === "admin";
   const [rows, setRows] = useState<ManagedAuthUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,6 +55,11 @@ export default function UsersView({ sessionUser }: Props) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [myCases, setMyCases] = useState<StaffMyCaseRow[]>([]);
   const [myCasesLoading, setMyCasesLoading] = useState(false);
+  const [staffDirectory, setStaffDirectory] = useState<StaffLibraryItem[]>([]);
+  const [roles, setRoles] = useState<AuthRole[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
+  const [newUser, setNewUser] = useState({ username: "", name: "", password: "", hospitalId: "", staffDirectoryId: "", roleCodes: ["clinician"] });
 
   const selected = useMemo(
     () => rows.find(row => row.id === selectedUserId) || rows[0] || null,
@@ -86,17 +96,28 @@ export default function UsersView({ sessionUser }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, search, includeInactive, sessionUser?.username]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    getStaffDirectory({ include_inactive: true, limit: 500 }).then(setStaffDirectory).catch(() => setStaffDirectory([]));
+    getAuthRoles().then(setRoles).catch(() => setRoles([]));
+  }, [isAdmin]);
+
+  useEffect(() => {
+    setAccessRoles(selected?.roleCodes?.length ? selected.roleCodes : selected?.role ? [selected.role === "admin" ? "system_admin" : selected.role] : []);
+  }, [selected?.id, selected?.role, selected?.roleCodes]);
+
   // For non-admin: load cases where this user appears as a staff member
   useEffect(() => {
     if (isAdmin) return;
     const hospitalId = String(selected?.hospitalId || "").trim();
-    if (!hospitalId) return;
+    const staffDirectoryId = selected?.staffDirectoryId ?? undefined;
+    if (!staffDirectoryId && !hospitalId) return;
     setMyCasesLoading(true);
-    getStaffMyCases({ hospitalId })
+    getStaffMyCases({ staffDirectoryId, hospitalId: staffDirectoryId ? undefined : hospitalId })
       .then(setMyCases)
       .catch(() => setMyCases([]))
       .finally(() => setMyCasesLoading(false));
-  }, [isAdmin, selected?.hospitalId]);
+  }, [isAdmin, selected?.hospitalId, selected?.staffDirectoryId]);
 
   const replaceRow = (next: ManagedAuthUser) => {
     setRows(prev => prev.map(row => (row.id === next.id ? next : row)));
@@ -119,6 +140,17 @@ export default function UsersView({ sessionUser }: Props) {
     }
   };
 
+  const handleStaffLink = async (staffDirectoryId: number | null) => {
+    if (!selected) return;
+    setSaving(true); setError(""); setNote("");
+    try {
+      const next = await linkManagedUserStaff(selected.id, staffDirectoryId);
+      replaceRow(next);
+      setNote(staffDirectoryId ? "Staff profile linked." : "Staff profile unlinked.");
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to link staff profile"); }
+    finally { setSaving(false); }
+  };
+
   const handleResetPassword = async (mode: "default" | "custom") => {
     if (!selected) return;
     setSaving(true);
@@ -139,8 +171,8 @@ export default function UsersView({ sessionUser }: Props) {
 
   const handleChangeOwnPassword = async () => {
     if (!selected || !sessionUser?.username) return;
-    if (newPassword.trim().length < 6) {
-      setError("New password must be at least 6 characters.");
+    if (newPassword.trim().length < 8) {
+      setError("New password must be at least 8 characters.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -164,6 +196,39 @@ export default function UsersView({ sessionUser }: Props) {
     }
   };
 
+  const handleCreateUser = async () => {
+    if (!newUser.username.trim() || !newUser.name.trim() || newUser.password.length < 8 || newUser.roleCodes.length === 0) {
+      setError("Username, display name, an 8-character temporary password and at least one role are required.");
+      return;
+    }
+    setSaving(true); setError(""); setNote("");
+    try {
+      const created = await createManagedUser({
+        username: newUser.username.trim(), name: newUser.name.trim(), password: newUser.password,
+        hospitalId: newUser.hospitalId.trim() || undefined,
+        staffDirectoryId: newUser.staffDirectoryId ? Number(newUser.staffDirectoryId) : null,
+        roleCodes: newUser.roleCodes,
+      });
+      setRows(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedUserId(created.id);
+      setNewUser({ username: "", name: "", password: "", hospitalId: "", staffDirectoryId: "", roleCodes: ["clinician"] });
+      setShowCreate(false);
+      setNote(`${created.username} created. They must change the temporary password after signing in.`);
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to create user"); }
+    finally { setSaving(false); }
+  };
+
+  const handleSaveAccess = async () => {
+    if (!selected || accessRoles.length === 0) return;
+    setSaving(true); setError(""); setNote("");
+    try {
+      const next = await updateManagedUserAccess(selected.id, accessRoles);
+      replaceRow(next);
+      setNote(`Access updated for ${next.username}.`);
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to update access"); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -176,16 +241,31 @@ export default function UsersView({ sessionUser }: Props) {
           </div>
         </div>
         {isAdmin ? (
-          <button
-            type="button"
-            className="rounded border border-[var(--app-border)] px-3 py-2 text-sm"
-            onClick={() => void loadUsers()}
-            disabled={loading || saving}
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
+          <div className="flex gap-2">
+            <button type="button" className="rounded bg-[var(--app-accent)] px-3 py-2 text-sm font-semibold text-[var(--app-accent-contrast)]" onClick={() => setShowCreate(value => !value)}>
+              {showCreate ? "Cancel" : "+ New user"}
+            </button>
+            <button type="button" className="rounded border border-[var(--app-border)] px-3 py-2 text-sm" onClick={() => void loadUsers()} disabled={loading || saving}>
+              {loading ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         ) : null}
       </div>
+
+      {isAdmin && showCreate ? (
+        <section className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-4">
+          <div className="mb-3 text-sm font-semibold">Create user</div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <label className="text-xs text-[var(--app-muted)]">Username<input className="mt-1 w-full rounded border border-[var(--app-border)] px-3 py-2 text-sm" value={newUser.username} onChange={e => setNewUser(v => ({ ...v, username: e.target.value }))} /></label>
+            <label className="text-xs text-[var(--app-muted)]">Display name<input className="mt-1 w-full rounded border border-[var(--app-border)] px-3 py-2 text-sm" value={newUser.name} onChange={e => setNewUser(v => ({ ...v, name: e.target.value }))} /></label>
+            <label className="text-xs text-[var(--app-muted)]">Temporary password<input type="password" className="mt-1 w-full rounded border border-[var(--app-border)] px-3 py-2 text-sm" value={newUser.password} onChange={e => setNewUser(v => ({ ...v, password: e.target.value }))} /></label>
+            <label className="text-xs text-[var(--app-muted)]">Hospital ID<input className="mt-1 w-full rounded border border-[var(--app-border)] px-3 py-2 text-sm" value={newUser.hospitalId} onChange={e => setNewUser(v => ({ ...v, hospitalId: e.target.value }))} /></label>
+            <label className="text-xs text-[var(--app-muted)] md:col-span-2">Staff profile<select className="mt-1 w-full rounded border border-[var(--app-border)] px-3 py-2 text-sm" value={newUser.staffDirectoryId} onChange={e => setNewUser(v => ({ ...v, staffDirectoryId: e.target.value }))}><option value="">Not linked</option>{staffDirectory.filter(staff => staff.is_active !== 0).map(staff => <option key={staff.id} value={staff.id}>{staff.name} · {staff.role}</option>)}</select></label>
+            <div className="md:col-span-2"><div className="mb-1 text-xs text-[var(--app-muted)]">Access roles</div><div className="flex flex-wrap gap-2">{roles.filter(role => role.isActive).map(role => <label key={role.code} className="inline-flex items-center gap-2 rounded border border-[var(--app-border)] px-3 py-2 text-xs"><input type="checkbox" checked={newUser.roleCodes.includes(role.code)} onChange={() => setNewUser(v => ({ ...v, roleCodes: v.roleCodes.includes(role.code) ? v.roleCodes.filter(code => code !== role.code) : [...v.roleCodes, role.code] }))} />{role.displayName}</label>)}</div></div>
+          </div>
+          <button type="button" className="mt-3 rounded bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-[var(--app-accent-contrast)] disabled:opacity-50" disabled={saving} onClick={() => void handleCreateUser()}>{saving ? "Creating..." : "Create user"}</button>
+        </section>
+      ) : null}
 
       {error ? (
         <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
@@ -378,6 +458,26 @@ export default function UsersView({ sessionUser }: Props) {
 
               {isAdmin ? (
                 <>
+                  <div className="space-y-3 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3">
+                    <div><div className="text-sm font-medium">Access roles</div><div className="text-xs text-[var(--app-muted)]">Permissions are enforced by the API.</div></div>
+                    <div className="space-y-2">{roles.filter(role => role.isActive).map(role => <label key={role.code} className="flex items-start gap-2 rounded border border-[var(--app-border)] p-2"><input type="checkbox" className="mt-0.5" checked={accessRoles.includes(role.code)} onChange={() => setAccessRoles(current => current.includes(role.code) ? current.filter(code => code !== role.code) : [...current, role.code])} /><span><span className="block text-sm font-medium">{role.displayName}</span><span className="block text-xs text-[var(--app-muted)]">{role.description}</span></span></label>)}</div>
+                    <button type="button" className="rounded border border-[var(--app-border)] px-3 py-2 text-sm font-medium disabled:opacity-45" disabled={saving || accessRoles.length === 0} onClick={() => void handleSaveAccess()}>Save access</button>
+                  </div>
+
+                  <div className="space-y-2 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3">
+                    <div className="text-sm font-medium">Staff profile</div>
+                    <select
+                      className="w-full rounded border border-[var(--app-border)] px-3 py-2 text-sm"
+                      value={selected.staffDirectoryId ?? ""}
+                      disabled={saving}
+                      onChange={event => void handleStaffLink(event.target.value ? Number(event.target.value) : null)}
+                    >
+                      <option value="">No linked staff profile</option>
+                      {staffDirectory.map(staff => <option key={staff.id} value={staff.id}>{staff.name} · {staff.role}{staff.hospital_id ? ` · ${staff.hospital_id}` : ""}{staff.is_active === 0 ? " · inactive" : ""}</option>)}
+                    </select>
+                    <div className="text-xs text-[var(--app-muted)]">Links login identity to the clinician directory and their case history.</div>
+                  </div>
+
                   <div className="space-y-2 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3">
                     <div className="text-sm font-medium">Account State</div>
                     <div className="text-xs text-[var(--app-muted)]">

@@ -1,4 +1,6 @@
-const BASE = "http://localhost:6789";
+import { BACKEND_BASE } from "./backendBase";
+
+const BASE = `${BACKEND_BASE}/api/case`;
 
 export type DeviceStatusRow = {
   device_id: string | null;
@@ -83,7 +85,7 @@ export async function getDeviceStatus(
   const params = new URLSearchParams({
     online_window_sec: String(onlineWindowSec),
   });
-  const res = await fetch(`${BASE}/api/devices/status?${params.toString()}`);
+  const res = await fetch(`${BASE}/device-status?${params.toString()}`);
   if (!res.ok) {
     throw new Error(`device status failed ${res.status}`);
   }

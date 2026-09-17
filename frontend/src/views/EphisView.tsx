@@ -8,22 +8,22 @@ import {
   type EphisDailySummaryRow,
   type EphisImportStatus,
 } from "../api/ephisApi";
+import { useWorkstationSettings } from "../hooks/useWorkstationSettings";
+import { formatConfiguredDateTime } from "../utils/dateTime";
 
-function formatDateTime(value: string | null) {
+function parseDateTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return `${date.toLocaleDateString()} ${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
-}
-
-function formatImportedAt(ts: number | null) {
-  if (!ts) return "No import yet";
-  return formatDateTime(new Date(ts).toISOString());
+  return date.getTime();
 }
 
 export default function EphisView() {
+  const workstation = useWorkstationSettings();
+  const displayDateTime = (value: string | null) => {
+    const timestamp = parseDateTime(value);
+    return typeof timestamp === "number" ? formatConfiguredDateTime(timestamp, workstation) : timestamp;
+  };
   const [tsvText, setTsvText] = useState("");
   const [replaceExisting, setReplaceExisting] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -145,7 +145,7 @@ export default function EphisView() {
         </div>
         <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2 text-xs text-[var(--app-muted)]">
           <div>Total imported rows: {status?.total_rows || 0}</div>
-          <div>Last import: {formatImportedAt(status?.last_imported_at || null)}</div>
+          <div>Last import: {status?.last_imported_at ? formatConfiguredDateTime(status.last_imported_at, workstation) : "No import yet"}</div>
         </div>
       </div>
 
@@ -306,7 +306,7 @@ export default function EphisView() {
                     className={`border-b border-[var(--app-border)] last:border-b-0 ${index % 2 ? "bg-[var(--app-control-bg)]/30" : ""}`}
                   >
                     <td className="px-3 py-2.5 font-mono font-medium">{row.hn}</td>
-                    <td className="px-3 py-2.5">{formatDateTime(row.admit_datetime)}</td>
+                    <td className="px-3 py-2.5">{displayDateTime(row.admit_datetime)}</td>
                     <td className="px-3 py-2.5 text-[var(--app-muted)]">{row.raw_admit_value || "-"}</td>
                   </tr>
                 ))}

@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
-  updateOwnThemePreferences,
+  getPreferenceOptions,
+  mergeStoredAuthUser,
+  updateOwnPreferences,
   type AuthThemeColor,
   type AuthThemeMode,
+  type ThemeSchemeOption,
 } from "../api/authApi";
 import { getSurfaceInfo } from "../edition/config";
 
@@ -13,14 +16,36 @@ interface ThemeContextType {
   mode: ThemeMode;
   color: ThemeColor;
   setColor: (color: ThemeColor) => void;
+  schemes: ThemeSchemeOption[];
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_COLORS: ThemeColor[] = ["monochromatic", "neon", "warm", "pastel", "jewel", "vibrant"];
 const DEFAULT_THEME: ThemeColor = "monochromatic";
+const FALLBACK_SCHEMES: ThemeSchemeOption[] = [
+  { code: "monochromatic", displayName: "Mono", colors: ["#121212", "#1c1c1c", "#444444", "#e0e0e0", "#b0b0b0", "#a1a1aa"] },
+  { code: "neon", displayName: "Neon", colors: ["#0d0d0d", "#171717", "#444444", "#ffffff", "#b0b0b0", "#00ff85"] },
+  { code: "warm", displayName: "Warm", colors: ["#1c1c1c", "#292421", "#554640", "#f5e8d8", "#c8b9a9", "#ff6f61"] },
+  { code: "pastel", displayName: "Pastel", colors: ["#2c2c2c", "#383838", "#5a5a5a", "#e4e4e4", "#c5c5c5", "#a8dadc"] },
+  { code: "jewel", displayName: "Jewel", colors: ["#1a1a1a", "#202827", "#3e5641", "#f0f0f0", "#bdbdbd", "#89c1cf"] },
+  { code: "vibrant", displayName: "Vibrant", colors: ["#181818", "#252120", "#555555", "#f7f7f7", "#c6c6c6", "#ff5722"] },
+  { code: "air", displayName: "Air", colors: ["#f3f7fa", "#ffffff", "#c7d4dc", "#17232d", "#60717d", "#147d92"] },
+  { code: "sage", displayName: "Sage", colors: ["#f3f7f2", "#ffffff", "#c8d7c7", "#1d2b23", "#66756b", "#2f7d5a"] },
+  { code: "lilac", displayName: "Lilac", colors: ["#f7f5fb", "#ffffff", "#d5cde3", "#282135", "#71677f", "#7257a8"] },
+];
+
+function isLightCanvas(color: string) {
+  const match = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (!match) return false;
+  const value = Number.parseInt(match[1], 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return (red * 299 + green * 587 + blue * 114) / 1000 > 170;
+}
 
 function isThemeColor(value: unknown): value is ThemeColor {
-  return typeof value === "string" && THEME_COLORS.includes(value as ThemeColor);
+  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,47}$/.test(value);
 }
 
 function readThemeUsername() {
@@ -71,9 +96,9 @@ function getThemeStorageKey(kind: "mode" | "color", username: string) {
 
 function readStoredColor(username: string): ThemeColor {
   const userTheme = readStoredUserTheme().color as ThemeColor | undefined;
+  if (!username.trim()) return DEFAULT_THEME;
   const scoped = localStorage.getItem(getThemeStorageKey("color", username));
-  const legacy = localStorage.getItem("theme-color");
-  return userTheme || (isThemeColor(scoped) ? scoped : undefined) || (isThemeColor(legacy) ? legacy : DEFAULT_THEME);
+  return userTheme || (isThemeColor(scoped) ? scoped : undefined) || DEFAULT_THEME;
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -81,6 +106,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeUsername, setThemeUsername] = useState(() => readThemeUsername());
   const mode: ThemeMode = "dark";
   const [color, setColorState] = useState<ThemeColor>(() => readStoredColor(readThemeUsername()));
+  const [schemes, setSchemes] = useState<ThemeSchemeOption[]>(FALLBACK_SCHEMES);
   const lastSyncedPrefRef = useRef("");
 
   useEffect(() => {
@@ -106,22 +132,46 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    void getPreferenceOptions().then(options => {
+      if (cancelled || !options.themes.length) return;
+      setSchemes(options.themes);
+      setColorState(current => options.themes.some(theme => theme.code === current) ? current : options.defaultTheme);
+    }).catch(() => {
+      // Built-in schemes keep the login usable while the API is unavailable.
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     const root = window.document.documentElement;
     
     // Clean up
     root.classList.remove("light", "dark");
-    [...THEME_COLORS, "esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"].forEach(c => root.classList.remove(`theme-${c}`));
+    [...new Set([...THEME_COLORS, ...FALLBACK_SCHEMES.map(theme => theme.code), ...schemes.map(theme => theme.code), "esm", "nit", "default", "grey", "green", "blackpink", "oldrose", "pink", "rcat", "eforl"])].forEach(c => root.classList.remove(`theme-${c}`));
 
     // Add classes
-    root.classList.add(mode);
+    const selected = schemes.find(theme => theme.code === color) || FALLBACK_SCHEMES[0];
+    const [canvas, surfaceColor, border, text, muted, accent] = selected.colors;
+    const visualMode = isLightCanvas(canvas) ? "light" : mode;
+    root.classList.add(visualMode);
     root.classList.add(`theme-${color}`);
+    root.setAttribute("data-flora-theme", "scheme");
+    root.style.setProperty("--palette-bg", canvas);
+    root.style.setProperty("--palette-surface", surfaceColor);
+    root.style.setProperty("--palette-border", border);
+    root.style.setProperty("--palette-text", text);
+    root.style.setProperty("--palette-muted", muted);
+    root.style.setProperty("--palette-accent", accent);
+    root.style.setProperty("--palette-secondary", border);
+    root.style.setProperty("--palette-hover", accent);
 
     localStorage.setItem(getThemeStorageKey("mode", themeUsername), mode);
     localStorage.setItem(getThemeStorageKey("color", themeUsername), color);
     localStorage.setItem("theme-mode", mode);
     localStorage.setItem("theme-color", color);
     writeStoredUserTheme(mode, color);
-  }, [mode, color, themeUsername]);
+  }, [mode, color, schemes, themeUsername]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -130,9 +180,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const syncKey = `${themeUsername}|${mode}|${color}`;
     if (lastSyncedPrefRef.current === syncKey) return;
     lastSyncedPrefRef.current = syncKey;
-    void updateOwnThemePreferences(mode, color)
+    void updateOwnPreferences({ themeMode: mode, themeColor: color })
       .then((nextUser) => {
-        window.localStorage.setItem("flora_user", JSON.stringify(nextUser));
+        mergeStoredAuthUser(nextUser);
         window.dispatchEvent(new Event("flora:auth-changed"));
       })
       .catch(() => {
@@ -141,11 +191,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [mode, color, surface.clinicalWriteEnabled, themeUsername]);
 
   const setColor = (c: ThemeColor) => {
-    setColorState(isThemeColor(c) ? c : DEFAULT_THEME);
+    setColorState(isThemeColor(c) && schemes.some(theme => theme.code === c) ? c : DEFAULT_THEME);
   };
 
   return (
-    <ThemeContext.Provider value={{ mode, color, setColor }}>
+    <ThemeContext.Provider value={{ mode, color, setColor, schemes }}>
       {children}
     </ThemeContext.Provider>
   );

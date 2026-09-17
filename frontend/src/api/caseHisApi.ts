@@ -123,13 +123,46 @@ export type CaseBloodProductListResponse = {
 export type CaseHisLookupResult = {
   ok: boolean;
   hn: string;
-  source?: "HIS" | "BUFFER";
+  source?: "HIS" | "BUFFER" | "DEMO_HIS";
   offline?: boolean;
   row: CasePatientInfo | null;
   allergies: CaseAllergyRow[];
   labs: CaseLabRow[];
   his_payload?: unknown;
+  exchange?: HisExchangeProvenance | null;
   his_errors?: Record<string, string>;
+};
+
+export type HisExchangeProvenance = {
+  protocol: string;
+  label: string;
+  event: string;
+  message_id: string;
+  source_system: string;
+  encounter?: {
+    class?: string;
+    service?: string;
+    priority?: string;
+    location?: string;
+    attending?: string;
+  };
+  sample_format?: string;
+  sample?: string;
+  synthetic: boolean;
+};
+
+export type DemoHisPatient = {
+  hn: string;
+  patient_name: string;
+  patient_name_en: string;
+  protocol: string;
+  protocol_label: string;
+  event: string;
+  source_system: string;
+  encounter?: HisExchangeProvenance["encounter"];
+  sample_format: string;
+  sample: string;
+  synthetic: boolean;
 };
 
 export type HisBufferListRow = {
@@ -197,6 +230,7 @@ function parseLookupPayload(
     allergies?: unknown[];
     labs?: unknown[];
     his_payload?: unknown;
+    exchange?: unknown;
     his_errors?: unknown;
   },
   fallbackHn: string,
@@ -283,20 +317,33 @@ function parseLookupPayload(
     })
     .filter((r): r is CaseLabRow => r != null);
 
+  const exchangeRaw = asObject(payload.exchange);
+  const encounterRaw = asObject(exchangeRaw.encounter);
+  const exchange: HisExchangeProvenance | null = text(exchangeRaw.protocol) ? {
+    protocol: text(exchangeRaw.protocol),
+    label: text(exchangeRaw.label),
+    event: text(exchangeRaw.event),
+    message_id: text(exchangeRaw.message_id),
+    source_system: text(exchangeRaw.source_system),
+    encounter: {
+      class: text(encounterRaw.class), service: text(encounterRaw.service), priority: text(encounterRaw.priority),
+      location: text(encounterRaw.location), attending: text(encounterRaw.attending),
+    },
+    sample_format: text(exchangeRaw.sample_format),
+    sample: text(exchangeRaw.sample),
+    synthetic: Boolean(exchangeRaw.synthetic),
+  } : null;
+
   return {
     ok: payload.ok !== false,
     hn: hnText || fallbackHn,
-    source:
-      String(payload.source || "")
-        .trim()
-        .toUpperCase() === "BUFFER"
-        ? "BUFFER"
-        : "HIS",
+    source: String(payload.source || "").trim().toUpperCase() === "BUFFER" ? "BUFFER" : String(payload.source || "").trim().toUpperCase() === "DEMO_HIS" ? "DEMO_HIS" : "HIS",
     offline: Boolean(payload.offline),
     row,
     allergies,
     labs,
     his_payload: payload.his_payload ?? null,
+    exchange,
     his_errors:
       payload.his_errors && typeof payload.his_errors === "object"
         ? (payload.his_errors as Record<string, string>)
@@ -511,6 +558,7 @@ export async function lookupPatientInfoByHn(
     allergies?: unknown[];
     labs?: unknown[];
     his_payload?: unknown;
+    exchange?: unknown;
     his_errors?: unknown;
   };
 
@@ -896,6 +944,33 @@ export async function verifyCaseBloodProduct(
     },
     message: optionalText(payload.message) || undefined,
   };
+}
+
+export async function listDemoHisPatients(): Promise<DemoHisPatient[]> {
+  const res = await fetch(`${BASE}/his/demo-patients`);
+  if (!res.ok) throw await buildApiError("Demo HIS patient list failed", res);
+  const payload = asObject(await res.json());
+  if (!payload.enabled || !Array.isArray(payload.rows)) return [];
+  return payload.rows.map(item => {
+    const row = asObject(item);
+    const encounter = asObject(row.encounter);
+    return {
+      hn: text(row.hn),
+      patient_name: text(row.patient_name),
+      patient_name_en: text(row.patient_name_en),
+      protocol: text(row.protocol),
+      protocol_label: text(row.protocol_label),
+      event: text(row.event),
+      source_system: text(row.source_system),
+      encounter: {
+        class: text(encounter.class), service: text(encounter.service), priority: text(encounter.priority),
+        location: text(encounter.location), attending: text(encounter.attending),
+      },
+      sample_format: text(row.sample_format),
+      sample: text(row.sample),
+      synthetic: Boolean(row.synthetic),
+    };
+  }).filter(row => Boolean(row.hn));
 }
 
 export async function getCaseBloodProducts(

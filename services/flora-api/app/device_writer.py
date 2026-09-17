@@ -75,6 +75,21 @@ class DeviceWriter:
         rows = [dict(caseId=key, **value) for key, value in self.states.items()]
         return next((row for row in rows if row["caseId"] == case_id), None) if case_id else rows
 
+    def source_status(self, online_window_sec=30):
+        parsed = urllib.parse.urlsplit(self.base)
+        path = parsed.path
+        if path.endswith("/api/observations"):
+            path = path[:-len("/api/observations")] + "/api/devices/status"
+        else:
+            path = "/api/devices/status"
+        query = urllib.parse.urlencode({"online_window_sec": online_window_sec})
+        url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, query, ""))
+        with urllib.request.urlopen(url, timeout=self.timeout) as response:
+            payload = json.load(response)
+        if not isinstance(payload, dict):
+            raise ValueError("Vector status response is not an object")
+        return payload
+
     def _loop(self):
         while not self.stop_event.wait(self.interval):
             try:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getEffectiveTimeline } from "../api/vitalMinutesApi";
+import { getEffectiveTimeline, type TimelineProvenance, type VitalMinuteRow } from "../api/vitalMinutesApi";
 import type { TimeGridValues } from "../components/timegrid/types";
 
 type CaseStatus = "IDLE" | "ACTIVE" | "DISCHARGED" | "ARCHIVED";
@@ -41,7 +41,7 @@ function toRowId(key: string) {
 }
 
 function toTimeGridValues(
-  rows: Array<{ ts_minute: number; payload: Record<string, unknown> }>,
+  rows: VitalMinuteRow[],
 ): TimeGridValues {
   const next: TimeGridValues = {};
 
@@ -59,6 +59,19 @@ function toTimeGridValues(
     }
   }
 
+  return next;
+}
+
+function toTimelineProvenance(rows: VitalMinuteRow[]): TimelineProvenance {
+  const next: TimelineProvenance = {};
+  for (const row of rows) {
+    const ts = Number(row.ts_minute);
+    if (!Number.isFinite(ts)) continue;
+    for (const [rawKey, detail] of Object.entries(row.provenance || {})) {
+      const rowId = toRowId(rawKey);
+      next[rowId] = { ...(next[rowId] || {}), [ts]: detail };
+    }
+  }
   return next;
 }
 
@@ -81,6 +94,7 @@ export function useVitalMinutes(
   axis: number[],
 ) {
   const [values, setValues] = useState<TimeGridValues>({});
+  const [provenance, setProvenance] = useState<TimelineProvenance>({});
   const [loading, setLoading] = useState(false);
   const [fetchedAxis, setFetchedAxis] = useState<number[]>([]);
 
@@ -91,6 +105,7 @@ export function useVitalMinutes(
       axis.length === 0
     ) {
       setValues({});
+      setProvenance({});
       setFetchedAxis([]);
       setLoading(false);
       return;
@@ -110,6 +125,7 @@ export function useVitalMinutes(
         if (!alive) return;
         const nextValues = toTimeGridValues(rows);
         setValues(previous => sameValues(previous, nextValues) ? previous : nextValues);
+        setProvenance(toTimelineProvenance(rows));
         setFetchedAxis(currentAxis);
       } catch (err) {
         console.error("[useVitalMinutes] fetch failed", err);
@@ -141,5 +157,5 @@ export function useVitalMinutes(
     };
   }, [caseId, status, axis]);
 
-  return { values, loading, fetchedAxis };
+  return { values, provenance, loading, fetchedAxis };
 }

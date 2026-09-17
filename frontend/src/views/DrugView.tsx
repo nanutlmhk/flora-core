@@ -29,7 +29,9 @@ import {
   createDrugDirectoryEntry,
   deactivateDrugDirectoryEntry,
   getDrugDirectory,
+  getIoGroups,
   type DrugDirectoryItem,
+  type IoGroup,
   type IoKind,
   updateDrugDirectoryEntry,
 } from "../api/drugApi";
@@ -54,6 +56,7 @@ type DetailedGroup = {
   label: string;
   kind: IoKind;
   category: string;
+  isActive?: boolean;
 };
 
 const card =
@@ -498,11 +501,12 @@ function resolveGroupId(
   kind: IoKind,
   category: string | undefined,
   code?: string | undefined,
+  groups: DetailedGroup[] = DETAILED_GROUPS,
 ): string {
   const categoryToken = normalizeToken(category);
   const codeToken = normalizeToken(code);
 
-  const byCategory = DETAILED_GROUPS.find(
+  const byCategory = groups.find(
     group => normalizeToken(group.category) === categoryToken && group.kind === kind,
   );
   if (byCategory) return byCategory.id;
@@ -790,9 +794,10 @@ function resolveTypeLabel(
   category: string | undefined,
   code: string | undefined,
   name: string | undefined,
+  groups: DetailedGroup[] = DETAILED_GROUPS,
 ): string {
-  const groupId = resolveGroupId(kind, category || "", code || name || "");
-  const group = DETAILED_GROUP_BY_ID.get(groupId);
+  const groupId = resolveGroupId(kind, category || "", code || name || "", groups);
+  const group = groups.find(candidate => candidate.id === groupId);
   if (group) return groupOptionLabel(group);
   if (kind === "med") return "Medication";
   if (kind === "fluid") return "Fluid";
@@ -877,6 +882,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   const [search, setSearch] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [directory, setDirectory] = useState<DrugDirectoryItem[]>([]);
+  const [groupRows, setGroupRows] = useState<IoGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1012,22 +1018,24 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   const fluidOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fluidFirstFieldRef = useRef<HTMLInputElement | null>(null);
 
+  const detailedGroups = useMemo(() => groupRows.length ? groupRows.map(row => ({ id: row.code, label: row.display_name, kind: row.kind, category: row.code, isActive: row.is_active !== 0 })) : DETAILED_GROUPS, [groupRows]);
+  const detailedGroupById = useMemo(() => new Map(detailedGroups.map(group => [group.id, group])), [detailedGroups]);
   const activeGroup =
-    DETAILED_GROUP_BY_ID.get(activeGroupId) || DETAILED_GROUPS[0];
+    detailedGroupById.get(activeGroupId) || detailedGroups[0];
   const masterVisibleGroups = useMemo(
-    () => DETAILED_GROUPS.filter(group => group.kind === "med" || group.kind === "fluid"),
-    [],
+    () => detailedGroups.filter(group => group.isActive !== false && (group.kind === "med" || group.kind === "fluid")),
+    [detailedGroups],
   );
   const visibleMasterGroupIds = useMemo(
     () => new Set(masterVisibleGroups.map(group => group.id)),
     [masterVisibleGroups],
   );
-  const currentGroup = DETAILED_GROUP_BY_ID.get(currentGroupId) || null;
+  const currentGroup = detailedGroupById.get(currentGroupId) || null;
   const isCurrentGroupRouteEnabled = currentGroup
     ? !ROUTE_DISABLED_GROUP_IDS.has(currentGroup.id)
     : false;
   const isCurrentGroupLocalAnesthetic = currentGroup?.id === LOCAL_ANESTHETIC_GROUP_ID;
-  const formGroupId = resolveGroupId(form.kind, form.category || "", form.code);
+  const formGroupId = resolveGroupId(form.kind, form.category || "", form.code, detailedGroups);
 
   const activeRuns = useMemo(
     () =>
@@ -1161,10 +1169,10 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
         .filter(
           item =>
             item.kind === "fluid" &&
-            resolveGroupId(item.kind, item.category || "", item.code) === "fluids",
+            resolveGroupId(item.kind, item.category || "", item.code, detailedGroups) === "fluids",
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [currentItems],
+    [currentItems, detailedGroups],
   );
   const entryDurationMin = useMemo(() => {
     if (!entryDate || !entryTime || !entryEndDate || !entryEndTime) return null;
@@ -1456,10 +1464,10 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       if (!currentGroup) return [];
       return currentItems.filter(
         item =>
-          resolveGroupId(item.kind, item.category || "", item.code) === currentGroup.id,
+          resolveGroupId(item.kind, item.category || "", item.code, detailedGroups) === currentGroup.id,
       );
     },
-    [currentItems, currentGroup],
+    [currentItems, currentGroup, detailedGroups],
   );
   const selectedCurrentItem = useMemo(
     () => currentItems.find(item => item.id === prepareItemId) || null,
@@ -1472,9 +1480,10 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
             selectedCurrentItem.kind,
             selectedCurrentItem.category || "",
             selectedCurrentItem.code,
+            detailedGroups,
           )
         : "",
-    [selectedCurrentItem],
+    [selectedCurrentItem, detailedGroups],
   );
   const isPrepareGroupLocked = prepareItemId != null;
   const formUnitOptions = useMemo(() => {
@@ -1489,9 +1498,9 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     () =>
       directory.filter(
         item =>
-          resolveGroupId(item.kind, item.category || "", item.code) === activeGroup.id,
+          resolveGroupId(item.kind, item.category || "", item.code, detailedGroups) === activeGroup.id,
       ),
-    [directory, activeGroup.id],
+    [directory, activeGroup.id, detailedGroups],
   );
   const medCategoryOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -1500,13 +1509,13 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       const category = String(item.category || "").trim();
       if (!category) continue;
       if (!map.has(category)) {
-        map.set(category, resolveTypeLabel(item.kind, item.category, item.code, item.name));
+        map.set(category, resolveTypeLabel(item.kind, item.category, item.code, item.name, detailedGroups));
       }
     }
     return Array.from(map.entries())
       .sort((a, b) => a[1].localeCompare(b[1], undefined, { sensitivity: "base" }))
       .map(([value, label]) => ({ value, label }));
-  }, [currentItems]);
+  }, [currentItems, detailedGroups]);
   const filteredSearchItems = useMemo(() => {
     const q = normalizeToken(itemSearch);
     // If user typed something, require at least 2 characters to trigger search
@@ -1523,16 +1532,16 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
           normalizeToken(item.code).includes(q);
         const matchesGroup =
           !currentGroupId ||
-          resolveGroupId(item.kind, item.category, item.code || item.name) ===
+          resolveGroupId(item.kind, item.category, item.code || item.name, detailedGroups) ===
             currentGroupId;
         return matchesQuery && matchesGroup;
       })
       .slice(0, 15);
-  }, [currentItems, itemSearch, currentGroupId]);
+  }, [currentItems, itemSearch, currentGroupId, detailedGroups]);
   const bloodProductItems = useMemo(
     () =>
       currentItems.filter(
-        item => resolveGroupId(item.kind, item.category || "", item.code) === "bloodProduct",
+        item => resolveGroupId(item.kind, item.category || "", item.code, detailedGroups) === "bloodProduct",
       ),
     [currentItems],
   );
@@ -1839,6 +1848,15 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     }
   };
 
+  const loadGroups = async () => {
+    try {
+      setGroupRows(await getIoGroups({ includeInactive: true }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load medication groups");
+    }
+  };
+
+
   const loadCurrentCase = async (
     targetCaseId: number,
     targetCaseStatus: NonIdleCaseStatus,
@@ -1862,6 +1880,11 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     setCurrentEvents(events);
     setCurrentSummary(summary);
   };
+
+  useEffect(() => {
+    void loadGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (tab !== "master") return;
@@ -3712,8 +3735,9 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                                     item.kind,
                                     item.category,
                                     item.code || item.name,
+                                    detailedGroups,
                                   );
-                                  const group = DETAILED_GROUP_BY_ID.get(groupId);
+                                  const group = detailedGroupById.get(groupId);
                                   return (
                                     <button
                                       key={`search-item-${item.id}`}
@@ -3795,7 +3819,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                           disabled={isPrepareGroupLocked}
                         >
                           <option value="">All Groups</option>
-                          {DETAILED_GROUPS.filter(group => group.kind === "med").map(group => (
+                          {detailedGroups.filter(group => group.kind === "med").map(group => (
                             <option key={group.id} value={group.id}>
                               {groupOptionLabel(group)}
                             </option>
@@ -3851,7 +3875,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                               Group is locked to the selected drug:
                               {" "}
                               <span className="font-semibold">
-                                {DETAILED_GROUP_BY_ID.get(selectedCurrentItemGroupId)?.label || "Medication"}
+                                {detailedGroupById.get(selectedCurrentItemGroupId)?.label || "Medication"}
                               </span>
                               . Clear or re-search the drug first if you want another group.
                             </span>
@@ -4065,7 +4089,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                       <div className="truncate text-xs text-gray-500 dark:text-gray-400">
                         {item.default_unit}
                         {item.category
-                          ? ` | ${resolveTypeLabel(item.kind, item.category, item.code, item.name)}`
+                          ? ` | ${resolveTypeLabel(item.kind, item.category, item.code, item.name, detailedGroups)}`
                           : ""}
                         {item.is_active === 0 ? " | Inactive" : ""}
                       </div>
@@ -4089,7 +4113,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                   value={formGroupId}
                   onChange={e => {
                     const group =
-                      DETAILED_GROUP_BY_ID.get(e.target.value) || DETAILED_GROUPS[0];
+                      detailedGroupById.get(e.target.value) || detailedGroups[0];
                     setForm(prev => ({
                       ...prev,
                       kind: group.kind,
@@ -4129,7 +4153,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                   ))}
                 </select>
                 <div className="rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-2 py-1.5 text-sm sm:col-span-2 text-gray-600 dark:text-gray-300">
-                  Group: {groupOptionLabel(DETAILED_GROUP_BY_ID.get(formGroupId) || masterVisibleGroups[0])}
+                  Group: {groupOptionLabel(detailedGroupById.get(formGroupId) || masterVisibleGroups[0])}
                 </div>
               </div>
 

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict wd2G4whYsjXz72DW1DyMJd3e8viY6eCgJ6HksCf3xNDlHHjwMRp5fbbbycVzE7o
+\restrict f1gWJueHjY0kYspf5TarZoxBcHW43tfdfU9GM1ArK6S6OvbuZT5bdCYzyG6szV1
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -61,6 +61,50 @@ ALTER SEQUENCE public.auth_audit_id_seq OWNED BY public.auth_audit.id;
 
 
 --
+-- Name: auth_permission; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_permission (
+    code text NOT NULL,
+    display_name text NOT NULL,
+    category text NOT NULL,
+    risk_level text DEFAULT 'normal'::text NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT auth_permission_risk_level_check CHECK ((risk_level = ANY (ARRAY['normal'::text, 'sensitive'::text, 'high'::text])))
+);
+
+
+--
+-- Name: auth_role; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_role (
+    code text NOT NULL,
+    display_name text NOT NULL,
+    description text,
+    is_system bigint DEFAULT 1 NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    sort_order bigint DEFAULT 0 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT auth_role_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT auth_role_is_system_check CHECK ((is_system = ANY (ARRAY[(0)::bigint, (1)::bigint])))
+);
+
+
+--
+-- Name: auth_role_permission; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_role_permission (
+    role_code text NOT NULL,
+    permission_code text NOT NULL,
+    created_at bigint NOT NULL
+);
+
+
+--
 -- Name: auth_session; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -115,7 +159,13 @@ CREATE TABLE public.auth_user (
     created_at bigint,
     updated_at bigint,
     last_login_at bigint,
-    CONSTRAINT auth_user_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint])))
+    language_code text DEFAULT 'en'::text NOT NULL,
+    staff_directory_id bigint,
+    parameter_preferences jsonb DEFAULT '{}'::jsonb NOT NULL,
+    report_preferences jsonb DEFAULT '{}'::jsonb NOT NULL,
+    must_change_password bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT auth_user_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT auth_user_must_change_password_check CHECK ((must_change_password = ANY (ARRAY[(0)::bigint, (1)::bigint])))
 );
 
 
@@ -136,6 +186,21 @@ CREATE SEQUENCE public.auth_user_id_seq
 --
 
 ALTER SEQUENCE public.auth_user_id_seq OWNED BY public.auth_user.id;
+
+
+--
+-- Name: auth_user_role; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_user_role (
+    user_id bigint NOT NULL,
+    role_code text NOT NULL,
+    scope_type text DEFAULT 'global'::text NOT NULL,
+    scope_id text DEFAULT '*'::text NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT auth_user_role_scope_type_check CHECK ((scope_type = ANY (ARRAY['global'::text, 'hospital'::text, 'care_unit'::text, 'leaf'::text])))
+);
 
 
 --
@@ -301,7 +366,11 @@ CREATE TABLE public.case_diagnosis (
     icd_code text,
     icd_version text,
     seq bigint DEFAULT '1'::bigint,
-    created_at bigint
+    created_at bigint,
+    concept_id bigint,
+    coding_snapshot jsonb,
+    event_ts bigint NOT NULL,
+    entry_context text NOT NULL
 );
 
 
@@ -735,7 +804,11 @@ CREATE TABLE public.case_procedure (
     icd_code text,
     icd_version text,
     seq bigint DEFAULT '1'::bigint,
-    created_at bigint
+    created_at bigint,
+    concept_id bigint,
+    coding_snapshot jsonb,
+    event_ts bigint NOT NULL,
+    entry_context text NOT NULL
 );
 
 
@@ -780,7 +853,8 @@ CREATE TABLE public.case_staff (
     seq bigint DEFAULT '1'::bigint,
     created_by text,
     created_at bigint,
-    updated_at bigint
+    updated_at bigint,
+    profile_data jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -908,6 +982,14 @@ CREATE TABLE public.cases (
     status text,
     created_at bigint,
     updated_at bigint,
+    admission_source text DEFAULT 'legacy'::text NOT NULL,
+    identity_status text DEFAULT 'verified'::text NOT NULL,
+    admission_number text,
+    patient_display_name text,
+    admitted_by text,
+    admission_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT cases_admission_source_check CHECK ((admission_source = ANY (ARRAY['legacy'::text, 'prepared'::text, 'his'::text, 'manual'::text, 'emergency'::text]))),
+    CONSTRAINT cases_identity_status_check CHECK ((identity_status = ANY (ARRAY['verified'::text, 'local'::text, 'pending'::text, 'reconciled'::text]))),
     CONSTRAINT cases_status_check CHECK ((status = ANY (ARRAY['active'::text, 'discharged'::text, 'archived'::text])))
 );
 
@@ -929,6 +1011,120 @@ CREATE SEQUENCE public.cases_id_seq
 --
 
 ALTER SEQUENCE public.cases_id_seq OWNED BY public.cases.id;
+
+
+--
+-- Name: clinical_concept; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.clinical_concept (
+    id bigint NOT NULL,
+    domain text NOT NULL,
+    local_id text NOT NULL,
+    local_name text NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT clinical_concept_domain_check CHECK ((domain = ANY (ARRAY['observation'::text, 'fluid'::text, 'blood_product'::text, 'medication'::text, 'output'::text, 'diagnosis'::text, 'procedure'::text]))),
+    CONSTRAINT clinical_concept_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint])))
+);
+
+
+--
+-- Name: clinical_concept_coding; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.clinical_concept_coding (
+    id bigint NOT NULL,
+    concept_id bigint NOT NULL,
+    system_key text NOT NULL,
+    system_uri text NOT NULL,
+    code text NOT NULL,
+    display text,
+    version text,
+    is_preferred bigint DEFAULT 1 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    terminology_entry_id bigint,
+    CONSTRAINT clinical_concept_coding_is_preferred_check CHECK ((is_preferred = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT clinical_concept_coding_system_key_check CHECK ((system_key = ANY (ARRAY['SNOMED_CT'::text, 'ICD_10'::text, 'ICD_9_CM'::text, 'LOINC'::text, 'RXNORM'::text, 'ATC'::text, 'UCUM'::text])))
+);
+
+
+--
+-- Name: clinical_concept_coding_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.clinical_concept_coding_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: clinical_concept_coding_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.clinical_concept_coding_id_seq OWNED BY public.clinical_concept_coding.id;
+
+
+--
+-- Name: clinical_concept_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.clinical_concept_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: clinical_concept_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.clinical_concept_id_seq OWNED BY public.clinical_concept.id;
+
+
+--
+-- Name: clinical_parameter_master; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.clinical_parameter_master (
+    id bigint NOT NULL,
+    param_key text NOT NULL,
+    concept_id bigint,
+    display_name text NOT NULL,
+    value_type text DEFAULT 'number'::text NOT NULL,
+    unit text,
+    is_active bigint DEFAULT 1 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT clinical_parameter_master_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT clinical_parameter_master_value_type_check CHECK ((value_type = ANY (ARRAY['number'::text, 'text'::text, 'code'::text])))
+);
+
+
+--
+-- Name: clinical_parameter_master_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.clinical_parameter_master_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: clinical_parameter_master_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.clinical_parameter_master_id_seq OWNED BY public.clinical_parameter_master.id;
 
 
 --
@@ -1144,6 +1340,43 @@ CREATE TABLE public.icd9cm_master (
 
 
 --
+-- Name: io_group_master; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.io_group_master (
+    id bigint NOT NULL,
+    code text NOT NULL,
+    display_name text NOT NULL,
+    kind text NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    sort_order bigint DEFAULT 0 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT io_group_master_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT io_group_master_kind_check CHECK ((kind = ANY (ARRAY['med'::text, 'fluid'::text, 'output'::text])))
+);
+
+
+--
+-- Name: io_group_master_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.io_group_master_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: io_group_master_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.io_group_master_id_seq OWNED BY public.io_group_master.id;
+
+
+--
 -- Name: io_item_master; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1159,6 +1392,8 @@ CREATE TABLE public.io_item_master (
     updated_at bigint,
     usage_score bigint DEFAULT '0'::bigint,
     usage_rank bigint,
+    concept_id bigint,
+    group_id bigint,
     CONSTRAINT io_item_master_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
     CONSTRAINT io_item_master_kind_check CHECK ((kind = ANY (ARRAY['fluid'::text, 'med'::text, 'output'::text])))
 );
@@ -1181,6 +1416,34 @@ CREATE SEQUENCE public.io_item_master_id_seq
 --
 
 ALTER SEQUENCE public.io_item_master_id_seq OWNED BY public.io_item_master.id;
+
+
+--
+-- Name: language_master; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.language_master (
+    code text NOT NULL,
+    name_en text NOT NULL,
+    name_native text NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    sort_order bigint DEFAULT 0 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT language_master_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint])))
+);
+
+
+--
+-- Name: language_translation; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.language_translation (
+    language_code text NOT NULL,
+    translation_key text NOT NULL,
+    translation_value text NOT NULL,
+    updated_at bigint NOT NULL
+);
 
 
 --
@@ -1301,6 +1564,7 @@ CREATE TABLE public.staff_directory (
     last_used_at bigint,
     created_at bigint,
     updated_at bigint,
+    profile_data jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT staff_directory_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint])))
 );
 
@@ -1322,6 +1586,51 @@ CREATE SEQUENCE public.staff_directory_id_seq
 --
 
 ALTER SEQUENCE public.staff_directory_id_seq OWNED BY public.staff_directory.id;
+
+
+--
+-- Name: staff_field_master; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.staff_field_master (
+    id bigint NOT NULL,
+    field_key text NOT NULL,
+    label text NOT NULL,
+    field_type text DEFAULT 'text'::text NOT NULL,
+    language_code text,
+    name_part text,
+    core_mapping text,
+    options_json jsonb DEFAULT '[]'::jsonb NOT NULL,
+    is_required bigint DEFAULT 0 NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    sort_order bigint DEFAULT 100 NOT NULL,
+    created_at bigint,
+    updated_at bigint,
+    CONSTRAINT staff_field_master_core_mapping_check CHECK (((core_mapping IS NULL) OR (core_mapping = ANY (ARRAY['hospital_id'::text, 'staff_name'::text, 'email'::text, 'personal_id'::text, 'entry_year'::text, 'innovian_id'::text])))),
+    CONSTRAINT staff_field_master_field_type_check CHECK ((field_type = ANY (ARRAY['text'::text, 'email'::text, 'number'::text, 'date'::text, 'select'::text]))),
+    CONSTRAINT staff_field_master_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT staff_field_master_is_required_check CHECK ((is_required = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT staff_field_master_name_part_check CHECK (((name_part IS NULL) OR (name_part = ANY (ARRAY['prefix'::text, 'given'::text, 'middle'::text, 'family'::text, 'suffix'::text]))))
+);
+
+
+--
+-- Name: staff_field_master_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.staff_field_master_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: staff_field_master_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.staff_field_master_id_seq OWNED BY public.staff_field_master.id;
 
 
 --
@@ -1404,6 +1713,141 @@ ALTER TABLE public.sync_message ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY
 
 
 --
+-- Name: terminology_entry; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.terminology_entry (
+    id bigint NOT NULL,
+    release_id bigint NOT NULL,
+    domain text NOT NULL,
+    code text NOT NULL,
+    display text NOT NULL,
+    display_th text,
+    definition text,
+    parent_code text,
+    is_billable bigint DEFAULT 1 NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT terminology_entry_domain_check CHECK ((domain = ANY (ARRAY['diagnosis'::text, 'procedure'::text, 'observation'::text, 'medication'::text, 'unit'::text]))),
+    CONSTRAINT terminology_entry_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint]))),
+    CONSTRAINT terminology_entry_is_billable_check CHECK ((is_billable = ANY (ARRAY[(0)::bigint, (1)::bigint])))
+);
+
+
+--
+-- Name: terminology_entry_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.terminology_entry_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: terminology_entry_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.terminology_entry_id_seq OWNED BY public.terminology_entry.id;
+
+
+--
+-- Name: terminology_release; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.terminology_release (
+    id bigint NOT NULL,
+    system_key text NOT NULL,
+    system_uri text NOT NULL,
+    edition text NOT NULL,
+    version text NOT NULL,
+    release_date date,
+    source_uri text,
+    license_name text,
+    license_uri text,
+    status text DEFAULT 'active'::text NOT NULL,
+    imported_at bigint NOT NULL,
+    entry_count bigint DEFAULT 0 NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT terminology_release_status_check CHECK ((status = ANY (ARRAY['staged'::text, 'active'::text, 'superseded'::text])))
+);
+
+
+--
+-- Name: terminology_release_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.terminology_release_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: terminology_release_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.terminology_release_id_seq OWNED BY public.terminology_release.id;
+
+
+--
+-- Name: terminology_synonym; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.terminology_synonym (
+    id bigint NOT NULL,
+    entry_id bigint NOT NULL,
+    language_code text DEFAULT 'en'::text NOT NULL,
+    term text NOT NULL,
+    term_type text DEFAULT 'synonym'::text NOT NULL
+);
+
+
+--
+-- Name: terminology_synonym_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.terminology_synonym_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: terminology_synonym_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.terminology_synonym_id_seq OWNED BY public.terminology_synonym.id;
+
+
+--
+-- Name: theme_scheme_master; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.theme_scheme_master (
+    code text NOT NULL,
+    display_name text NOT NULL,
+    color_1_canvas text NOT NULL,
+    color_2_surface text NOT NULL,
+    color_3_border text NOT NULL,
+    color_4_text text NOT NULL,
+    color_5_muted text NOT NULL,
+    color_6_accent text NOT NULL,
+    is_active bigint DEFAULT 1 NOT NULL,
+    sort_order bigint DEFAULT 0 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT theme_scheme_master_is_active_check CHECK ((is_active = ANY (ARRAY[(0)::bigint, (1)::bigint])))
+);
+
+
+--
 -- Name: vital_minutes; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1434,6 +1878,27 @@ CREATE SEQUENCE public.vital_minutes_id_seq
 --
 
 ALTER SEQUENCE public.vital_minutes_id_seq OWNED BY public.vital_minutes.id;
+
+
+--
+-- Name: workstation_context; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workstation_context (
+    id smallint DEFAULT 1 NOT NULL,
+    hospital_name text NOT NULL,
+    building_name text NOT NULL,
+    care_unit_name text NOT NULL,
+    room_name text NOT NULL,
+    bed_name text NOT NULL,
+    timezone text DEFAULT 'Asia/Bangkok'::text NOT NULL,
+    updated_at bigint NOT NULL,
+    date_format text DEFAULT 'DD/MM/YYYY'::text NOT NULL,
+    time_format text DEFAULT '24h'::text NOT NULL,
+    CONSTRAINT workstation_context_date_format_check CHECK ((date_format = ANY (ARRAY['DD/MM/YYYY'::text, 'MM/DD/YYYY'::text, 'YYYY-MM-DD'::text]))),
+    CONSTRAINT workstation_context_id_check CHECK ((id = 1)),
+    CONSTRAINT workstation_context_time_format_check CHECK ((time_format = ANY (ARRAY['24h'::text, '12h'::text])))
+);
 
 
 --
@@ -1591,6 +2056,27 @@ ALTER TABLE ONLY public.cases ALTER COLUMN id SET DEFAULT nextval('public.cases_
 
 
 --
+-- Name: clinical_concept id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept ALTER COLUMN id SET DEFAULT nextval('public.clinical_concept_id_seq'::regclass);
+
+
+--
+-- Name: clinical_concept_coding id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept_coding ALTER COLUMN id SET DEFAULT nextval('public.clinical_concept_coding_id_seq'::regclass);
+
+
+--
+-- Name: clinical_parameter_master id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_parameter_master ALTER COLUMN id SET DEFAULT nextval('public.clinical_parameter_master_id_seq'::regclass);
+
+
+--
 -- Name: ephis_daily_case id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1616,6 +2102,13 @@ ALTER TABLE ONLY public.his_lab_buffer ALTER COLUMN id SET DEFAULT nextval('publ
 --
 
 ALTER TABLE ONLY public.his_patient_buffer ALTER COLUMN id SET DEFAULT nextval('public.his_patient_buffer_id_seq'::regclass);
+
+
+--
+-- Name: io_group_master id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.io_group_master ALTER COLUMN id SET DEFAULT nextval('public.io_group_master_id_seq'::regclass);
 
 
 --
@@ -1647,10 +2140,70 @@ ALTER TABLE ONLY public.staff_directory ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: staff_field_master id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.staff_field_master ALTER COLUMN id SET DEFAULT nextval('public.staff_field_master_id_seq'::regclass);
+
+
+--
+-- Name: terminology_entry id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_entry ALTER COLUMN id SET DEFAULT nextval('public.terminology_entry_id_seq'::regclass);
+
+
+--
+-- Name: terminology_release id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_release ALTER COLUMN id SET DEFAULT nextval('public.terminology_release_id_seq'::regclass);
+
+
+--
+-- Name: terminology_synonym id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_synonym ALTER COLUMN id SET DEFAULT nextval('public.terminology_synonym_id_seq'::regclass);
+
+
+--
 -- Name: vital_minutes id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.vital_minutes ALTER COLUMN id SET DEFAULT nextval('public.vital_minutes_id_seq'::regclass);
+
+
+--
+-- Name: auth_permission auth_permission_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_permission
+    ADD CONSTRAINT auth_permission_pkey PRIMARY KEY (code);
+
+
+--
+-- Name: auth_role_permission auth_role_permission_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_role_permission
+    ADD CONSTRAINT auth_role_permission_pkey PRIMARY KEY (role_code, permission_code);
+
+
+--
+-- Name: auth_role auth_role_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_role
+    ADD CONSTRAINT auth_role_pkey PRIMARY KEY (code);
+
+
+--
+-- Name: auth_user_role auth_user_role_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_user_role
+    ADD CONSTRAINT auth_user_role_pkey PRIMARY KEY (user_id, role_code, scope_type, scope_id);
 
 
 --
@@ -1659,6 +2212,54 @@ ALTER TABLE ONLY public.vital_minutes ALTER COLUMN id SET DEFAULT nextval('publi
 
 ALTER TABLE ONLY public.case_clinical_audit
     ADD CONSTRAINT case_clinical_audit_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: clinical_concept_coding clinical_concept_coding_concept_id_system_key_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept_coding
+    ADD CONSTRAINT clinical_concept_coding_concept_id_system_key_code_key UNIQUE (concept_id, system_key, code);
+
+
+--
+-- Name: clinical_concept_coding clinical_concept_coding_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept_coding
+    ADD CONSTRAINT clinical_concept_coding_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: clinical_concept clinical_concept_domain_local_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept
+    ADD CONSTRAINT clinical_concept_domain_local_id_key UNIQUE (domain, local_id);
+
+
+--
+-- Name: clinical_concept clinical_concept_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept
+    ADD CONSTRAINT clinical_concept_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: clinical_parameter_master clinical_parameter_master_param_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_parameter_master
+    ADD CONSTRAINT clinical_parameter_master_param_key_key UNIQUE (param_key);
+
+
+--
+-- Name: clinical_parameter_master clinical_parameter_master_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_parameter_master
+    ADD CONSTRAINT clinical_parameter_master_pkey PRIMARY KEY (id);
 
 
 --
@@ -1918,6 +2519,54 @@ ALTER TABLE ONLY public.case_io_audit
 
 
 --
+-- Name: io_group_master io_group_master_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.io_group_master
+    ADD CONSTRAINT io_group_master_code_key UNIQUE (code);
+
+
+--
+-- Name: io_group_master io_group_master_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.io_group_master
+    ADD CONSTRAINT io_group_master_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: language_master language_master_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.language_master
+    ADD CONSTRAINT language_master_pkey PRIMARY KEY (code);
+
+
+--
+-- Name: language_translation language_translation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.language_translation
+    ADD CONSTRAINT language_translation_pkey PRIMARY KEY (language_code, translation_key);
+
+
+--
+-- Name: staff_field_master staff_field_master_field_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.staff_field_master
+    ADD CONSTRAINT staff_field_master_field_key_key UNIQUE (field_key);
+
+
+--
+-- Name: staff_field_master staff_field_master_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.staff_field_master
+    ADD CONSTRAINT staff_field_master_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: staff_role staff_role_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1966,10 +2615,102 @@ ALTER TABLE ONLY public.sync_message
 
 
 --
+-- Name: terminology_entry terminology_entry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_entry
+    ADD CONSTRAINT terminology_entry_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: terminology_entry terminology_entry_release_id_domain_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_entry
+    ADD CONSTRAINT terminology_entry_release_id_domain_code_key UNIQUE (release_id, domain, code);
+
+
+--
+-- Name: terminology_release terminology_release_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_release
+    ADD CONSTRAINT terminology_release_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: terminology_release terminology_release_system_key_edition_version_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_release
+    ADD CONSTRAINT terminology_release_system_key_edition_version_key UNIQUE (system_key, edition, version);
+
+
+--
+-- Name: terminology_synonym terminology_synonym_entry_id_language_code_term_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_synonym
+    ADD CONSTRAINT terminology_synonym_entry_id_language_code_term_key UNIQUE (entry_id, language_code, term);
+
+
+--
+-- Name: terminology_synonym terminology_synonym_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_synonym
+    ADD CONSTRAINT terminology_synonym_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: theme_scheme_master theme_scheme_master_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.theme_scheme_master
+    ADD CONSTRAINT theme_scheme_master_pkey PRIMARY KEY (code);
+
+
+--
+-- Name: workstation_context workstation_context_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workstation_context
+    ADD CONSTRAINT workstation_context_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_role_permission_permission_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_role_permission_permission_idx ON public.auth_role_permission USING btree (permission_code);
+
+
+--
 -- Name: auth_session_token_hash_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX auth_session_token_hash_key ON public.auth_session USING btree (token_hash);
+
+
+--
+-- Name: auth_user_role_user_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_user_role_user_idx ON public.auth_user_role USING btree (user_id);
+
+
+--
+-- Name: auth_user_staff_directory_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_user_staff_directory_idx ON public.auth_user USING btree (staff_directory_id);
+
+
+--
+-- Name: auth_user_staff_directory_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX auth_user_staff_directory_unique ON public.auth_user USING btree (staff_directory_id) WHERE (staff_directory_id IS NOT NULL);
 
 
 --
@@ -1994,10 +2735,24 @@ CREATE UNIQUE INDEX case_detail_case_key ON public.case_detail USING btree (case
 
 
 --
+-- Name: case_diagnosis_concept; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX case_diagnosis_concept ON public.case_diagnosis USING btree (concept_id);
+
+
+--
 -- Name: case_his_patient_case_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX case_his_patient_case_key ON public.case_his_patient USING btree (case_id);
+
+
+--
+-- Name: case_procedure_concept; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX case_procedure_concept ON public.case_procedure USING btree (concept_id);
 
 
 --
@@ -2015,10 +2770,38 @@ CREATE UNIQUE INDEX case_timeline_value_minute_param_key ON public.case_timeline
 
 
 --
+-- Name: cases_admission_source_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cases_admission_source_idx ON public.cases USING btree (admission_source, start_time DESC);
+
+
+--
 -- Name: cases_case_code_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX cases_case_code_key ON public.cases USING btree (case_code);
+
+
+--
+-- Name: clinical_concept_coding_entry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX clinical_concept_coding_entry ON public.clinical_concept_coding USING btree (terminology_entry_id);
+
+
+--
+-- Name: clinical_concept_coding_lookup; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX clinical_concept_coding_lookup ON public.clinical_concept_coding USING btree (system_key, code);
+
+
+--
+-- Name: clinical_concept_domain_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX clinical_concept_domain_name ON public.clinical_concept USING btree (domain, is_active, local_name);
 
 
 --
@@ -2316,6 +3099,20 @@ CREATE UNIQUE INDEX idx_legacy_med_drip_preset_analysis_key ON public.legacy_med
 
 
 --
+-- Name: idx_staff_directory_profile_data; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_staff_directory_profile_data ON public.staff_directory USING gin (profile_data);
+
+
+--
+-- Name: idx_staff_field_master_active_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_staff_field_master_active_order ON public.staff_field_master USING btree (is_active DESC, sort_order, id);
+
+
+--
 -- Name: idx_sync_case_index_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2344,6 +3141,20 @@ CREATE UNIQUE INDEX io_item_master_code_key ON public.io_item_master USING btree
 
 
 --
+-- Name: io_item_master_concept; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX io_item_master_concept ON public.io_item_master USING btree (concept_id);
+
+
+--
+-- Name: io_item_master_group_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX io_item_master_group_idx ON public.io_item_master USING btree (group_id);
+
+
+--
 -- Name: patient_snapshot_case_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2362,6 +3173,41 @@ CREATE UNIQUE INDEX staff_directory_identity_key ON public.staff_directory USING
 --
 
 CREATE UNIQUE INDEX staff_role_display_name_key ON public.staff_role USING btree (display_name);
+
+
+--
+-- Name: terminology_entry_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX terminology_entry_code ON public.terminology_entry USING btree (code);
+
+
+--
+-- Name: terminology_entry_domain_display; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX terminology_entry_domain_display ON public.terminology_entry USING btree (domain, display);
+
+
+--
+-- Name: terminology_entry_search; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX terminology_entry_search ON public.terminology_entry USING gin (to_tsvector('simple'::regconfig, ((((COALESCE(code, ''::text) || ' '::text) || COALESCE(display, ''::text)) || ' '::text) || COALESCE(display_th, ''::text))));
+
+
+--
+-- Name: terminology_release_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX terminology_release_active ON public.terminology_release USING btree (system_key, status, release_date DESC);
+
+
+--
+-- Name: terminology_synonym_search; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX terminology_synonym_search ON public.terminology_synonym USING gin (to_tsvector('simple'::regconfig, COALESCE(term, ''::text)));
 
 
 --
@@ -2388,11 +3234,59 @@ ALTER TABLE ONLY public.auth_audit
 
 
 --
+-- Name: auth_role_permission auth_role_permission_permission_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_role_permission
+    ADD CONSTRAINT auth_role_permission_permission_code_fkey FOREIGN KEY (permission_code) REFERENCES public.auth_permission(code) ON DELETE CASCADE;
+
+
+--
+-- Name: auth_role_permission auth_role_permission_role_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_role_permission
+    ADD CONSTRAINT auth_role_permission_role_code_fkey FOREIGN KEY (role_code) REFERENCES public.auth_role(code) ON DELETE CASCADE;
+
+
+--
 -- Name: auth_session auth_session_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.auth_session
     ADD CONSTRAINT auth_session_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: auth_user auth_user_language_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_user
+    ADD CONSTRAINT auth_user_language_code_fkey FOREIGN KEY (language_code) REFERENCES public.language_master(code);
+
+
+--
+-- Name: auth_user_role auth_user_role_role_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_user_role
+    ADD CONSTRAINT auth_user_role_role_code_fkey FOREIGN KEY (role_code) REFERENCES public.auth_role(code);
+
+
+--
+-- Name: auth_user_role auth_user_role_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_user_role
+    ADD CONSTRAINT auth_user_role_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: auth_user auth_user_staff_directory_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_user
+    ADD CONSTRAINT auth_user_staff_directory_id_fkey FOREIGN KEY (staff_directory_id) REFERENCES public.staff_directory(id) ON DELETE SET NULL;
 
 
 --
@@ -2433,6 +3327,14 @@ ALTER TABLE ONLY public.case_device_ingest_audit
 
 ALTER TABLE ONLY public.case_diagnosis
     ADD CONSTRAINT case_diagnosis_case_id_fkey FOREIGN KEY (case_id) REFERENCES public.cases(id) ON DELETE CASCADE;
+
+
+--
+-- Name: case_diagnosis case_diagnosis_concept_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.case_diagnosis
+    ADD CONSTRAINT case_diagnosis_concept_id_fkey FOREIGN KEY (concept_id) REFERENCES public.clinical_concept(id);
 
 
 --
@@ -2532,6 +3434,14 @@ ALTER TABLE ONLY public.case_procedure
 
 
 --
+-- Name: case_procedure case_procedure_concept_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.case_procedure
+    ADD CONSTRAINT case_procedure_concept_id_fkey FOREIGN KEY (concept_id) REFERENCES public.clinical_concept(id);
+
+
+--
 -- Name: case_staff case_staff_case_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2553,6 +3463,54 @@ ALTER TABLE ONLY public.case_timeline_audit
 
 ALTER TABLE ONLY public.case_timeline_value
     ADD CONSTRAINT case_timeline_value_case_id_fkey FOREIGN KEY (case_id) REFERENCES public.cases(id) ON DELETE CASCADE;
+
+
+--
+-- Name: clinical_concept_coding clinical_concept_coding_concept_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept_coding
+    ADD CONSTRAINT clinical_concept_coding_concept_id_fkey FOREIGN KEY (concept_id) REFERENCES public.clinical_concept(id) ON DELETE CASCADE;
+
+
+--
+-- Name: clinical_concept_coding clinical_concept_coding_terminology_entry_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_concept_coding
+    ADD CONSTRAINT clinical_concept_coding_terminology_entry_id_fkey FOREIGN KEY (terminology_entry_id) REFERENCES public.terminology_entry(id) ON DELETE SET NULL;
+
+
+--
+-- Name: clinical_parameter_master clinical_parameter_master_concept_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clinical_parameter_master
+    ADD CONSTRAINT clinical_parameter_master_concept_id_fkey FOREIGN KEY (concept_id) REFERENCES public.clinical_concept(id);
+
+
+--
+-- Name: io_item_master io_item_master_concept_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.io_item_master
+    ADD CONSTRAINT io_item_master_concept_id_fkey FOREIGN KEY (concept_id) REFERENCES public.clinical_concept(id);
+
+
+--
+-- Name: io_item_master io_item_master_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.io_item_master
+    ADD CONSTRAINT io_item_master_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.io_group_master(id);
+
+
+--
+-- Name: language_translation language_translation_language_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.language_translation
+    ADD CONSTRAINT language_translation_language_code_fkey FOREIGN KEY (language_code) REFERENCES public.language_master(code) ON DELETE CASCADE;
 
 
 --
@@ -2580,6 +3538,22 @@ ALTER TABLE ONLY public.sync_message
 
 
 --
+-- Name: terminology_entry terminology_entry_release_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_entry
+    ADD CONSTRAINT terminology_entry_release_id_fkey FOREIGN KEY (release_id) REFERENCES public.terminology_release(id) ON DELETE CASCADE;
+
+
+--
+-- Name: terminology_synonym terminology_synonym_entry_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.terminology_synonym
+    ADD CONSTRAINT terminology_synonym_entry_id_fkey FOREIGN KEY (entry_id) REFERENCES public.terminology_entry(id) ON DELETE CASCADE;
+
+
+--
 -- Name: vital_minutes vital_minutes_case_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2591,5 +3565,5 @@ ALTER TABLE ONLY public.vital_minutes
 -- PostgreSQL database dump complete
 --
 
-\unrestrict wd2G4whYsjXz72DW1DyMJd3e8viY6eCgJ6HksCf3xNDlHHjwMRp5fbbbycVzE7o
+\unrestrict f1gWJueHjY0kYspf5TarZoxBcHW43tfdfU9GM1ArK6S6OvbuZT5bdCYzyG6szV1
 

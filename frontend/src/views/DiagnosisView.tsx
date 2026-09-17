@@ -16,6 +16,14 @@ import {
   type Icd9ProcedureMatch,
   type Icd10Match,
 } from "../api/caseClinicalApi";
+import ConfirmDialog from "../components/common/ConfirmDialog";
+import ClinicalDateTimeInput from "../components/ClinicalDateTimeInput";
+import { useWorkstationSettings } from "../hooks/useWorkstationSettings";
+import {
+  formatConfiguredDateTime,
+  timestampToWallClockInput,
+  wallClockInputToTimestamp,
+} from "../utils/dateTime";
 
 type Props = {
   caseStatus: CaseStatus;
@@ -74,6 +82,8 @@ type GenericEntry = {
   icd_code?: string | null;
   icd_version?: string | null;
   seq: number;
+  event_ts: number;
+  entry_context: string;
 };
 
 const card = "rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 p-4 space-y-4 shadow-sm";
@@ -130,6 +140,8 @@ interface ClinicalSectionProps<M> {
     icdText: string;
     icdCode: string;
   };
+  contextOptions: Array<{ value: string; label: string }>;
+  defaultContext: string;
 }
 
 function ClinicalSection<M>({
@@ -144,7 +156,10 @@ function ClinicalSection<M>({
   pickIcdCode,
   renderMatch,
   placeholders,
+  contextOptions,
+  defaultContext,
 }: ClinicalSectionProps<M>) {
+  const workstation = useWorkstationSettings();
   const [entryText, setEntryText] = useState("");
   const [icdText, setIcdText] = useState("");
   const [icdCode, setIcdCode] = useState("");
@@ -152,18 +167,17 @@ function ClinicalSection<M>({
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editData, setEditData] = useState<Partial<GenericEntry>>({});
-  const [searchLocked, setSearchLocked] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [pendingRemoveId, setPendingRemoveId] = useState<number | null>(null);
+  const [entryContext, setEntryContext] = useState(defaultContext);
+  const [entryTimestamp, setEntryTimestamp] = useState(() => Date.now());
+  const [formError, setFormError] = useState("");
   const entryInputRef = React.useRef<HTMLInputElement>(null);
 
   // Search logic
   useEffect(() => {
-    if (searchLocked) {
-      setMatches([]);
-      setSelectedIndex(-1);
-      return;
-    }
-    const q = entryText || icdText || icdCode;
+    const q = searchQuery;
     if (q.trim().length < 2) {
       setMatches([]);
       setSelectedIndex(-1);
@@ -174,30 +188,38 @@ function ClinicalSection<M>({
         const results = await onSearch(q);
         setMatches(results);
         setSelectedIndex(results.length > 0 ? 0 : -1);
-      } catch {
+        setFormError("");
+      } catch (error) {
         setMatches([]);
         setSelectedIndex(-1);
+        setFormError(error instanceof Error ? error.message : "Clinical code search failed");
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [entryText, icdText, icdCode, onSearch, searchLocked]);
+  }, [onSearch, searchQuery]);
 
   const handleAdd = async () => {
     if (!entryText.trim() || saving) return;
     setSaving(true);
+    setFormError("");
     try {
       await onAdd({
         display_text: entryText.trim(),
         icd_text: icdText.trim() || undefined,
         icd_code: icdCode.trim() || undefined,
+        event_ts: entryTimestamp,
+        entry_context: entryContext,
       });
       setEntryText("");
       setIcdText("");
       setIcdCode("");
       setMatches([]);
       setSelectedIndex(-1);
-      setSearchLocked(false);
+      setSearchQuery("");
+      setEntryTimestamp(Date.now());
       entryInputRef.current?.focus();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : `Unable to add ${title.toLowerCase()}`);
     } finally {
       setSaving(false);
     }
@@ -208,12 +230,12 @@ function ClinicalSection<M>({
     const text = pickIcdText(match);
     setIcdCode(code);
     setIcdText(text);
-    if (!entryText.trim() || entryText === text) {
-      setEntryText(text);
-    }
+    // Start with the selected catalog wording, but keep this as a normal
+    // editable field so clinicians can tailor the patient-specific text.
+    setEntryText(text);
     setMatches([]);
     setSelectedIndex(-1);
-    setSearchLocked(true);
+    setSearchQuery("");
     // Return focus to the primary description field
     entryInputRef.current?.focus();
   };
@@ -232,37 +254,35 @@ function ClinicalSection<M>({
       } else if (e.key === "Escape") {
         setMatches([]);
         setSelectedIndex(-1);
-      } else if (e.key === "Enter") {
-        // If matches exist but nothing picked, add current text
-        void handleAdd();
       }
-    } else if (e.key === "Enter") {
-      void handleAdd();
     }
   };
 
-  // Re-enable search if user clears the ICD fields manually
-  useEffect(() => {
-    if (searchLocked && !icdCode && !icdText) {
-      setSearchLocked(false);
-    }
-  }, [icdCode, icdText, searchLocked]);
-
   const startEdit = (entry: GenericEntry) => {
+    setFormError("");
     setEditingId(entry.id);
     setEditData({
       display_text: entry.display_text,
       icd_text: entry.icd_text,
       icd_code: entry.icd_code,
+      event_ts: entry.event_ts,
+      entry_context: entry.entry_context,
     });
   };
 
   const saveEdit = async () => {
     if (editingId === null) return;
+    if (!editData.display_text?.trim()) {
+      setFormError("Description is required.");
+      return;
+    }
     setSaving(true);
+    setFormError("");
     try {
       await onUpdate(editingId, editData);
       setEditingId(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : `Unable to update ${title.toLowerCase()}`);
     } finally {
       setSaving(false);
     }
@@ -272,25 +292,49 @@ function ClinicalSection<M>({
     if (index <= 0) return;
     const current = entries[index];
     const prev = entries[index - 1];
-    await Promise.all([
-      onUpdate(current.id, { seq: prev.seq }),
-      onUpdate(prev.id, { seq: current.seq }),
-    ]);
+    setSaving(true);
+    setFormError("");
+    try {
+      await Promise.all([
+        onUpdate(current.id, { seq: prev.seq }),
+        onUpdate(prev.id, { seq: current.seq }),
+      ]);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Unable to reorder entries");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const moveDown = async (index: number) => {
     if (index >= entries.length - 1) return;
     const current = entries[index];
     const next = entries[index + 1];
-    await Promise.all([
-      onUpdate(current.id, { seq: next.seq }),
-      onUpdate(next.id, { seq: current.seq }),
-    ]);
+    setSaving(true);
+    setFormError("");
+    try {
+      await Promise.all([
+        onUpdate(current.id, { seq: next.seq }),
+        onUpdate(next.id, { seq: current.seq }),
+      ]);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Unable to reorder entries");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleRemove = async (id: number) => {
-    if (window.confirm("Are you sure you want to remove this entry?")) {
-      await onRemove(id);
+  const confirmRemove = async () => {
+    if (pendingRemoveId === null) return;
+    setSaving(true);
+    setFormError("");
+    try {
+      await onRemove(pendingRemoveId);
+      setPendingRemoveId(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : `Unable to remove ${title.toLowerCase()}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -303,13 +347,44 @@ function ClinicalSection<M>({
       </div>
 
       {/* Add Entry Form */}
-      <div className="space-y-2">
+      <form
+        className="space-y-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleAdd();
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-gray-500">Record as</span>
+          {contextOptions.map(option => (
+            <button key={option.value} type="button" onClick={() => setEntryContext(option.value)} className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${entryContext === option.value ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-[var(--app-border)] text-[var(--app-muted)]"}`}>
+              {option.label}
+            </button>
+          ))}
+          <label className="ml-auto min-w-[300px] text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">
+            <span className="mb-1 block">Clinical time · {workstation.timezone}</span>
+            <ClinicalDateTimeInput
+              value={timestampToWallClockInput(entryTimestamp, workstation.timezone)}
+              onChange={value => {
+                const timestamp = wallClockInputToTimestamp(value, workstation.timezone);
+                if (timestamp !== null) setEntryTimestamp(timestamp);
+                setFormError("");
+              }}
+              dateFormat={workstation.dateFormat}
+              timeFormat={workstation.timeFormat}
+            />
+          </label>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 relative">
           <div className="lg:col-span-5">
             <input
               ref={entryInputRef}
               value={entryText}
-              onChange={(e) => setEntryText(e.target.value)}
+              onChange={(e) => {
+                setEntryText(e.target.value);
+                setSearchQuery(e.target.value);
+                setFormError("");
+              }}
               onKeyDown={handleKeyDown}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
               placeholder={placeholders.entry}
@@ -318,7 +393,11 @@ function ClinicalSection<M>({
           <div className="lg:col-span-4">
             <input
               value={icdText}
-              onChange={(e) => setIcdText(e.target.value)}
+              onChange={(e) => {
+                setIcdText(e.target.value);
+                setSearchQuery(e.target.value);
+                setFormError("");
+              }}
               onKeyDown={handleKeyDown}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
               placeholder={placeholders.icdText}
@@ -327,14 +406,17 @@ function ClinicalSection<M>({
           <div className="lg:col-span-3 flex gap-2">
             <input
               value={icdCode}
-              onChange={(e) => setIcdCode(e.target.value)}
+              onChange={(e) => {
+                setIcdCode(e.target.value);
+                setSearchQuery(e.target.value);
+                setFormError("");
+              }}
               onKeyDown={handleKeyDown}
               className="flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
               placeholder={placeholders.icdCode}
             />
             <button
-              type="button"
-              onClick={() => void handleAdd()}
+              type="submit"
               disabled={!entryText.trim() || saving}
               className="shrink-0 flex items-center justify-center w-10 h-9 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
               title="Add Entry"
@@ -351,7 +433,12 @@ function ClinicalSection<M>({
             />
           </div>
         </div>
-      </div>
+        {formError && (
+          <div role="alert" className="rounded-md border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-500 dark:text-red-300">
+            {formError}
+          </div>
+        )}
+      </form>
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-800">
@@ -361,19 +448,21 @@ function ClinicalSection<M>({
               <th className="px-3 py-2 text-left">Description</th>
               <th className="px-3 py-2 text-left">ICD Reference</th>
               <th className="px-3 py-2 text-left w-24">ICD Code</th>
+              <th className="px-3 py-2 text-left w-32">Context</th>
+              <th className="px-3 py-2 text-left w-40">Clinical time</th>
               <th className="px-3 py-2 text-right w-36">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
                   Loading clinical data...
                 </td>
               </tr>
             ) : entries.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
                   No records added yet.
                 </td>
               </tr>
@@ -426,6 +515,30 @@ function ClinicalSection<M>({
                       <span className="font-mono text-blue-600 dark:text-blue-400">{row.icd_code || "—"}</span>
                     )}
                   </td>
+                  <td className="px-3 py-2 capitalize text-[var(--app-muted)]">
+                    {editingId === row.id ? (
+                      <select
+                        value={editData.entry_context || defaultContext}
+                        onChange={event => setEditData({ ...editData, entry_context: event.target.value })}
+                        className="w-full rounded border border-blue-300 bg-[var(--app-control-bg)] px-2 py-1 text-[var(--app-text)] dark:border-blue-700"
+                      >
+                        {contextOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    ) : row.entry_context.replaceAll("_", " ")}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap tabular-nums text-[var(--app-muted)]">
+                    {editingId === row.id ? (
+                      <ClinicalDateTimeInput
+                        value={timestampToWallClockInput(editData.event_ts ?? row.event_ts, workstation.timezone)}
+                        onChange={value => {
+                          const timestamp = wallClockInputToTimestamp(value, workstation.timezone);
+                          if (timestamp !== null) setEditData({ ...editData, event_ts: timestamp });
+                        }}
+                        dateFormat={workstation.dateFormat}
+                        timeFormat={workstation.timeFormat}
+                      />
+                    ) : formatConfiguredDateTime(row.event_ts, workstation)}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {editingId === row.id ? (
@@ -471,7 +584,7 @@ function ClinicalSection<M>({
                             <IconEdit />
                           </button>
                           <button
-                            onClick={() => void handleRemove(row.id)}
+                            onClick={() => setPendingRemoveId(row.id)}
                             className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
                             title="Delete"
                           >
@@ -487,6 +600,15 @@ function ClinicalSection<M>({
           </tbody>
         </table>
       </div>
+      <ConfirmDialog
+        open={pendingRemoveId !== null}
+        title={`Remove ${title.toLowerCase()} entry?`}
+        message="This entry will be removed from the active clinical record."
+        confirmLabel="Remove"
+        busy={saving}
+        onCancel={() => setPendingRemoveId(null)}
+        onConfirm={confirmRemove}
+      />
     </section>
   );
 }
@@ -510,10 +632,10 @@ export default function DiagnosisView({ caseStatus }: Props) {
         getCaseProcedures(caseId),
       ]);
       setDiagnosisRows(
-        [...diag].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0)),
+        [...diag].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0) || (Number(a.event_ts) || 0) - (Number(b.event_ts) || 0)),
       );
       setOperationRows(
-        [...ops].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0)),
+        [...ops].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0) || (Number(a.event_ts) || 0) - (Number(b.event_ts) || 0)),
       );
     } catch (err) {
       setDiagnosisRows([]);
@@ -542,7 +664,9 @@ export default function DiagnosisView({ caseStatus }: Props) {
     icd_text: row.icd_text,
     icd_code: row.icd_code,
     icd_version: row.icd_version,
-    seq: row.seq
+    seq: row.seq,
+    event_ts: row.event_ts,
+    entry_context: row.entry_context,
   }));
 
   const genericOperations = operationRows.map(row => ({
@@ -551,7 +675,9 @@ export default function DiagnosisView({ caseStatus }: Props) {
     icd_text: row.icd_text,
     icd_code: row.icd_code,
     icd_version: row.icd_version,
-    seq: row.seq
+    seq: row.seq,
+    event_ts: row.event_ts,
+    entry_context: row.entry_context,
   }));
 
   // Diagnosis Handlers
@@ -563,8 +689,10 @@ export default function DiagnosisView({ caseStatus }: Props) {
       icd_code: data.icd_code || undefined,
       icd_version: data.icd_code ? "ICD-10" : undefined,
       seq: diagnosisRows.length + 1,
+      event_ts: data.event_ts,
+      entry_context: data.entry_context as CaseDiagnosisRow["entry_context"],
     });
-    void refresh();
+    await refresh();
     notifyChange();
   };
 
@@ -575,15 +703,17 @@ export default function DiagnosisView({ caseStatus }: Props) {
       icd_text: data.icd_text ?? undefined,
       icd_code: data.icd_code ?? undefined,
       seq: data.seq,
+      event_ts: data.event_ts,
+      entry_context: data.entry_context as CaseDiagnosisRow["entry_context"] | undefined,
     });
-    void refresh();
+    await refresh();
     notifyChange();
   };
 
   const handleRemoveDiagnosis = async (id: number) => {
     if (!caseId) return;
     await deleteCaseDiagnosis(caseId, id);
-    void refresh();
+    await refresh();
     notifyChange();
   };
 
@@ -596,8 +726,10 @@ export default function DiagnosisView({ caseStatus }: Props) {
       icd_code: data.icd_code || undefined,
       icd_version: data.icd_code ? "ICD-9" : undefined,
       seq: operationRows.length + 1,
+      event_ts: data.event_ts,
+      entry_context: data.entry_context as CaseProcedureRow["entry_context"],
     });
-    void refresh();
+    await refresh();
     notifyChange();
   };
 
@@ -608,15 +740,17 @@ export default function DiagnosisView({ caseStatus }: Props) {
       icd_text: data.icd_text ?? undefined,
       icd_code: data.icd_code ?? undefined,
       seq: data.seq,
+      event_ts: data.event_ts,
+      entry_context: data.entry_context as CaseProcedureRow["entry_context"] | undefined,
     });
-    void refresh();
+    await refresh();
     notifyChange();
   };
 
   const handleRemoveOperation = async (id: number) => {
     if (!caseId) return;
     await deleteCaseProcedure(caseId, id);
-    void refresh();
+    await refresh();
     notifyChange();
   };
 
@@ -638,7 +772,7 @@ export default function DiagnosisView({ caseStatus }: Props) {
       )}
 
       <ClinicalSection<Icd10Match>
-        title="Pre-operative Diagnosis"
+        title="Diagnosis"
         entries={genericDiagnosis}
         loading={loading}
         onAdd={handleAddDiagnosis}
@@ -661,6 +795,12 @@ export default function DiagnosisView({ caseStatus }: Props) {
           icdText: "ICD-10 Description",
           icdCode: "ICD-10 Code"
         }}
+        contextOptions={[
+          { value: "preoperative", label: "Pre-op" },
+          { value: "intraoperative", label: "Intra-op" },
+          { value: "postoperative", label: "Post-op" },
+        ]}
+        defaultContext="intraoperative"
       />
 
       <ClinicalSection<Icd9ProcedureMatch>
@@ -684,6 +824,11 @@ export default function DiagnosisView({ caseStatus }: Props) {
           icdText: "ICD-9 Procedure Description",
           icdCode: "ICD-9 Code"
         }}
+        contextOptions={[
+          { value: "planned", label: "Planned" },
+          { value: "performed", label: "Performed" },
+        ]}
+        defaultContext="performed"
       />
     </div>
   );

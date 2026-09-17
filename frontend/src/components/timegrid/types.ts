@@ -5,6 +5,8 @@ export interface TimeGridRow {
   label: string;
   type: GridRowType;
   unit?: string;
+  /** Clinical master-data detail shown when the row label is inspected. */
+  referenceTooltip?: string;
   /** For IO rows: whether this item was added as bolus or drip */
   displayMode?: "bolus" | "drip";
   /** For IO rows: kind of item (med / fluid / output) */

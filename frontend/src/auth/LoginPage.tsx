@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import type { BootstrapStatus } from "../bootstrap/floraDesktop";
 import floraAppIcon from "../assets/flora-app.png";
 import ThemePicker from "../components/ThemePicker";
+import LanguagePicker from "../components/LanguagePicker";
+import { useLanguage } from "../context/LanguageContext";
 import { getSurfaceInfo } from "../edition/config";
 
 type Props = {
@@ -13,18 +15,19 @@ type Props = {
 type Readiness = "ready" | "checking" | "unavailable" | "not-connected";
 
 function ReadinessRow({ label, state }: { label: string; state: Readiness }) {
+  const { t } = useLanguage();
   const tone = state === "ready"
     ? "bg-emerald-500"
     : state === "unavailable"
       ? "bg-rose-500"
       : "bg-amber-400";
   const value = state === "ready"
-    ? "Ready"
+    ? t("status.ready")
     : state === "checking"
-      ? "Checking"
+      ? t("status.checking")
       : state === "not-connected"
-        ? "Not connected"
-        : "Unavailable";
+        ? t("status.notConnected")
+        : t("status.unavailable");
   return (
     <div className="flex min-h-[42px] items-center gap-[10px] rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-[12px] py-[8px]">
       <span aria-hidden="true" className={`h-[8px] w-[8px] shrink-0 rounded-full ${tone}`} />
@@ -35,7 +38,10 @@ function ReadinessRow({ label, state }: { label: string; state: Readiness }) {
 }
 
 export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatus }: Props) {
+  const { t } = useLanguage();
   const surface = getSurfaceInfo();
+  const productName = t(`product.${surface.code}.name`);
+  const productDescription = t(`product.${surface.code}.description`);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -59,9 +65,9 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
     setError("");
     try {
       const ok = await onLogin(username.trim(), password);
-      if (!ok) setError("Sign-in failed. Check your username and password.");
+      if (!ok) setError(t("login.failed"));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Sign-in failed. Please try again.");
+      setError(cause instanceof Error ? cause.message : t("login.failedRetry"));
     } finally {
       setIsLoggingIn(false);
     }
@@ -77,19 +83,22 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
                   <img src={floraAppIcon} alt="" className="h-[34px] w-[34px] object-contain" />
                 </span>
                 <div>
-                  <div className="text-[17px] font-bold leading-[21px] text-[var(--app-text)]">{surface.productName}</div>
-                  <div className="text-[11px] text-[var(--app-muted)]">{surface.description}</div>
+                  <div className="text-[17px] font-bold leading-[21px] text-[var(--app-text)]">{productName}</div>
+                  <div className="text-[11px] text-[var(--app-muted)]">{productDescription}</div>
                 </div>
             </div>
-            <ThemePicker compact loginScreen />
+            <div className="flex items-center gap-[8px]">
+              <LanguagePicker loginScreen />
+              <ThemePicker compact loginScreen />
+            </div>
           </header>
           <div className="grid md:grid-cols-[minmax(0,1.6fr)_minmax(240px,0.85fr)]">
           <section className="min-w-0 p-[22px] sm:p-[26px]" aria-labelledby="login-title">
 
             <form onSubmit={handleSubmit} className="space-y-[12px]">
-              <h1 id="login-title" className="mb-[15px] text-[18px] font-semibold leading-[24px] text-[var(--app-text)]">Sign in</h1>
+              <h1 id="login-title" className="mb-[15px] text-[18px] font-semibold leading-[24px] text-[var(--app-text)]">{t("login.title")}</h1>
               <div>
-                <label htmlFor="flora-username" className="mb-[5px] block text-[12px] font-semibold text-[var(--app-text)]">Username</label>
+                <label htmlFor="flora-username" className="mb-[5px] block text-[12px] font-semibold text-[var(--app-text)]">{t("login.username")}</label>
                 <input
                   id="flora-username"
                   name="username"
@@ -101,7 +110,7 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
                 />
               </div>
               <div>
-                <label htmlFor="flora-password" className="mb-[5px] block text-[12px] font-semibold text-[var(--app-text)]">Password</label>
+                <label htmlFor="flora-password" className="mb-[5px] block text-[12px] font-semibold text-[var(--app-text)]">{t("login.password")}</label>
                 <div className="relative">
                   <input
                     id="flora-password"
@@ -113,8 +122,8 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
                     disabled={!loginEnabled || isLoggingIn}
                     className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-[12px] py-[9px] pr-[68px] text-[14px] leading-[20px] text-[var(--app-text)] outline-none transition focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-accent)]/20 disabled:opacity-60"
                   />
-                  <button type="button" onClick={() => setShowPassword(value => !value)} className="absolute inset-y-0 right-[6px] my-auto h-[30px] rounded-md px-[9px] text-[11px] font-semibold text-[var(--app-muted)] hover:text-[var(--app-text)]" aria-label={showPassword ? "Hide password" : "Show password"}>
-                    {showPassword ? "Hide" : "Show"}
+                  <button type="button" onClick={() => setShowPassword(value => !value)} className="absolute inset-y-0 right-[6px] my-auto h-[30px] rounded-md px-[9px] text-[11px] font-semibold text-[var(--app-muted)] hover:text-[var(--app-text)]" aria-label={showPassword ? t("login.hide") : t("login.show")}>
+                    {showPassword ? t("login.hide") : t("login.show")}
                   </button>
                 </div>
               </div>
@@ -126,26 +135,26 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
                 disabled={!loginEnabled || isLoggingIn || !username.trim() || !password}
                 className="w-full rounded-lg bg-[var(--app-accent)] px-[14px] py-[9px] text-[13px] font-bold leading-[20px] text-[var(--app-accent-contrast)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-55"
               >
-                {isLoggingIn ? "Signing in…" : !loginEnabled ? `Waiting for ${surface.productName}…` : "Sign in"}
+                {isLoggingIn ? t("login.submitting") : !loginEnabled ? t("login.waiting") : t("login.submit")}
               </button>
             </form>
             <details className="mt-[14px] rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)]/50 p-[10px] md:hidden">
               <summary className="cursor-pointer text-[12px] font-semibold text-[var(--app-text)]">
-                {surface.productName} {systemState === "ready" ? "ready" : systemState === "checking" ? "checking" : "unavailable"}
+                {productName} {systemState === "ready" ? t("status.ready") : systemState === "checking" ? t("status.checking") : t("status.unavailable")}
               </summary>
               <div className="mt-[10px] space-y-[8px]">
-                <ReadinessRow label="Local data" state={localDataState} />
-                <ReadinessRow label="Server data" state={serverDataState} />
+                <ReadinessRow label={t("status.localData")} state={localDataState} />
+                <ReadinessRow label={t("status.serverData")} state={serverDataState} />
               </div>
             </details>
           </section>
 
           <aside className="hidden min-w-0 flex-col border-l border-[var(--app-border)] bg-[var(--app-control-bg)]/35 px-[20px] py-[26px] md:flex" aria-label="Flora readiness">
-            <h2 className="mb-[15px] text-[18px] font-semibold leading-[24px] text-[var(--app-text)]">Status</h2>
+            <h2 className="mb-[15px] text-[18px] font-semibold leading-[24px] text-[var(--app-text)]">{t("status.title")}</h2>
             <div className="space-y-[9px]">
-              <ReadinessRow label={surface.productName} state={systemState} />
-              <ReadinessRow label="Local data" state={localDataState} />
-              <ReadinessRow label="Server data" state={serverDataState} />
+              <ReadinessRow label={productName} state={systemState} />
+              <ReadinessRow label={t("status.localData")} state={localDataState} />
+              <ReadinessRow label={t("status.serverData")} state={serverDataState} />
             </div>
           </aside>
           </div>

@@ -1,5 +1,7 @@
 import { COL_WIDTH, LABEL_COL_WIDTH } from "../timegrid/layout";
 import { useVirtualColumns } from "../../hooks/useVirtualColumns";
+import { useWorkstationSettings } from "../../hooks/useWorkstationSettings";
+import { formatConfiguredTime } from "../../utils/dateTime";
 
 type Props = {
   axis: number[];
@@ -18,6 +20,7 @@ export default function TimeAxis({
   scrollLeft = 0,
   viewportWidth = 0,
 }: Props) {
+  const workstation = useWorkstationSettings();
   const { startIndex, endIndex } = useVirtualColumns(
     scrollLeft,
     viewportWidth,
@@ -28,17 +31,20 @@ export default function TimeAxis({
   if (axis.length === 0) return null;
 
   const visibleAxis = axis.slice(startIndex, endIndex + 1);
+  const fallbackStep = axis.length > 1 ? Math.max(1, axis[1] - axis[0]) : 60_000;
 
   return (
-    <div className="w-full bg-gray-50 dark:bg-gray-900 border-b">
+    <div className="timeaxis-shell sticky top-0 z-[90] w-full border-b">
       <div className="flex">
         <div
           style={{
             width: labelColWidth,
             minWidth: labelColWidth,
           }}
-          className="timeaxis-sticky-label sticky left-0 z-[100] flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900"
-        />
+          className="timeaxis-sticky-label sticky left-0 z-[100] flex flex-shrink-0 items-center border-r px-3"
+        >
+          <span className="timeaxis-title">Timeline</span>
+        </div>
 
         {startIndex > 0 && (
           <div style={{ width: startIndex * colWidth, minWidth: startIndex * colWidth }} className="flex-shrink-0" />
@@ -48,25 +54,20 @@ export default function TimeAxis({
           const actualIndex = startIndex + i;
           const next = axis[actualIndex + 1] ?? Infinity;
           const isNow = ts <= nowTs && next > nowTs;
+          const bucketEnd = Number.isFinite(next) ? next : ts + fallbackStep;
+          const nowProgress = Math.max(0, Math.min(1, (nowTs - ts) / Math.max(1, bucketEnd - ts)));
 
           return (
             <div
               key={ts}
               style={{ width: colWidth, minWidth: colWidth }}
-              className={`
-                flex-shrink-0
-                border-r border-gray-200 dark:border-gray-800
-                text-[10px] text-center py-2
-                text-gray-700 dark:text-gray-300
-                ${isNow ? "timeaxis-now-cell" : ""}
-              `}
+              className={`timeaxis-tick flex-shrink-0 border-r ${isNow ? "timeaxis-now-cell" : ""}`}
             >
-              {new Date(ts).toLocaleTimeString("en-GB", {
-                timeZone: "Asia/Bangkok",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              })}
+              <time>
+                {formatConfiguredTime(ts, workstation)}
+              </time>
+              {isNow ? <span className="timeaxis-now-badge">Now</span> : null}
+              {isNow ? <span className="timeaxis-now-rule" style={{ left: `${nowProgress * 100}%` }} aria-hidden="true" /> : null}
             </div>
           );
         })}

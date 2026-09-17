@@ -25,7 +25,11 @@ export type CaseDiagnosisRow = {
   icd_text?: string | null;
   icd_code?: string | null;
   icd_version?: string | null;
+  concept_id?: number | null;
+  coding_snapshot?: Record<string, string> | null;
   seq: number;
+  event_ts: number;
+  entry_context: "preoperative" | "intraoperative" | "postoperative";
   created_at: number;
 };
 
@@ -35,7 +39,11 @@ export type CaseProcedureRow = {
   icd_text?: string | null;
   icd_code?: string | null;
   icd_version?: string | null;
+  concept_id?: number | null;
+  coding_snapshot?: Record<string, string> | null;
   seq: number;
+  event_ts: number;
+  entry_context: "planned" | "performed";
   created_at: number;
 };
 
@@ -91,7 +99,12 @@ export async function createCaseDiagnosis(
     icd_text?: string;
     icd_code?: string;
     icd_version?: string;
+    terminology_entry_id?: number;
+    concept_id?: number;
+    local_id?: string;
     seq?: number;
+    event_ts?: number;
+    entry_context?: "preoperative" | "intraoperative" | "postoperative";
   },
 ): Promise<CaseDiagnosisRow> {
   const res = await fetch(`${BASE}/${caseId}/diagnosis`, {
@@ -120,7 +133,12 @@ export async function updateCaseDiagnosis(
     icd_text?: string;
     icd_code?: string;
     icd_version?: string;
+    terminology_entry_id?: number;
+    concept_id?: number;
+    local_id?: string;
     seq?: number;
+    event_ts?: number;
+    entry_context?: "preoperative" | "intraoperative" | "postoperative";
   },
 ): Promise<CaseDiagnosisRow> {
   const res = await fetch(`${BASE}/${caseId}/diagnosis/${diagnosisId}`, {
@@ -148,7 +166,12 @@ export async function createCaseProcedure(
     icd_text?: string;
     icd_code?: string;
     icd_version?: string;
+    terminology_entry_id?: number;
+    concept_id?: number;
+    local_id?: string;
     seq?: number;
+    event_ts?: number;
+    entry_context?: "planned" | "performed";
   },
 ): Promise<CaseProcedureRow> {
   const res = await fetch(`${BASE}/${caseId}/procedures`, {
@@ -177,7 +200,12 @@ export async function updateCaseProcedure(
     icd_text?: string;
     icd_code?: string;
     icd_version?: string;
+    terminology_entry_id?: number;
+    concept_id?: number;
+    local_id?: string;
     seq?: number;
+    event_ts?: number;
+    entry_context?: "planned" | "performed";
   },
 ): Promise<CaseProcedureRow> {
   const res = await fetch(`${BASE}/${caseId}/procedures/${procedureId}`, {

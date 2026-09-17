@@ -10,6 +10,8 @@ export type CaseStatus =
       hn: string;
       start_time: number;
       discharge_time?: number;
+      admission_source?: AdmissionSource;
+      identity_status?: "verified" | "local" | "pending" | "reconciled";
     };
 
 export type CaseListRow = {
@@ -20,6 +22,8 @@ export type CaseListRow = {
   start_time: number;
   discharge_time?: number;
   created_at: number;
+  admission_source?: AdmissionSource;
+  identity_status?: "verified" | "local" | "pending" | "reconciled";
 };
 
 export type SuggestedCaseEnd = {
@@ -32,6 +36,25 @@ export type SuggestedCaseEnd = {
 } | null;
 
 export type StartCaseOverlapPolicy = "include" | "exclude";
+export type AdmissionSource = "legacy" | "prepared" | "his" | "manual" | "emergency";
+
+export type StartCaseOptions = {
+  overlapPolicy?: StartCaseOverlapPolicy;
+  admissionSource?: AdmissionSource;
+  admissionNumber?: string;
+  patientName?: string;
+  sex?: string;
+  dateOfBirth?: string;
+  dateOfBirthPrecision?: "exact" | "estimated";
+  ageText?: string;
+  weightKg?: number;
+  diagnosis?: string;
+  operation?: string;
+  anaesthesiaTechnique?: string;
+  asaStatus?: string;
+  asaEmergency?: boolean;
+  surgicalPriority?: string;
+};
 
 export type CaseStartOverlap = {
   previous_case_id: number;
@@ -79,7 +102,7 @@ export async function getCaseStartOverlap(
 export async function startCase(
   hn: string,
   start_time: number,
-  options?: { overlapPolicy?: StartCaseOverlapPolicy },
+  options?: StartCaseOptions,
 ) {
   const res = await fetch(`${BASE}/start`, {
     method: "POST",
@@ -88,6 +111,20 @@ export async function startCase(
       hn,
       start_time,
       ...(options?.overlapPolicy ? { overlap_policy: options.overlapPolicy } : {}),
+      ...(options?.admissionSource ? { admission_source: options.admissionSource } : {}),
+      ...(options?.admissionNumber ? { admission_number: options.admissionNumber } : {}),
+      ...(options?.patientName ? { patient_name: options.patientName } : {}),
+      ...(options?.sex ? { sex: options.sex } : {}),
+      ...(options?.dateOfBirth ? { date_of_birth: options.dateOfBirth } : {}),
+      ...(options?.dateOfBirthPrecision ? { date_of_birth_precision: options.dateOfBirthPrecision } : {}),
+      ...(options?.ageText ? { age_text: options.ageText } : {}),
+      ...(Number.isFinite(options?.weightKg) ? { weight_kg: options?.weightKg } : {}),
+      ...(options?.diagnosis ? { diagnosis: options.diagnosis } : {}),
+      ...(options?.operation ? { operation: options.operation } : {}),
+      ...(options?.anaesthesiaTechnique ? { anaesthesia_technique: options.anaesthesiaTechnique } : {}),
+      ...(options?.asaStatus ? { asa_status: options.asaStatus } : {}),
+      ...(options?.asaEmergency ? { asa_emergency: true } : {}),
+      ...(options?.surgicalPriority ? { surgical_priority: options.surgicalPriority } : {}),
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -203,6 +240,8 @@ export async function getCaseList(
       discharge_time:
         value.discharge_time == null ? undefined : Number(value.discharge_time),
       created_at: Number(value.created_at || 0),
+      admission_source: value.admission_source,
+      identity_status: value.identity_status,
     });
   }
   return normalized;

@@ -5,7 +5,7 @@ from psycopg import Connection
 
 from ..clinical import flag, insert, io_audit, number, text, timestamp, update
 from ..database import connection
-from .auth_leaf import current_user, now_ms
+from .auth_leaf import now_ms, require_permission
 from .cases_lifecycle import editable_case
 
 router=APIRouter(prefix="/api/case",tags=["I/O entry"])
@@ -55,7 +55,7 @@ def segment_values(payload,old=None):
 
 
 @router.post("/{case_id}/io/runs")
-def create_run(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def create_run(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id); master=item(database,int(payload.get("item_id") or 0)); values=run_values(payload,master)
         row=insert(database,"case_io_run",dict(case_id=case_id,**values,created_by=actor["username"],created_at=now_ms()))
@@ -64,7 +64,7 @@ def create_run(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_use
 
 
 @router.put("/{case_id}/io/runs/{run_id}")
-def edit_run(case_id:int,run_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def edit_run(case_id:int,run_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id); old=run_row(database,run_id)
         if not old or old["case_id"]!=case_id: raise HTTPException(404,"run not found")
@@ -74,7 +74,7 @@ def edit_run(case_id:int,run_id:int,payload:dict=Body(...),actor:dict=Depends(cu
 
 
 @router.post("/{case_id}/io/segments")
-def create_segment(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def create_segment(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     run_id=int(payload.get("run_id") or 0)
     with database.transaction():
         editable_case(database,case_id); run=run_row(database,run_id)
@@ -85,7 +85,7 @@ def create_segment(case_id:int,payload:dict=Body(...),actor:dict=Depends(current
 
 
 @router.put("/{case_id}/io/segments/{segment_id}")
-def edit_segment(case_id:int,segment_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def edit_segment(case_id:int,segment_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id)
         old=database.execute("SELECT s.* FROM case_io_segment s JOIN case_io_run r ON r.id=s.run_id WHERE s.id=%s AND r.case_id=%s",(segment_id,case_id)).fetchone()
@@ -116,13 +116,13 @@ def create_event_internal(db,case_id,payload,actor):
 
 
 @router.post("/{case_id}/io/events")
-def create_event(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def create_event(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction(): editable_case(database,case_id); row=create_event_internal(database,case_id,payload,actor)
     return {"ok":True,"row":row}
 
 
 @router.delete("/{case_id}/io/events/{event_id}")
-def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id); old=event_row(database,event_id)
         if not old or old["case_id"]!=case_id: raise HTTPException(404,"event not found")
@@ -131,7 +131,7 @@ def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:di
 
 
 @router.post("/{case_id}/io/drips")
-def create_drip(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def create_drip(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     run_payload=payload.get("run"); segment_payload=payload.get("segment")
     if not isinstance(run_payload,dict) or not isinstance(segment_payload,dict): raise HTTPException(400,"run and segment objects required")
     with database.transaction():
@@ -144,7 +144,7 @@ def create_drip(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_us
 
 
 @router.put("/{case_id}/io/runs/{run_id}/drip")
-def replace_drip(case_id:int,run_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def replace_drip(case_id:int,run_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     run_payload=payload.get("run"); segment_payload=payload.get("segment")
     if not isinstance(run_payload,dict) or not isinstance(segment_payload,dict): raise HTTPException(400,"run and segment objects required")
     with database.transaction():
@@ -160,7 +160,7 @@ def replace_drip(case_id:int,run_id:int,payload:dict=Body(...),actor:dict=Depend
 
 
 @router.post("/{case_id}/io/blood-products")
-def blood_product(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def blood_product(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     run_payload=payload.get("run"); event_payload=payload.get("event")
     if not isinstance(run_payload,dict) or not isinstance(event_payload,dict): raise HTTPException(400,"run and event objects required")
     merged={**event_payload,"item_id":run_payload.get("item_id"),"kind":"fluid","route":run_payload.get("route"),"note":event_payload.get("note") or run_payload.get("note"),"reason":payload.get("reason")}
@@ -171,7 +171,7 @@ def blood_product(case_id:int,payload:dict=Body(...),actor:dict=Depends(current_
 
 
 @router.post("/{case_id}/io/runs/{run_id}/discontinue")
-def discontinue(case_id:int,run_id:int,payload:dict=Body(default={}),actor:dict=Depends(current_user),database:Connection=Depends(connection)):
+def discontinue(case_id:int,run_id:int,payload:dict=Body(default={}),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():
         editable_case(database,case_id); current=run_row(database,run_id)
         if not current or current["case_id"]!=case_id: raise HTTPException(404,"run not found")

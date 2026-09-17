@@ -6,6 +6,8 @@ import ManageView from "../views/ManageView";
 import HistoryView from "../views/HistoryView";
 import DrugView from "../views/DrugView";
 import CanopyFleetView from "../views/CanopyFleetView";
+import IdleCaseLanding from "../views/IdleCaseLanding";
+import AccountView from "../views/AccountView";
 
 const CaseView = lazy(() => import("../views/CaseView"));
 const FormView = lazy(() => import("../views/FormView"));
@@ -24,11 +26,14 @@ interface Props {
     | "patient"
     | "report"
     | "master"
+    | "account"
     | "fleet"
     | "history";
   sessionUser: AuthUser | null;
   onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
   onOpenCase?: (c: Exclude<CaseStatus, { status: "IDLE" }>) => void;
+  onCaseStarted?: () => Promise<void> | void;
+  onNavigate?: (view: "patient" | "diagnosis") => void;
 }
 
 class ViewErrorBoundary extends Component<
@@ -76,6 +81,8 @@ export default function MainArea({
   sessionUser,
   onCaseDischargeTimeUpdated,
   onOpenCase,
+  onCaseStarted,
+  onNavigate,
 }: Props) {
   const resetKey =
     caseStatus.status === "IDLE"
@@ -90,7 +97,11 @@ export default function MainArea({
     <ViewErrorBoundary resetKey={resetKey}>
       <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>
       {activeView === "case" && caseStatus.status === "IDLE" ? (
-        <PatientView key={caseScopedKey} caseStatus={caseStatus} />
+        <IdleCaseLanding
+          key={caseScopedKey}
+          sessionUser={sessionUser}
+          onCaseStarted={onCaseStarted ?? (() => {})}
+        />
       ) : activeView === "form" ? (
         <FormView key={caseScopedKey} caseStatus={caseStatus} />
       ) : activeView === "diagnosis" ? (
@@ -101,6 +112,8 @@ export default function MainArea({
         <DrugView key={caseScopedKey} caseStatus={caseStatus} />
       ) : activeView === "master" ? (
         <ManageView caseStatus={caseStatus} sessionUser={sessionUser} />
+      ) : activeView === "account" ? (
+        <AccountView sessionUser={sessionUser} />
       ) : activeView === "patient" ? (
         <PatientView key={caseScopedKey} caseStatus={caseStatus} />
       ) : activeView === "report" ? (
@@ -114,7 +127,7 @@ export default function MainArea({
       ) : activeView === "history" ? (
         <HistoryView onOpenCase={onOpenCase ?? (() => {})} />
       ) : (
-        <CaseView key={caseScopedKey} caseStatus={caseStatus} sessionUser={sessionUser} />
+        <CaseView key={caseScopedKey} caseStatus={caseStatus} sessionUser={sessionUser} onNavigate={onNavigate} />
       )}
       </Suspense>
     </ViewErrorBoundary>

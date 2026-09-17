@@ -32,3 +32,5 @@ backend/floradb.db
 *.pdf
 *.zip
 *.raw
+terminology-packages/
+SnomedCT_*RF2*.zip

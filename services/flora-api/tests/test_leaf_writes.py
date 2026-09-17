@@ -25,6 +25,7 @@ if not urlparse(URL).path.endswith("_test"):
     raise RuntimeError("Write tests require a dedicated database ending in _test")
 os.environ["FLORA_LEAF_WRITE_API"] = "true"
 os.environ["FLORA_API_MODE"] = "leaf"
+os.environ["FLORA_HIS_DEMO_MODE"] = "true"
 BASE = "http://127.0.0.1:8008"
 
 
@@ -83,7 +84,90 @@ class LeafWrites(unittest.TestCase):
         self.assertEqual(status,200,result)
         return result["session_token"]
 
+    def test_demo_his_exchange_patients(self):
+        token = self.login()
+        status, catalog = request("/api/case/his/demo-patients", token=token)
+        self.assertEqual(status, 200, catalog)
+        self.assertTrue(catalog["enabled"])
+        self.assertEqual(
+            {row["protocol"] for row in catalog["rows"]},
+            {"HL7_V2_ADT", "FHIR_R4", "IHE_PDQm"},
+        )
+        self.assertTrue(all(row["sample"] for row in catalog["rows"]))
+        self.assertTrue(all(row["encounter"]["service"] for row in catalog["rows"]))
+        for patient in catalog["rows"]:
+            status, lookup = request("/api/case/his/lookup", {"hn": patient["hn"]}, token)
+            self.assertEqual(status, 200, lookup)
+            self.assertEqual(lookup["source"], "DEMO_HIS")
+            self.assertEqual(lookup["exchange"]["protocol"], patient["protocol"])
+            self.assertTrue(lookup["exchange"]["synthetic"])
+            self.assertEqual(lookup["row"]["hn"], patient["hn"])
+
+    def test_configurable_staff_profile(self):
+        token = self.login()
+        status, fields = request("/api/case/staff/fields?include_inactive=true", token=token)
+        self.assertEqual(status, 200, fields)
+        self.assertIn("middle_name", {row["field_key"] for row in fields["rows"]})
+
+        field_key = "credential_" + self.suffix
+        status, created = request("/api/case/staff/fields", {
+            "field_key": field_key,
+            "label": "Professional credential",
+            "field_type": "text",
+            "is_required": 0,
+            "is_active": 1,
+            "sort_order": 90,
+        }, token)
+        self.assertEqual(status, 200, created)
+
+        self.database.execute(
+            "INSERT INTO staff_role(id,display_name,sort_order) VALUES ('anesthetist','Anesthetist',1) ON CONFLICT (id) DO NOTHING"
+        )
+        status, roles = request("/api/case/staff/roles", token=token)
+        self.assertEqual(status, 200, roles)
+        role = roles["rows"][0]
+        staff_name = "Ada M. Lovelace " + self.suffix
+        profile = {
+            "display_name": staff_name,
+            "given_name": "Ada",
+            "middle_name": "M.",
+            "family_name": "Lovelace",
+            field_key: "MD",
+        }
+        status, staff = request("/api/case/staff/directory", {
+            "staff": {"role_id": role["id"], "profile_data": profile}
+        }, token)
+        self.assertEqual(status, 200, staff)
+        self.assertEqual(staff["row"]["staff_name"], staff_name)
+        self.assertEqual(staff["row"]["profile_data"]["middle_name"], "M.")
+        self.assertEqual(staff["row"]["profile_data"][field_key], "MD")
+
+        status, linked = request(
+            f"/api/auth/users/{self.user_id}/staff-link",
+            {"staff_directory_id": staff["row"]["id"]}, token, "PUT",
+        )
+        self.assertEqual(status, 200, linked)
+        self.assertEqual(linked["row"]["staffDirectoryId"], staff["row"]["id"])
+
+        status, disabled = request(
+            f'/api/case/staff/fields/{created["row"]["id"]}', token=token, method="DELETE"
+        )
+        self.assertEqual(status, 200, disabled)
+
+    def test_clinical_code_searches_match_the_imported_catalog_schema(self):
+        token = self.login()
+        status, diagnoses = request("/api/case/icd10/search?q=lung&limit=15", token=token)
+        self.assertEqual(status, 200, diagnoses)
+        self.assertIn("rows", diagnoses)
+        status, procedures = request("/api/case/icd9/search?q=lung&limit=15", token=token)
+        self.assertEqual(status, 200, procedures)
+        self.assertIn("rows", procedures)
+
     def test_auth_session_and_access(self):
+        status,options = request("/api/auth/preferences/options")
+        self.assertEqual(status,200,options)
+        self.assertEqual({item["code"] for item in options["languages"]},{"en","th"})
+        self.assertEqual(len(options["themes"]),6)
         self.assertEqual(request("/api/auth/login",{"username":self.username,"password":"wrong"})[0],401)
         self.assertEqual(request("/api/auth/whoami")[0],401)
         token = self.login()
@@ -92,11 +176,289 @@ class LeafWrites(unittest.TestCase):
         self.assertEqual(user["user"]["username"],self.username)
         stored = self.database.execute("SELECT token_hash FROM auth_session WHERE user_id=%s ORDER BY id DESC LIMIT 1",(self.user_id,)).fetchone()
         self.assertEqual(stored["token_hash"],hashlib.sha256(token.encode()).hexdigest())
-        self.assertEqual(request("/api/auth/self/preferences",{"theme_mode":"dark","theme_color":"warm"},token,"PUT")[0],200)
-        self.assertEqual(request("/api/auth/whoami",token=token)[1]["user"]["themeColor"],"warm")
+        self.assertEqual(request("/api/auth/self/preferences",{
+            "name":"Migration Test Account", "theme_mode":"dark", "theme_color":"warm", "language_code":"th",
+            "parameter_preferences":{"timeScaleMin":10,"visibleParameters":["hr","spo2"]},
+            "report_preferences":{"patient":True,"chart":True,"forms":False},
+        },token,"PUT")[0],200)
+        preferences = request("/api/auth/whoami",token=token)[1]["user"]
+        self.assertEqual(preferences["themeColor"],"warm")
+        self.assertEqual(preferences["languageCode"],"th")
+        self.assertEqual(preferences["name"],"Migration Test Account")
+        self.assertEqual(preferences["parameterPreferences"]["timeScaleMin"],10)
+        self.assertFalse(preferences["reportPreferences"]["forms"])
         self.assertEqual(request("/api/auth/self/preferences",{"theme_mode":"dark","theme_color":"invalid"},token,"PUT")[0],400)
+        self.assertEqual(request("/api/auth/self/preferences",{"language_code":"invalid"},token,"PUT")[0],400)
         self.assertEqual(request("/api/auth/logout",{},token)[0],200)
         self.assertEqual(request("/api/auth/whoami",token=token)[0],401)
+
+    def test_access_rbac_user_creation_and_enforcement(self):
+        admin_token = self.login()
+        status, roles = request("/api/auth/roles", token=admin_token)
+        self.assertEqual(status, 200, roles)
+        self.assertEqual(
+            {"system_admin", "clinical_admin", "clinician", "viewer", "integration"},
+            {row["code"] for row in roles["rows"]},
+        )
+        username = "viewer_" + self.suffix
+        password = "Demo-" + self.password
+        status, created = request("/api/auth/users", {
+            "username": username,
+            "name": "Read-only reviewer",
+            "password": password,
+            "role_codes": ["viewer"],
+            "language_code": "en",
+        }, admin_token)
+        self.assertEqual(status, 200, created)
+        self.assertEqual(created["row"]["roleCodes"], ["viewer"])
+        self.assertTrue(created["row"]["mustChangePassword"])
+
+        status, login = request("/api/auth/login", {"username": username, "password": password})
+        self.assertEqual(status, 200, login)
+        viewer_token = login["session_token"]
+        self.assertIn("case.read", login["user"]["permissions"])
+        self.assertNotIn("case.chart", login["user"]["permissions"])
+        check_time = int(time.time() * 1000)
+        self.assertEqual(request("/api/case/start-overlap-check", {"start_time": check_time}, viewer_token)[0], 403)
+        changed_password = password + "-changed"
+        self.assertEqual(request("/api/auth/self/change-password", {
+            "current_password": password, "new_password": changed_password,
+        }, viewer_token)[0], 200)
+
+        status, updated = request(
+            f"/api/auth/users/{created['row']['id']}/access",
+            {"role_codes": ["clinician"]}, admin_token, "PUT",
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertIn("case.chart", updated["row"]["permissions"])
+        self.assertEqual(request("/api/case/start-overlap-check", {"start_time": check_time}, viewer_token)[0], 200)
+        self.assertEqual(
+            request(f"/api/auth/users/{self.user_id}/access", {"role_codes": ["viewer"]}, admin_token, "PUT")[0],
+            400,
+        )
+
+    def test_configuration_workstation_context(self):
+        token = self.login()
+        status, masters = request("/api/auth/preferences/master", token=token)
+        self.assertEqual(status, 200, masters)
+        self.assertGreaterEqual(len(masters["languages"]), 2)
+        self.assertEqual(len(masters["themes"]), 6)
+        language = masters["languages"][0]
+        status, saved_language = request(
+            f"/api/auth/preferences/languages/{language['code']}",
+            {"name_en": language["name_en"], "name_native": language["name_native"],
+             "is_active": bool(language["is_active"]), "sort_order": language["sort_order"]},
+            token, "PUT",
+        )
+        self.assertEqual(status, 200, saved_language)
+        theme = masters["themes"][0]
+        colors = [theme[f"color_{index}_{name}"] for index, name in enumerate(
+            ("canvas", "surface", "border", "text", "muted", "accent"), start=1)]
+        status, saved_theme = request(
+            f"/api/auth/preferences/themes/{theme['code']}",
+            {"display_name": theme["display_name"], "colors": colors,
+             "is_active": bool(theme["is_active"]), "sort_order": theme["sort_order"]},
+            token, "PUT",
+        )
+        self.assertEqual(status, 200, saved_theme)
+        language_code = "zz-" + self.suffix[:4]
+        status, created_language = request("/api/auth/preferences/languages", {
+            "code": language_code, "name_en": "Test language", "name_native": "Test",
+            "is_active": True, "sort_order": 999,
+        }, token)
+        self.assertEqual(status, 200, created_language)
+        status, saved_words = request(f"/api/auth/preferences/translations/{language_code}", {
+            "values": {"login.title": "Test sign in"},
+        }, token, "PUT")
+        self.assertEqual(status, 200, saved_words)
+        self.assertEqual(request(f"/api/auth/preferences/translations/{language_code}")[1]["values"]["login.title"], "Test sign in")
+        self.assertEqual(request(f"/api/auth/preferences/languages/{language_code}", token=token, method="DELETE")[0], 200)
+        theme_code = "test-" + self.suffix[:6]
+        status, created_theme = request("/api/auth/preferences/themes", {
+            "code": theme_code, "display_name": "Test scheme", "colors": colors,
+            "is_active": True, "sort_order": 999,
+        }, token)
+        self.assertEqual(status, 200, created_theme)
+        self.assertEqual(request(f"/api/auth/preferences/themes/{theme_code}", token=token, method="DELETE")[0], 200)
+        status, current = request("/api/workstation/context")
+        self.assertEqual(status, 200, current)
+        self.assertIn("hospitalName", current)
+        payload = {
+            "hospitalName": "Test Hospital",
+            "buildingName": "Building A",
+            "careUnitName": "Operating Theatre",
+            "roomName": "OR 1",
+            "bedName": "Table 1",
+            "timezone": "Asia/Bangkok",
+            "dateFormat": "DD/MM/YYYY",
+            "timeFormat": "12h",
+        }
+        status, saved = request("/api/workstation/context", payload, token, "PUT")
+        self.assertEqual(status, 200, saved)
+        self.assertEqual(saved["roomName"], "OR 1")
+        self.assertEqual(saved["dateFormat"], "DD/MM/YYYY")
+        self.assertEqual(saved["timeFormat"], "12h")
+        self.assertGreater(saved["updatedAt"], 0)
+
+    def test_clinical_terminology_registry(self):
+        token = self.login()
+        status, releases = request("/api/config/terminology/releases", token=token)
+        self.assertEqual(status, 200, releases)
+        counts = {row["system_key"]: row["entry_count"] for row in releases["rows"]}
+        self.assertGreater(counts.get("ICD_10_WHO", 0), 10000)
+        self.assertEqual(counts.get("ICD_9_CM"), 3882)
+        self.assertEqual(counts.get("UCUM"), 312)
+        status, catalog = request("/api/config/terminology/catalog/search?domain=procedure&q=ultrasound&limit=5", token=token)
+        self.assertEqual(status, 200, catalog)
+        self.assertTrue(catalog["rows"])
+        self.assertTrue(all(row["domain"] == "procedure" for row in catalog["rows"]))
+        status, diagnoses = request("/api/config/terminology/catalog/search?domain=diagnosis&q=cholera&limit=5", token=token)
+        self.assertEqual(status, 200, diagnoses)
+        self.assertTrue(any(row["system_key"] == "ICD_10_WHO" for row in diagnoses["rows"]))
+        materialized = self.database.execute(
+            """SELECT domain,count(*) AS total
+               FROM clinical_concept
+               WHERE is_active=1 AND ((domain='diagnosis' AND local_id LIKE 'icd10-%')
+                 OR (domain='procedure' AND local_id LIKE 'icd9cm-%'))
+               GROUP BY domain"""
+        ).fetchall()
+        self.assertEqual({row["domain"]: row["total"] for row in materialized}, {
+            "diagnosis": counts["ICD_10_WHO"],
+            "procedure": counts["ICD_9_CM"],
+        })
+        cholera = self.database.execute(
+            """SELECT concept.local_name,coding.code,coding.terminology_entry_id
+               FROM clinical_concept concept
+               JOIN clinical_concept_coding coding ON coding.concept_id=concept.id
+               WHERE concept.domain='diagnosis' AND concept.local_id='icd10-a00' AND coding.system_key='ICD_10'"""
+        ).fetchone()
+        self.assertEqual(cholera["local_name"], "Cholera")
+        self.assertEqual(cholera["code"], "A00")
+        self.assertIsNotNone(cholera["terminology_entry_id"])
+        status, listing = request("/api/config/terminology?domain=observation&include_inactive=true", token=token)
+        self.assertEqual(status, 200, listing)
+        self.assertTrue(any(row["local_id"] == "hr" for row in listing["rows"]))
+        local_id = "test-diagnosis-" + self.suffix
+        status, created = request("/api/config/terminology", {
+            "domain": "diagnosis", "local_id": local_id, "local_name": "Synthetic local diagnosis",
+            "snomed_id": "123456789", "snomed_name": "Synthetic SNOMED display", "icd10_id": "Z99.9",
+        }, token)
+        self.assertEqual(status, 200, created)
+        concept = created["row"]
+        self.assertEqual(concept["local_name"], "Synthetic local diagnosis")
+        self.assertEqual(concept["snomed_id"], "123456789")
+        self.assertEqual(concept["icd10_id"], "Z99.9")
+        concept["local_name"] = "Updated local diagnosis"
+        status, updated = request(f"/api/config/terminology/{concept['id']}", concept, token, "PUT")
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["row"]["local_name"], "Updated local diagnosis")
+        self.assertEqual(request(f"/api/config/terminology/{concept['id']}", {}, token, "DELETE")[0], 200)
+        stored = self.database.execute("SELECT is_active FROM clinical_concept WHERE id=%s", (concept["id"],)).fetchone()
+        self.assertEqual(stored["is_active"], 0)
+
+    def test_io_group_master(self):
+        token = self.login()
+        status, listing = request("/api/case/io/groups?kind=med&include_inactive=true", token=token)
+        self.assertEqual(status, 200, listing)
+        self.assertTrue(any(row["code"] == "opioid" for row in listing["rows"]))
+        code = "testGroup" + self.suffix
+        status, created = request("/api/case/io/groups", {
+            "code": code, "display_name": "Test medication group", "kind": "med",
+            "is_active": 1, "sort_order": 999,
+        }, token)
+        self.assertEqual(status, 200, created)
+        group = created["row"]
+        status, item = request("/api/case/io/master", {
+            "kind": "med", "name": "Test grouped medication " + self.suffix,
+            "default_unit": "mg", "group_id": group["id"],
+        }, token)
+        self.assertEqual(status, 200, item)
+        self.assertEqual(item["row"]["group_id"], group["id"])
+        self.assertEqual(item["row"]["category"], group["code"])
+        concept_code = "test-med-concept-" + self.suffix
+        status, concept_result = request("/api/config/terminology", {
+            "domain": "medication", "local_id": concept_code,
+            "local_name": "Test clinical medication " + self.suffix,
+            "group_id": group["id"], "default_unit": "mcg", "is_active": 1,
+            "snomed_id": "123456", "rxnorm_id": "654321",
+        }, token)
+        self.assertEqual(status, 200, concept_result)
+        self.assertEqual(concept_result["row"]["group_id"], group["id"])
+        linked_item = self.database.execute(
+            "SELECT group_id,default_unit,category FROM io_item_master WHERE concept_id=%s",
+            (concept_result["row"]["id"],),
+        ).fetchone()
+        self.assertEqual(linked_item["group_id"], group["id"])
+        self.assertEqual(linked_item["default_unit"], "mcg")
+        self.assertEqual(request(f"/api/case/io/groups/{group['id']}", token=token, method="DELETE")[0], 200)
+
+    def test_admission_modes(self):
+        token = self.login()
+        emergency_start = 1740000000000
+        status, emergency = request("/api/case/start", {
+            "hn":"", "start_time":emergency_start, "admission_source":"emergency"
+        }, token)
+        self.assertEqual(status,200,emergency)
+        self.assertTrue(emergency["hn"].startswith("EMG-"))
+        emergency_row = self.database.execute(
+            "SELECT admission_source,identity_status,admitted_by FROM cases WHERE id=%s",
+            (emergency["case_id"],),
+        ).fetchone()
+        self.assertEqual(emergency_row["admission_source"],"emergency")
+        self.assertEqual(emergency_row["identity_status"],"pending")
+        self.assertEqual(emergency_row["admitted_by"],self.username)
+        status, masters = request("/api/config/terminology?domain=procedure&q=ultrasound&include_inactive=false&limit=1", token=token)
+        self.assertEqual(status, 200, masters)
+        master = masters["rows"][0]
+        standard = master["codings"]["ICD_9_CM"]
+        self.assertIsNotNone(standard["terminology_entry_id"])
+        status, procedure = request(f"/api/case/{emergency['case_id']}/procedures", {
+            "procedure_text": master["local_name"],
+            "concept_id": master["id"],
+            "local_id": master["local_id"],
+            "terminology_entry_id": standard["terminology_entry_id"],
+        }, token)
+        self.assertEqual(status, 200, procedure)
+        self.assertEqual(procedure["row"]["concept_id"], master["id"])
+        self.assertEqual(procedure["row"]["coding_snapshot"]["local_id"], master["local_id"])
+        self.assertEqual(procedure["row"]["coding_snapshot"]["terminology_entry_id"], standard["terminology_entry_id"])
+        self.assertEqual(procedure["row"]["coding_snapshot"]["terminology_system"], "ICD_9_CM")
+        coding = self.database.execute(
+            "SELECT terminology_entry_id FROM clinical_concept_coding WHERE concept_id=%s AND system_key='ICD_9_CM'",
+            (procedure["row"]["concept_id"],),
+        ).fetchone()
+        self.assertEqual(coding["terminology_entry_id"], standard["terminology_entry_id"])
+        live_status = request("/api/case/status",token=token)[1]
+        self.assertEqual(live_status["admission_source"],"emergency")
+        self.assertEqual(live_status["identity_status"],"pending")
+        self.assertEqual(request("/api/case/discharge",{"case_id":emergency["case_id"],"discharge_time":emergency_start+60000},token)[0],200)
+        self.assertEqual(request("/api/case/archive",{"case_id":emergency["case_id"]},token)[0],200)
+
+        manual_start = emergency_start + 3600000
+        status, manual = request("/api/case/start", {
+            "hn":"", "start_time":manual_start, "admission_source":"manual",
+            "patient_name":"Local Patient", "sex":"female", "date_of_birth":"1975-04-01",
+            "date_of_birth_precision":"estimated", "age_text":"50y 10m", "operation":"Test procedure",
+            "anaesthesia_technique":"GA", "asa_status":"III", "asa_emergency":True,
+            "surgical_priority":"urgent"
+        }, token)
+        self.assertEqual(status,200,manual)
+        self.assertTrue(manual["hn"].startswith("LOCAL-"))
+        patient = self.database.execute(
+            "SELECT patient_name,source FROM case_his_patient WHERE case_id=%s",
+            (manual["case_id"],),
+        ).fetchone()
+        self.assertEqual(patient["patient_name"],"Local Patient")
+        self.assertEqual(patient["source"],"MANUAL")
+        metadata = self.database.execute("SELECT admission_metadata FROM cases WHERE id=%s", (manual["case_id"],)).fetchone()["admission_metadata"]
+        self.assertEqual(metadata["date_of_birth_precision"], "estimated")
+        self.assertEqual(metadata["anaesthesia_technique"], "GA")
+        self.assertEqual(metadata["asa_status"], "III")
+        self.assertTrue(metadata["asa_emergency"])
+        self.assertEqual(metadata["surgical_priority"], "urgent")
+        self.assertEqual(request("/api/case/discharge",{"case_id":manual["case_id"],"discharge_time":manual_start+60000},token)[0],200)
+        self.assertEqual(request("/api/case/archive",{"case_id":manual["case_id"]},token)[0],200)
+        self.assertEqual(request("/api/case/start",{"hn":"","start_time":manual_start,"admission_source":"his"},token)[0],400)
 
     def test_case_lifecycle_and_concurrent_start(self):
         token = self.login()
@@ -120,7 +482,7 @@ class LeafWrites(unittest.TestCase):
         self.assertEqual(request(f"/api/case/{case_id}/start-time",{"start_time":start},token,"PUT")[0],409)
         self.assertEqual(request("/api/case/archive",{"case_id":case_id},token)[0],200)
 
-    def test_password_change_and_deactivation(self):
+    def test_password_change_and_self_deactivation_protection(self):
         token = self.login()
         self.assertEqual(request("/api/auth/self/change-password",{"current_password":"wrong","new_password":"test-pass-123"},token)[0],400)
         self.assertEqual(request("/api/auth/self/change-password",{"current_password":self.password,"new_password":"short"},token)[0],400)
@@ -129,10 +491,8 @@ class LeafWrites(unittest.TestCase):
         self.assertEqual(request("/api/auth/login",{"username":self.username,"password":self.password})[0],401)
         self.__class__.password = "test-pass-123"
         new_token = self.login()
-        self.assertEqual(request(f"/api/auth/users/{self.user_id}/active",{"is_active":False},new_token,"PUT")[0],200)
-        self.assertEqual(request("/api/auth/whoami",token=token)[0],401)
-        self.assertEqual(request("/api/auth/whoami",token=new_token)[0],401)
-        self.assertEqual(request("/api/auth/login",{"username":self.username,"password":self.password})[0],401)
+        self.assertEqual(request(f"/api/auth/users/{self.user_id}/active",{"is_active":False},new_token,"PUT")[0],400)
+        self.assertEqual(request("/api/auth/whoami",token=new_token)[0],200)
 
     def test_clinical_writes_and_audit_rollback(self):
         token = self.login()
@@ -141,6 +501,20 @@ class LeafWrites(unittest.TestCase):
         self.assertEqual(status,200,case)
         case_id = case["case_id"]
         root = f"/api/case/{case_id}"
+        status, concept_result = request("/api/config/terminology", {
+            "domain": "diagnosis", "local_id": "case-link-" + self.suffix,
+            "local_name": "Mapped diagnosis master", "snomed_id": "987654321",
+            "snomed_name": "Mapped SNOMED diagnosis", "icd10_id": "Z01.8",
+        }, token)
+        self.assertEqual(status, 200, concept_result)
+        status, linked = request(root + "/diagnosis", {
+            "diagnosis_text": "Patient-specific original wording",
+            "concept_id": concept_result["row"]["id"],
+        }, token)
+        self.assertEqual(status, 200, linked)
+        stored_link = self.database.execute("SELECT diagnosis_text,concept_id,coding_snapshot FROM case_diagnosis WHERE id=%s", (linked["id"],)).fetchone()
+        self.assertEqual(stored_link["diagnosis_text"], "Patient-specific original wording")
+        self.assertEqual(stored_link["coding_snapshot"]["snomed_id"], "987654321")
         for category,field in (("diagnosis","diagnosis_text"),("procedures","procedure_text"),("allergies","allergen")):
             status,result = request(root+"/"+category,{field:"Synthetic test entry"},token)
             self.assertEqual(status,200,result)
@@ -195,7 +569,7 @@ class LeafWrites(unittest.TestCase):
         status, imported = request("/api/ephis/import-daily-cases", {"tsvText":tsv,"replaceExisting":True}, token)
         self.assertEqual(status, 200, imported)
         self.assertEqual(imported["imported_rows"], 1)
-        self.assertEqual(request("/api/ephis/import-status")[1]["total_rows"], 1)
+        self.assertEqual(request("/api/ephis/import-status", token=token)[1]["total_rows"], 1)
         self.assertEqual(request("/api/case/discharge", {"case_id":case_id,"discharge_time":start+3600000}, token)[0], 200)
 
 
