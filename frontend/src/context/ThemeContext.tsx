@@ -20,13 +20,16 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
-const THEME_COLORS: ThemeColor[] = ["monochromatic", "neon", "warm", "pastel", "pink-pastel"];
+const THEME_COLORS: ThemeColor[] = ["monochromatic", "neon", "warm", "pastel", "muji", "mori", "ocean", "pink-pastel"];
 const DEFAULT_THEME: ThemeColor = "monochromatic";
 const FALLBACK_SCHEMES: ThemeSchemeOption[] = [
   { code: "monochromatic", displayName: "Mono", colors: ["#121212", "#1c1c1c", "#444444", "#e0e0e0", "#b0b0b0", "#a1a1aa"] },
   { code: "neon", displayName: "Neon", colors: ["#0d0d0d", "#171717", "#444444", "#ffffff", "#b0b0b0", "#00ff85"] },
   { code: "warm", displayName: "Warm", colors: ["#1c1c1c", "#292421", "#554640", "#f5e8d8", "#c8b9a9", "#ff6f61"] },
   { code: "pastel", displayName: "Pastel", colors: ["#2c2c2c", "#383838", "#5a5a5a", "#e4e4e4", "#c5c5c5", "#a8dadc"] },
+  { code: "muji", displayName: "Muji", colors: ["#f7f2e8", "#fffaf0", "#d8c8ad", "#3f3529", "#796b5c", "#8a6846"] },
+  { code: "mori", displayName: "Mori", colors: ["#f1f6ef", "#fbfdf9", "#c8d8c2", "#26352a", "#667569", "#3f7652"] },
+  { code: "ocean", displayName: "Ocean", colors: ["#eef5fa", "#f9fcff", "#bfd0df", "#15283a", "#5a7084", "#174f7a"] },
   { code: "pink-pastel", displayName: "Pink Pastel", colors: ["#fff4f7", "#ffffff", "#e7c6d2", "#362832", "#75626c", "#ad416f"] },
 ];
 

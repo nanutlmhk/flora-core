@@ -13,10 +13,11 @@
       (function () {
         try {
           var savedColor = localStorage.getItem("theme-color");
-          var colors = ["monochromatic", "neon", "warm", "pastel", "pink-pastel"];
+          var colors = ["monochromatic", "neon", "warm", "pastel", "muji", "mori", "ocean", "pink-pastel"];
+          var lightColors = ["muji", "mori", "ocean", "pink-pastel"];
           var color = colors.indexOf(savedColor) >= 0 ? savedColor : "monochromatic";
           var el = document.documentElement;
-          el.classList.add(color === "pink-pastel" ? "light" : "dark");
+          el.classList.add(lightColors.indexOf(color) >= 0 ? "light" : "dark");
           el.classList.add("theme-" + color);
         } catch (_) {}
       })();
