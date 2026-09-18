@@ -937,10 +937,10 @@
   --chart-art: #b3261e;
   --chart-cvp: #b85c00;
   --chart-temp: #6941a5;
-  --app-tooltip-bg: color-mix(in srgb, var(--palette-text) 94%, var(--palette-bg));
-  --app-tooltip-text: var(--palette-surface);
-  --app-tooltip-border: color-mix(in srgb, var(--palette-text) 82%, var(--palette-border));
-  --app-tooltip-shadow: 0 14px 34px color-mix(in srgb, var(--palette-text) 24%, transparent);
+  --app-tooltip-bg: color-mix(in srgb, var(--palette-surface) 94%, var(--palette-accent));
+  --app-tooltip-text: var(--palette-text);
+  --app-tooltip-border: color-mix(in srgb, var(--palette-border) 72%, var(--palette-accent));
+  --app-tooltip-shadow: 0 12px 28px color-mix(in srgb, var(--palette-text) 15%, transparent);
   --event-icon-ink: #202a33;
   --event-icon-cutout: #ffffff;
 }
