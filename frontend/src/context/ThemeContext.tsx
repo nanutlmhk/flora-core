@@ -30,7 +30,7 @@ const FALLBACK_SCHEMES: ThemeSchemeOption[] = [
   { code: "muji", displayName: "Muji", colors: ["#f7f2e8", "#fffaf0", "#d8c8ad", "#3f3529", "#796b5c", "#8a6846"] },
   { code: "mori", displayName: "Mori", colors: ["#f1f6ef", "#fbfdf9", "#c8d8c2", "#26352a", "#667569", "#3f7652"] },
   { code: "ocean", displayName: "Ocean", colors: ["#eef5fa", "#f9fcff", "#bfd0df", "#15283a", "#5a7084", "#174f7a"] },
-  { code: "pink-pastel", displayName: "Pink Pastel", colors: ["#fff4f7", "#ffffff", "#e7c6d2", "#362832", "#75626c", "#ad416f"] },
+  { code: "pink-pastel", displayName: "Cupcake", colors: ["#fff4f7", "#ffffff", "#e7c6d2", "#362832", "#75626c", "#ad416f"] },
 ];
 
 function isLightCanvas(color: string) {
