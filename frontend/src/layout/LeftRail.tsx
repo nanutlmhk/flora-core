@@ -35,6 +35,8 @@ import {
   formatTimeInputHHMM,
   normalizeTimeInputHHMM,
 } from "../utils/clinicalInput";
+import { useAuth } from "../auth/useAuth";
+import { normalizePatientNameLanguage } from "../utils/patientName";
 
 type FormPayload = Record<string, unknown>;
 type SummaryField = {
@@ -843,6 +845,10 @@ export default function LeftRail({
   onCaseStartTimeUpdated,
   onCaseDischargeTimeUpdated,
 }: LeftRailProps) {
+  const { user: sessionUser } = useAuth();
+  const patientNameLanguage = normalizePatientNameLanguage(
+    sessionUser?.parameterPreferences?.patientNameLanguage,
+  );
   const [initialUiState] = useState<Partial<LeftRailUiState>>(() => readLeftRailUiState());
   const [hn, setHn] = useState("");
   const [hh, setHh] = useState(() => nowHHMM().hh);
@@ -1251,6 +1257,10 @@ export default function LeftRail({
       ),
     [formPayload],
   );
+  const preferredPatientName =
+    patientNameLanguage === "english"
+      ? enPatientName || thPatientName
+      : thPatientName || enPatientName;
   const caseAn = useMemo(() => pickSummaryText(formPayload, ["an"]), [formPayload]);
   const startClockState = useMemo(() => parseStartClockInputs(hh, mm), [hh, mm]);
   const canStartCase = Boolean(hn.trim()) && startClockState.ok;
@@ -1822,14 +1832,9 @@ export default function LeftRail({
                   </div>
                   <div className="text-gray-900 dark:text-white">HN: {caseStatus.hn}</div>
                   {caseAn ? <div className="text-gray-900 dark:text-white">AN: {caseAn}</div> : null}
-                  {thPatientName ? (
+                  {preferredPatientName ? (
                     <div className="pt-1 text-lg font-semibold leading-tight text-gray-950 dark:text-white">
-                      TH: {thPatientName}
-                    </div>
-                  ) : null}
-                  {enPatientName ? (
-                    <div className="text-base font-medium leading-tight text-gray-900 dark:text-gray-100">
-                      EN: {enPatientName}
+                      {preferredPatientName}
                     </div>
                   ) : null}
                   <div className="mt-1">

@@ -38,13 +38,40 @@ export function getChartVisibilityStorageKey(username: string) {
   return `flora.chartVisible.${username}`;
 }
 
-export function readTimelineScaleForUser(username: string): AxisStepMin {
-  if (typeof window === "undefined") return DEFAULT_AXIS_STEP;
+export function getSectionCollapseStorageKey(username: string) {
+  return `flora.chartSections.${username}`;
+}
+
+export function readSectionCollapseForUser(username: string): {
+  ioCollapsed: boolean;
+  vitalCollapsed: boolean;
+} {
+  const fallback = { ioCollapsed: false, vitalCollapsed: false };
+  if (typeof window === "undefined") return fallback;
+
+  try {
+    const raw = localStorage.getItem(getSectionCollapseStorageKey(username));
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      ioCollapsed: parsed.ioCollapsed === true,
+      vitalCollapsed: parsed.vitalCollapsed === true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function readTimelineScaleForUser(username: string, preferred?: unknown): AxisStepMin {
+  const preferredStep = parseAxisStep(preferred == null ? null : String(preferred));
+  if (typeof window === "undefined") return preferredStep ?? DEFAULT_AXIS_STEP;
 
   const userStep = parseAxisStep(
     localStorage.getItem(getTimelineScaleStorageKey(username)),
   );
   if (userStep != null) return userStep;
+
+  if (preferredStep != null) return preferredStep;
 
   const legacyStep = parseAxisStep(localStorage.getItem("flora.timelineScale"));
   return legacyStep ?? DEFAULT_AXIS_STEP;

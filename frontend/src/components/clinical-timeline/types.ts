@@ -1,6 +1,6 @@
 export type GridRowType = "event" | "ecg" | "vital" | "io";
 
-export interface TimeGridRow {
+export interface ClinicalTimelineRow {
   id: string;
   label: string;
   type: GridRowType;
@@ -17,13 +17,15 @@ export interface TimeGridRow {
   ioStatus?: string;
   /** For IO rows that need a second-line summary */
   ioDetail?: string;
+  /** Cumulative amount recorded for this I/O row, shown in its tooltip. */
+  ioTotal?: string;
 }
 
 /**
  * values[rowId][timestamp] = value
- * timestamp is number (ms) — SAME as TimeAxis
+ * timestamp is number (ms) — SAME as ClinicalTimelineAxis
  */
-export type TimeGridValues = {
+export type ClinicalTimelineValues = {
   [rowId: string]: {
     [ts: number]: unknown;
   };

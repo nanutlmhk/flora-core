@@ -4,7 +4,7 @@ const BASE = `${BACKEND_BASE}/api/case`;
 
 export type IoKind = "fluid" | "med" | "output";
 
-export type DrugDirectoryItem = {
+export type IoCatalogItem = {
   id?: number;
   concept_id?: number;
   kind: IoKind;
@@ -29,7 +29,7 @@ export type IoGroup = {
   sort_order: number;
 };
 
-type GetDrugDirectoryOptions = {
+type GetIoCatalogOptions = {
   kind?: IoKind;
   limit?: number;
   q?: string;
@@ -45,7 +45,7 @@ function numberOrUndefined(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function parseItem(row: Record<string, unknown>): DrugDirectoryItem {
+function parseItem(row: Record<string, unknown>): IoCatalogItem {
   const kind = text(row.kind);
   return {
     id: numberOrUndefined(row.id),
@@ -125,9 +125,9 @@ async function throwIfError(res: Response, fallback: string) {
   throw new Error(`${fallback} ${res.status}${detail}`);
 }
 
-export async function getDrugDirectory(
-  opts: GetDrugDirectoryOptions = {},
-): Promise<DrugDirectoryItem[]> {
+export async function getIoCatalog(
+  opts: GetIoCatalogOptions = {},
+): Promise<IoCatalogItem[]> {
   const params = new URLSearchParams();
   params.set("kind", opts.kind || "med");
   params.set("limit", String(opts.limit ?? 300));
@@ -135,7 +135,7 @@ export async function getDrugDirectory(
   if (opts.include_inactive) params.set("include_inactive", "true");
 
   const res = await fetch(`${BASE}/io/master?${params.toString()}`);
-  await throwIfError(res, "drug directory failed");
+  await throwIfError(res, "I/O catalog failed");
 
   const json = (await res.json()) as {
     rows?: Array<Record<string, unknown>>;
@@ -146,44 +146,44 @@ export async function getDrugDirectory(
     .filter(row => row.name && row.code);
 }
 
-export async function createDrugDirectoryEntry(
-  item: Partial<DrugDirectoryItem> & Pick<DrugDirectoryItem, "name">,
-): Promise<DrugDirectoryItem> {
+export async function createIoCatalogEntry(
+  item: Partial<IoCatalogItem> & Pick<IoCatalogItem, "name">,
+): Promise<IoCatalogItem> {
   const res = await fetch(`${BASE}/io/master`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
   });
-  await throwIfError(res, "drug directory create failed");
+  await throwIfError(res, "I/O catalog create failed");
 
   const json = (await res.json()) as {
     row?: Record<string, unknown>;
   };
-  if (!json.row) throw new Error("drug directory create failed");
+  if (!json.row) throw new Error("I/O catalog create failed");
   return parseItem(json.row);
 }
 
-export async function updateDrugDirectoryEntry(
+export async function updateIoCatalogEntry(
   itemId: number,
-  item: Partial<DrugDirectoryItem>,
-): Promise<DrugDirectoryItem> {
+  item: Partial<IoCatalogItem>,
+): Promise<IoCatalogItem> {
   const res = await fetch(`${BASE}/io/master/${itemId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
   });
-  await throwIfError(res, "drug directory update failed");
+  await throwIfError(res, "I/O catalog update failed");
 
   const json = (await res.json()) as {
     row?: Record<string, unknown>;
   };
-  if (!json.row) throw new Error("drug directory update failed");
+  if (!json.row) throw new Error("I/O catalog update failed");
   return parseItem(json.row);
 }
 
-export async function deactivateDrugDirectoryEntry(itemId: number): Promise<void> {
+export async function deactivateIoCatalogEntry(itemId: number): Promise<void> {
   const res = await fetch(`${BASE}/io/master/${itemId}`, {
     method: "DELETE",
   });
-  await throwIfError(res, "drug directory delete failed");
+  await throwIfError(res, "I/O catalog delete failed");
 }

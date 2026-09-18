@@ -22,6 +22,11 @@ import emergencyPathIcon from "../assets/admission-paths/emergency.png";
 import ClinicalDateInput from "../components/ClinicalDateInput";
 import ClinicalDateTimeInput from "../components/ClinicalDateTimeInput";
 import { searchClinicalConcepts, type ClinicalConcept } from "../api/terminologyApi";
+import {
+  formatPatientDisplayName,
+  normalizePatientNameLanguage,
+  type PatientNameLanguage,
+} from "../utils/patientName";
 
 type Props = {
   sessionUser: AuthUser | null;
@@ -79,16 +84,14 @@ function formattedProfileDate(date: Date, timezone: string, format: string) {
   return format.replace("DD", value("day")).replace("MM", value("month")).replace("YYYY", value("year"));
 }
 
-function patientName(result: CaseHisLookupResult | null) {
+function patientName(result: CaseHisLookupResult | null, preference: PatientNameLanguage) {
   const row = result?.row;
   if (!row) return "";
-  return row.patient_name || [row.title_th, row.first_name, row.last_name].filter(Boolean).join(" ") ||
-    [row.title_en, row.first_name_en, row.last_name_en].filter(Boolean).join(" ");
+  return formatPatientDisplayName(row, preference);
 }
 
-function preparedPatientName(row: HisBufferListRow) {
-  return row.patient_name || [row.first_name, row.last_name].filter(Boolean).join(" ") ||
-    [row.first_name_en, row.last_name_en].filter(Boolean).join(" ") || row.hn;
+function preparedPatientName(row: HisBufferListRow, preference: PatientNameLanguage) {
+  return formatPatientDisplayName(row, preference) || row.hn;
 }
 
 function FieldIcon({ children }: { children: ReactNode }) {
@@ -111,6 +114,9 @@ function codingLabel(concept: ClinicalConcept, domain: "diagnosis" | "procedure"
 
 export default function IdleCaseLanding({ sessionUser, onCaseStarted }: Props) {
   const { language, t } = useLanguage();
+  const patientNameLanguage = normalizePatientNameLanguage(
+    sessionUser?.parameterPreferences?.patientNameLanguage,
+  );
   const [mode, setMode] = useState<AdmissionMode>("prepared");
   const [hn, setHn] = useState("");
   const [lookup, setLookup] = useState<CaseHisLookupResult | null>(null);
@@ -277,7 +283,7 @@ export default function IdleCaseLanding({ sessionUser, onCaseStarted }: Props) {
         overlapPolicy: policy,
         admissionSource,
         admissionNumber: lookup.row.an || undefined,
-        patientName: patientName(lookup) || undefined,
+        patientName: patientName(lookup, patientNameLanguage) || undefined,
         sex: lookup.row.sex || undefined,
         dateOfBirth: lookup.row.dob || undefined,
         dateOfBirthPrecision: mode === "manual" ? manual.dobPrecision || undefined : undefined,
@@ -440,8 +446,8 @@ export default function IdleCaseLanding({ sessionUser, onCaseStarted }: Props) {
               <div className="grid gap-3 md:grid-cols-2">
                 {prepared.length ? prepared.map(row => (
                   <button key={row.hn} type="button" onClick={() => void loadPatient(row.hn, true)} className="flex w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4 text-left hover:border-[var(--app-accent)]">
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--app-accent)]/12 text-sm font-bold text-[var(--app-accent)]">{preparedPatientName(row).slice(0, 1).toUpperCase()}</span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[var(--app-text)]">{preparedPatientName(row)}</span><span className="block text-xs text-[var(--app-muted)]">HN {row.hn} · {row.allergy_count || 0} {t("landing.allergies")} · {row.lab_count || 0} {t("landing.labs")}</span></span><span className="text-[var(--app-accent)]">›</span>
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--app-accent)]/12 text-sm font-bold text-[var(--app-accent)]">{preparedPatientName(row, patientNameLanguage).slice(0, 1).toUpperCase()}</span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[var(--app-text)]">{preparedPatientName(row, patientNameLanguage)}</span><span className="block text-xs text-[var(--app-muted)]">HN {row.hn} · {row.allergy_count || 0} {t("landing.allergies")} · {row.lab_count || 0} {t("landing.labs")}</span></span><span className="text-[var(--app-accent)]">›</span>
                   </button>
                 )) : <div className="col-span-full rounded-xl border border-dashed border-[var(--app-border)] p-8 text-center"><div className="text-sm font-semibold text-[var(--app-text)]">{t("landing.noPreparedPatients")}</div><div className="mt-1 text-xs text-[var(--app-muted)]">{t("admit.tryHis")}</div></div>}
               </div>
@@ -451,7 +457,7 @@ export default function IdleCaseLanding({ sessionUser, onCaseStarted }: Props) {
               <form onSubmit={event => { event.preventDefault(); void loadPatient(hn); }}><label htmlFor="landing-hn" className="mb-2 block text-xs font-bold uppercase tracking-[0.1em] text-[var(--app-muted)]">{t("landing.hn")}</label><div className="flex flex-col gap-2 sm:flex-row"><input id="landing-hn" autoFocus value={hn} onChange={event => setHn(event.target.value)} placeholder={t("landing.hnPlaceholder")} className="h-12 min-w-0 flex-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-4 text-base text-[var(--app-text)] outline-none focus:border-[var(--app-accent)]" /><button disabled={!hn.trim() || busy} className="h-12 rounded-xl bg-[var(--app-accent)] px-6 text-sm font-bold text-[var(--app-accent-contrast)] disabled:opacity-50">{busy ? t("landing.searching") : t("landing.search")}</button></div></form>
               {demoPatients.length ? <div className="mt-5 border-t border-[var(--app-border)] pt-4">
                 <div className="mb-2 flex items-center justify-between gap-3"><span className="text-xs font-bold uppercase tracking-[0.1em] text-[var(--app-muted)]">{t("landing.demoExchangePatients")}</span><span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-400">{t("landing.synthetic")}</span></div>
-                <div className="grid gap-2 md:grid-cols-3">{demoPatients.map(patient => <div key={patient.hn} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3"><div className="flex items-center justify-between gap-2"><span className="inline-flex rounded-md bg-[var(--app-accent)]/12 px-2 py-1 text-[10px] font-bold text-[var(--app-accent)]">{patient.protocol_label}</span><button type="button" onClick={() => setCodePatient(patient)} className="rounded-md border border-[var(--app-border)] px-2 py-1 text-[10px] font-bold text-[var(--app-muted)] hover:border-[var(--app-accent)] hover:text-[var(--app-text)]">{t("landing.showCode")}</button></div><button type="button" disabled={busy} onClick={() => { setHn(patient.hn); void loadPatient(patient.hn); }} className="mt-2 block w-full text-left disabled:opacity-50"><strong className="block truncate text-sm text-[var(--app-text)]">{language === "th" ? patient.patient_name : patient.patient_name_en}</strong><span className="mt-0.5 block text-xs text-[var(--app-muted)]">HN {patient.hn} · {patient.event}</span></button></div>)}</div>
+                <div className="grid gap-2 md:grid-cols-3">{demoPatients.map(patient => <div key={patient.hn} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3"><div className="flex items-center justify-between gap-2"><span className="inline-flex rounded-md bg-[var(--app-accent)]/12 px-2 py-1 text-[10px] font-bold text-[var(--app-accent)]">{patient.protocol_label}</span><button type="button" onClick={() => setCodePatient(patient)} className="rounded-md border border-[var(--app-border)] px-2 py-1 text-[10px] font-bold text-[var(--app-muted)] hover:border-[var(--app-accent)] hover:text-[var(--app-text)]">{t("landing.showCode")}</button></div><button type="button" disabled={busy} onClick={() => { setHn(patient.hn); void loadPatient(patient.hn); }} className="mt-2 block w-full text-left disabled:opacity-50"><strong className="block truncate text-sm text-[var(--app-text)]">{patientNameLanguage === "english" ? patient.patient_name_en || patient.patient_name : patient.patient_name || patient.patient_name_en}</strong><span className="mt-0.5 block text-xs text-[var(--app-muted)]">HN {patient.hn} · {patient.event}</span></button></div>)}</div>
               </div> : null}
               {error ? <div className="mt-4 rounded-xl border border-amber-400/35 bg-amber-400/10 p-4 text-sm text-[var(--app-text)]">{error}</div> : null}
             </section> : null}
@@ -481,8 +487,8 @@ export default function IdleCaseLanding({ sessionUser, onCaseStarted }: Props) {
               <section className="overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)]">
                 <div className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] p-5">
                   <div className="flex min-w-0 items-center gap-4">
-                    <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--app-accent)]/12 text-lg font-bold text-[var(--app-accent)]">{patientName(lookup).slice(0, 1).toUpperCase() || "P"}</span>
-                    <div className="min-w-0"><div className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--app-accent)]">{t("landing.patientConfirmed")}</div><h2 className="truncate text-xl font-bold text-[var(--app-text)]">{patientName(lookup) || t("landing.manualPatientName")}</h2><div className="mt-1 text-sm text-[var(--app-muted)]">{lookup?.row?.hn ? `HN ${lookup.row.hn}` : t("admit.localIdOnStart")}{lookup?.row?.an ? ` · AN ${lookup.row.an}` : ""} · {sourceLabel}{lookup?.exchange ? ` · ${lookup.exchange.event}` : ""}</div>{lookup?.exchange ? <div className="mt-1 text-xs text-[var(--app-muted)]">{lookup.exchange.source_system} · {lookup.exchange.message_id} · {t("landing.synthetic")}</div> : null}</div>
+                    <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--app-accent)]/12 text-lg font-bold text-[var(--app-accent)]">{patientName(lookup, patientNameLanguage).slice(0, 1).toUpperCase() || "P"}</span>
+                    <div className="min-w-0"><div className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--app-accent)]">{t("landing.patientConfirmed")}</div><h2 className="truncate text-xl font-bold text-[var(--app-text)]">{patientName(lookup, patientNameLanguage) || t("landing.manualPatientName")}</h2><div className="mt-1 text-sm text-[var(--app-muted)]">{lookup?.row?.hn ? `HN ${lookup.row.hn}` : t("admit.localIdOnStart")}{lookup?.row?.an ? ` · AN ${lookup.row.an}` : ""} · {sourceLabel}{lookup?.exchange ? ` · ${lookup.exchange.event}` : ""}</div>{lookup?.exchange ? <div className="mt-1 text-xs text-[var(--app-muted)]">{lookup.exchange.source_system} · {lookup.exchange.message_id} · {t("landing.synthetic")}</div> : null}</div>
                   </div>
                   <button type="button" onClick={resetPatient} className="rounded-lg border border-[var(--app-border)] px-3 py-2 text-xs font-semibold text-[var(--app-muted)] hover:text-[var(--app-text)]">{t("landing.change")}</button>
                 </div>

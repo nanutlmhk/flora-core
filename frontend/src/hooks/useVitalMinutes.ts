@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getEffectiveTimeline, type TimelineProvenance, type VitalMinuteRow } from "../api/vitalMinutesApi";
-import type { TimeGridValues } from "../components/timegrid/types";
+import type { ClinicalTimelineValues } from "../components/clinical-timeline/types";
 
 type CaseStatus = "IDLE" | "ACTIVE" | "DISCHARGED" | "ARCHIVED";
 
@@ -40,10 +40,10 @@ function toRowId(key: string) {
   return PARAM_KEY_MAP[normalized] || normalized;
 }
 
-function toTimeGridValues(
+function toClinicalTimelineValues(
   rows: VitalMinuteRow[],
-): TimeGridValues {
-  const next: TimeGridValues = {};
+): ClinicalTimelineValues {
+  const next: ClinicalTimelineValues = {};
 
   for (const row of rows) {
     const ts = Number(row.ts_minute);
@@ -75,7 +75,7 @@ function toTimelineProvenance(rows: VitalMinuteRow[]): TimelineProvenance {
   return next;
 }
 
-function sameValues(left: TimeGridValues, right: TimeGridValues): boolean {
+function sameValues(left: ClinicalTimelineValues, right: ClinicalTimelineValues): boolean {
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   if (leftKeys.length !== rightKeys.length) return false;
@@ -93,7 +93,7 @@ export function useVitalMinutes(
   status: CaseStatus,
   axis: number[],
 ) {
-  const [values, setValues] = useState<TimeGridValues>({});
+  const [values, setValues] = useState<ClinicalTimelineValues>({});
   const [provenance, setProvenance] = useState<TimelineProvenance>({});
   const [loading, setLoading] = useState(false);
   const [fetchedAxis, setFetchedAxis] = useState<number[]>([]);
@@ -123,7 +123,7 @@ export function useVitalMinutes(
       try {
         const rows = await getEffectiveTimeline(activeCaseId, fromTs, toTs);
         if (!alive) return;
-        const nextValues = toTimeGridValues(rows);
+        const nextValues = toClinicalTimelineValues(rows);
         setValues(previous => sameValues(previous, nextValues) ? previous : nextValues);
         setProvenance(toTimelineProvenance(rows));
         setFetchedAxis(currentAxis);

@@ -4,7 +4,7 @@ import type { CaseEvent } from "../../api/caseEventApi";
 import type { CaseIoSummaryTotals } from "../../api/caseIoApi";
 import type { CaseAllergyRow, CaseLabRow } from "../../api/caseHisApi";
 import type { StaffMember } from "../../api/staffApi";
-import type { TimeGridRow, TimeGridValues } from "../../components/timegrid/types";
+import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../../components/clinical-timeline/types";
 import type { ReportChartVisibility, ReportEventMarker, ReportPreparedMarker } from "./types";
 
 export type ReportPdfActiveCase = Exclude<CaseStatus, { status: "IDLE" }> | null;
@@ -53,13 +53,13 @@ export type ReportPdfTimelinePage = {
 
 export type ReportPdfTimelineIoPrepared = {
   markers: Record<number, ReportPreparedMarker[]>;
-  values: TimeGridValues;
-  rows: TimeGridRow[];
+  values: ClinicalTimelineValues;
+  rows: ClinicalTimelineRow[];
 };
 
 export type ReportPdfBucketedTimeline = {
-  values: TimeGridValues;
-  chartValues: TimeGridValues;
+  values: ClinicalTimelineValues;
+  chartValues: ClinicalTimelineValues;
 };
 
 export type ReportPdfCaseMilestones = {

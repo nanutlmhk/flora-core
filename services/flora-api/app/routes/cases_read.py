@@ -420,6 +420,16 @@ def patient(case_id_raw: str, database: Connection = Depends(connection)) -> dic
     case_id = case_id_or_400(case_id_raw)
     if case_id <= 0:
         raise HTTPException(status_code=400, detail="invalid case id")
+    case_row = database.execute(
+        "SELECT hn, admission_metadata FROM cases WHERE id = %s",
+        (case_id,),
+    ).fetchone()
+    if case_row is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    admission_metadata = parse_payload(case_row["admission_metadata"])
+    if not isinstance(admission_metadata, dict):
+        admission_metadata = {}
+
     row = database.execute(
         """
         SELECT case_id, hn, an, is_patient, notype, id_card, patient_name,
@@ -435,12 +445,15 @@ def patient(case_id_raw: str, database: Connection = Depends(connection)) -> dic
         (case_id,),
     ).fetchone()
     if row is None:
-        case_row = database.execute("SELECT hn FROM cases WHERE id = %s", (case_id,)).fetchone()
-        if case_row is None:
-            raise HTTPException(status_code=404, detail="case not found")
-        return {"row": {"hn": case_row["hn"]}}
+        return {"row": {
+            "hn": case_row["hn"],
+            "asa_status": admission_metadata.get("asa_status"),
+            "asa_emergency": bool(admission_metadata.get("asa_emergency")),
+        }}
     output = dict(row)
     output["his_payload"] = parse_payload(row["raw_payload"]) if row["raw_payload"] else None
+    output["asa_status"] = admission_metadata.get("asa_status")
+    output["asa_emergency"] = bool(admission_metadata.get("asa_emergency"))
     return {"row": output}
 
 

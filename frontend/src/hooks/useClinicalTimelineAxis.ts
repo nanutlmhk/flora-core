@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { getTimeAxis } from "../api/timeAxisApi";
+import { getClinicalTimelineAxis } from "../api/clinicalTimelineApi";
 
 type CaseStatus = "IDLE" | "ACTIVE" | "DISCHARGED" | "ARCHIVED";
 
-export function useTimeAxis(
+export function useClinicalTimelineAxis(
   caseId: number | null,
   status: CaseStatus,
   stepMin = 1,
@@ -27,7 +27,7 @@ export function useTimeAxis(
       if (showLoading) setLoading(true);
       try {
         const receivedAt = Date.now();
-        const result = await getTimeAxis(activeCaseId, stepMin);
+        const result = await getClinicalTimelineAxis(activeCaseId, stepMin);
         const next = result.axis;
         if (!alive) return;
 
@@ -44,7 +44,7 @@ export function useTimeAxis(
           return prev;
         });
       } catch (err) {
-        console.error("[useTimeAxis] fetch failed", err);
+        console.error("[useClinicalTimelineAxis] fetch failed", err);
       } finally {
         if (alive) setLoading(false);
       }

@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { updateCaseStartTime, type CaseStatus } from "../api/caseApi";
-import TimeAxis from "../components/timeaxis/TimeAxis";
-import TimeGrid, {
-  type TimeGridEventMarker,
-  type TimeGridPreparedMarker,
-} from "../components/timegrid/TimeGrid";
-import type { TimeGridRow, TimeGridValues } from "../components/timegrid/types";
-import TimeChart from "../components/vitals/TimeChart";
-import { useTimeAxis } from "../hooks/useTimeAxis";
+import ClinicalTimelineAxis from "../components/clinical-timeline/ClinicalTimelineAxis";
+import ClinicalTimelineGrid, {
+  type ClinicalTimelineEventMarker,
+  type ClinicalTimelineIoMarker,
+} from "../components/clinical-timeline/ClinicalTimelineGrid";
+import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../components/clinical-timeline/types";
+import VitalSignsTrendChart, { type VitalGroup } from "../components/vitals/VitalSignsTrendChart";
+import { useClinicalTimelineAxis } from "../hooks/useClinicalTimelineAxis";
 import { useVitalMinutes } from "../hooks/useVitalMinutes";
 import { useWorkstationSettings } from "../hooks/useWorkstationSettings";
 import { formatConfiguredDateTime, type DateTimePreferences } from "../utils/dateTime";
+import {
+  formatPatientDisplayName,
+  normalizePatientNameLanguage,
+} from "../utils/patientName";
 import { useCaseEvents } from "../hooks/useCaseEvents";
 import {
   getCaseDiagnosis,
@@ -35,7 +39,6 @@ import {
   createCaseIoEvent,
   createCaseIoDrip,
   createCaseIoBloodProduct,
-  discontinueCaseIoRun,
   deleteCaseIoEvent,
   getCaseIoItems,
   getCaseIoEvents,
@@ -48,7 +51,7 @@ import {
   type CaseIoRun,
   type IoKind,
 } from "../api/caseIoApi";
-import { createDrugDirectoryEntry } from "../api/drugApi";
+import { createIoCatalogEntry } from "../api/ioCatalogApi";
 import {
   createCaseAllergy,
   deleteCaseAllergy,
@@ -76,29 +79,30 @@ import {
   ROW_META,
   type AxisStepMin,
   type RowGroup,
-} from "./caseview/constants";
+} from "./clinical-chart/constants";
 import {
   getHiddenRowsStorageKey,
+  getSectionCollapseStorageKey,
   getTimelineScaleStorageKey,
   getVisibleRowsStorageKey,
   readHiddenRowsForUser,
+  readSectionCollapseForUser,
   readStoredUsername,
   readTimelineScaleForUser,
   readVisibleRowsForUser,
-} from "./caseview/storage";
+} from "./clinical-chart/storage";
 import {
   formatHHMM,
   mergeValues,
   normalizeHHMM,
   toTsOnSameDate,
-} from "./caseview/utils";
+} from "./clinical-chart/utils";
 import {
   formatDateInputDDMMYYYY,
   formatTimeInputHHMM,
   normalizeDateInputDDMMYYYY,
   normalizeTimeInputHHMM,
 } from "../utils/clinicalInput";
-import ConfirmDialog from "../components/common/ConfirmDialog";
 import HeaderCard from "../components/case/HeaderCard";
 import allergyCardIcon from "../assets/card-allergy.png";
 import patientCardIcon from "../assets/card-patient.png";
@@ -106,6 +110,11 @@ import timeCardIcon from "../assets/card-time.png";
 import diagnosisCardIcon from "../assets/card-diagnosis.png";
 import procedureCardIcon from "../assets/card-procedure.png";
 import { clampEditionTimelineScale, getEditionInfo, isTimelineParamAllowed } from "../edition/config";
+import {
+  CHART_PREFERENCES_CHANGED_EVENT,
+  chartVisibilityStorageKey,
+  normalizeChartGroups,
+} from "../utils/chartPreferences";
 
 type IoPreparedModalState = {
   runId: number;
@@ -507,16 +516,6 @@ function formatPatientAge(patient: CasePatientInfo | null): string {
   if (months < 0) { years -= 1; months += 12; }
   if (years < 0) return "Age not recorded";
   return years > 0 ? `${years} y${months ? ` ${months} m` : ""}` : `${Math.max(0, months)} m`;
-}
-
-function formatPatientName(patient: CasePatientInfo | null): string {
-  const explicit = String(patient?.patient_name || "").trim();
-  if (explicit) return explicit;
-  const english = [patient?.title_en, patient?.first_name_en, patient?.last_name_en]
-    .map(value => String(value || "").trim()).filter(Boolean).join(" ");
-  if (english) return english;
-  return [patient?.title_th, patient?.first_name, patient?.last_name]
-    .map(value => String(value || "").trim()).filter(Boolean).join(" ") || "Patient name not recorded";
 }
 
 function pickSavedFormText(payload: Record<string, unknown>, keys: string[]): string {
@@ -963,14 +962,14 @@ function medDripGroupTone(category: unknown): string {
   return "other";
 }
 
-export default function CaseView({
+export default function ClinicalChartView({
   caseStatus,
   sessionUser,
   onNavigate,
 }: {
   caseStatus: CaseStatus;
   sessionUser: AuthUser | null;
-  onNavigate?: (view: "patient" | "diagnosis" | "drug") => void;
+  onNavigate?: (view: "patient" | "diagnosis" | "io") => void;
 }) {
   const workstation = useWorkstationSettings();
   const edition = getEditionInfo();
@@ -986,10 +985,18 @@ export default function CaseView({
     );
   };
   const scopeUsername = sessionUser?.username || readStoredUsername();
+  const accountChartGroups = useMemo(
+    () => normalizeChartGroups(sessionUser?.parameterPreferences?.visibleParameters) as VitalGroup[] | null,
+    [sessionUser?.parameterPreferences?.visibleParameters],
+  );
+  const accountSmartContrast = typeof sessionUser?.parameterPreferences?.smartContrast === "boolean"
+    ? sessionUser.parameterPreferences.smartContrast
+    : undefined;
+  const accountTimelineScale = sessionUser?.parameterPreferences?.timeScaleMin;
   const [loadedPrefsScope, setLoadedPrefsScope] = useState("");
   const [axisStepMin, setAxisStepMin] = useState<AxisStepMin>(() =>
     clampEditionTimelineScale(
-      readTimelineScaleForUser(scopeUsername),
+      readTimelineScaleForUser(scopeUsername, accountTimelineScale),
       availableAxisSteps,
     ),
   );
@@ -1025,8 +1032,9 @@ export default function CaseView({
       .finally(() => { if (active) setParameterMasterLoaded(true); });
     return () => { active = false; };
   }, []);
-  const [isIoSectionCollapsed, setIsIoSectionCollapsed] = useState(true);
-  const [isVitalSectionCollapsed, setIsVitalSectionCollapsed] = useState(false);
+  const initialSectionCollapse = readSectionCollapseForUser(scopeUsername);
+  const [isIoSectionCollapsed, setIsIoSectionCollapsed] = useState(initialSectionCollapse.ioCollapsed);
+  const [isVitalSectionCollapsed, setIsVitalSectionCollapsed] = useState(initialSectionCollapse.vitalCollapsed);
   const [isParamMenuOpen, setIsParamMenuOpen] = useState(false);
   const [parameterSearch, setParameterSearch] = useState("");
   const [draftHiddenRowIds, setDraftHiddenRowIds] = useState<string[]>([]);
@@ -1062,7 +1070,7 @@ export default function CaseView({
       return next;
     });
   };
-  const { axis, loading: axisLoading, serverOffsetMs, lastSyncedAt } = useTimeAxis(caseId, caseStatus.status, axisStepMin);
+  const { axis, loading: axisLoading, serverOffsetMs, lastSyncedAt } = useClinicalTimelineAxis(caseId, caseStatus.status, axisStepMin);
   const {
     values: liveValues,
     provenance: storedCellProvenance,
@@ -1173,13 +1181,13 @@ export default function CaseView({
   const caseEvents = useCaseEvents(caseId, caseStatus.status, axis);
   const [caseEventsAll, setCaseEventsAll] = useState<CaseEvent[]>([]);
 
-  const [editValues, setEditValues] = useState<TimeGridValues>({});
+  const [editValues, setEditValues] = useState<ClinicalTimelineValues>({});
   const values = useMemo(
     () => mergeValues(liveValues, editValues),
     [liveValues, editValues],
   );
   const ivyRows = useMemo(() => {
-    const rows = new Map<string, TimeGridRow>();
+    const rows = new Map<string, ClinicalTimelineRow>();
 
     // The server master is authoritative. Constants remain an offline fallback.
     const configuredRows = parameterMaster
@@ -1367,11 +1375,6 @@ export default function CaseView({
   const [quickFluidNote, setQuickFluidNote] = useState("");
   const [quickFluidSaving, setQuickFluidSaving] = useState(false);
   const [quickFluidError, setQuickFluidError] = useState("");
-  const [pendingIoRemove, setPendingIoRemove] = useState<{
-    runId: number;
-    itemName: string;
-  } | null>(null);
-  const [removingIoRunId, setRemovingIoRunId] = useState<number | null>(null);
   const eventModalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1455,7 +1458,7 @@ export default function CaseView({
   useEffect(() => {
     const timer = setInterval(() => {
       setNowTs(Date.now() + serverOffsetMs);
-    }, 1000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [serverOffsetMs]);
 
@@ -1486,14 +1489,32 @@ export default function CaseView({
     setLoadedPrefsScope("");
     setAxisStepMin(
       clampEditionTimelineScale(
-        readTimelineScaleForUser(scopeUsername),
+        readTimelineScaleForUser(scopeUsername, accountTimelineScale),
         availableAxisSteps,
       ),
     );
     setPreferredVisibleRowIds(readVisibleRowsForUser(scopeUsername));
     setHiddenRowIds(readHiddenRowsForUser(scopeUsername));
+    const sectionCollapse = readSectionCollapseForUser(scopeUsername);
+    setIsIoSectionCollapsed(sectionCollapse.ioCollapsed);
+    setIsVitalSectionCollapsed(sectionCollapse.vitalCollapsed);
     setLoadedPrefsScope(scopeUsername);
-  }, [availableAxisSteps, scopeUsername]);
+  }, [accountTimelineScale, availableAxisSteps, scopeUsername]);
+
+  useEffect(() => {
+    const handleChartPreferencesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ username?: string; timeScaleMin?: number }>).detail;
+      if (detail?.username && detail.username !== scopeUsername) return;
+      const next = clampEditionTimelineScale(
+        detail?.timeScaleMin ?? readTimelineScaleForUser(scopeUsername, accountTimelineScale),
+        availableAxisSteps,
+      );
+      setAxisStepMin(next);
+      setScaleDraft(String(next));
+    };
+    window.addEventListener(CHART_PREFERENCES_CHANGED_EVENT, handleChartPreferencesChanged);
+    return () => window.removeEventListener(CHART_PREFERENCES_CHANGED_EVENT, handleChartPreferencesChanged);
+  }, [accountTimelineScale, availableAxisSteps, scopeUsername]);
 
   useEffect(() => {
     if (loadedPrefsScope !== scopeUsername) return;
@@ -1504,6 +1525,18 @@ export default function CaseView({
     );
     localStorage.setItem("flora.timelineScale", String(axisStepMin));
   }, [axisStepMin, loadedPrefsScope, scopeUsername]);
+
+  useEffect(() => {
+    if (loadedPrefsScope !== scopeUsername) return;
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      getSectionCollapseStorageKey(scopeUsername),
+      JSON.stringify({
+        ioCollapsed: isIoSectionCollapsed,
+        vitalCollapsed: isVitalSectionCollapsed,
+      }),
+    );
+  }, [isIoSectionCollapsed, isVitalSectionCollapsed, loadedPrefsScope, scopeUsername]);
 
   useEffect(() => {
     if (!preferredVisibleRowIds) return;
@@ -1648,7 +1681,7 @@ export default function CaseView({
         setCaseEventsAll(rows);
       } catch (err) {
         if (!alive) return;
-        console.error("[CaseView] case event list load failed", err);
+        console.error("[ClinicalChartView] case event list load failed", err);
       }
     }
 
@@ -1698,7 +1731,7 @@ export default function CaseView({
         setIoRuns(runs);
         setIoEvents(events);
       } catch (err) {
-        console.error("[CaseView] io run load failed", err);
+        console.error("[ClinicalChartView] io run load failed", err);
       }
     }
 
@@ -1812,12 +1845,27 @@ export default function CaseView({
     return map;
   }, [sortedPreparedRuns]);
 
-  const ioPreparedRows = useMemo<TimeGridRow[]>(
+  const ioPreparedRows = useMemo<ClinicalTimelineRow[]>(
     () => {
-      const rows = new Map<string, TimeGridRow>();
+      const rows = new Map<string, ClinicalTimelineRow>();
       for (const run of sortedPreparedRuns) {
         const rowId = ioTimelineRowIdForRun(run);
         if (rows.has(rowId)) continue;
+        const totals = new Map<string, number>();
+        if (run.entry_mode !== "drip") {
+          for (const event of ioEvents) {
+            if (event.include_in_balance === 0 || event.kind !== run.kind || event.item_id !== run.item_id) continue;
+            const amount = run.kind === "med" ? Number(event.dose_value) : Number(event.volume_ml);
+            if (!Number.isFinite(amount) || amount <= 0) continue;
+            const unit = run.kind === "med"
+              ? String(event.dose_unit || run.item_unit || "mg").trim()
+              : "mL";
+            totals.set(unit, (totals.get(unit) || 0) + amount);
+          }
+        }
+        const ioTotal = Array.from(totals.entries())
+          .map(([unit, amount]) => `${formatCompactAmount(amount)} ${unit}`)
+          .join(" + ");
         rows.set(rowId, {
           id: rowId,
           label: (() => {
@@ -1834,14 +1882,15 @@ export default function CaseView({
               ? normalizeBloodBagStatus(parseKeyValueFromNote(String(run.note || "")).status)
               : "",
           ioDetail: formatIoRunDetail(run),
+          ioTotal,
         });
       }
       return Array.from(rows.values());
     },
-    [sortedPreparedRuns],
+    [ioEvents, sortedPreparedRuns],
   );
 
-  const ioRowsWithHeader = useMemo<TimeGridRow[]>(
+  const ioRowsWithHeader = useMemo<ClinicalTimelineRow[]>(
     () => [
       { id: "__io_header__", label: "I/O", type: "event" },
       ...ioPreparedRows,
@@ -1854,10 +1903,10 @@ export default function CaseView({
     [ioRowsWithHeader],
   );
 
-  const ioPreparedMarkersByTs = useMemo<Record<number, TimeGridPreparedMarker[]>>(() => {
+  const ioPreparedMarkersByTs = useMemo<Record<number, ClinicalTimelineIoMarker[]>>(() => {
     if (axis.length === 0 || sortedPreparedRuns.length === 0) return {};
     const stepMs = axis.length > 1 ? Math.max(1, axis[1] - axis[0]) : 60_000;
-    const next: Record<number, TimeGridPreparedMarker[]> = {};
+    const next: Record<number, ClinicalTimelineIoMarker[]> = {};
     for (const ts of axis) next[ts] = [];
     const runMap = new Map<string, CaseIoRun[]>();
     for (const run of sortedPreparedRuns) {
@@ -1915,95 +1964,112 @@ export default function CaseView({
       return selectRunForEvent(event, rows);
     };
 
+    const axisStart = axis[0];
+    const axisEndExclusive = axis[axis.length - 1] + stepMs;
+    const bucketTsFor = (rawTs: number) => {
+      if (!Number.isFinite(rawTs) || rawTs < axisStart || rawTs >= axisEndExclusive) return null;
+      const index = Math.floor((rawTs - axisStart) / stepMs);
+      return axis[index] ?? null;
+    };
+    const eventsByBucket = new Map<number, CaseIoEvent[]>();
+    for (const ioEvent of ioEvents) {
+      if (ioEvent.include_in_balance === 0) continue;
+      const amount = ioEvent.kind === "med" ? Number(ioEvent.dose_value) : Number(ioEvent.volume_ml);
+      if (!Number.isFinite(amount) || amount <= 0 || findRunForEvent(ioEvent) == null) continue;
+      const bucketTs = bucketTsFor(Number(ioEvent.event_ts));
+      if (bucketTs == null) continue;
+      const bucket = eventsByBucket.get(bucketTs) || [];
+      bucket.push(ioEvent);
+      eventsByBucket.set(bucketTs, bucket);
+    }
+    const dripStartsByBucket = new Map<
+      number,
+      Array<{ run: CaseIoRun; segment: NonNullable<CaseIoRun["segments"]>[number] }>
+    >();
+    for (const run of sortedPreparedRuns) {
+      if (run.entry_mode !== "drip" || !Array.isArray(run.segments)) continue;
+      const firstSegment = [...run.segments]
+        .filter(segment => isVisibleIoSegment(segment))
+        .sort((a, b) => Number(a.ts_from) - Number(b.ts_from))[0];
+      if (!firstSegment) continue;
+      const bucketTs = bucketTsFor(Number(firstSegment.ts_from));
+      if (bucketTs == null) continue;
+      const bucket = dripStartsByBucket.get(bucketTs) || [];
+      bucket.push({ run, segment: firstSegment });
+      dripStartsByBucket.set(bucketTs, bucket);
+    }
+
     for (const ts of axis) {
-      const bucketStart = ts;
-      const bucketEnd = ts + stepMs;
-      const bucketEvents = ioEvents.filter(event => {
-        if (event.event_ts < bucketStart || event.event_ts >= bucketEnd) return false;
-        if (event.include_in_balance === 0) return false;
-        const amount =
-          event.kind === "med" ? Number(event.dose_value) : Number(event.volume_ml);
-        if (!Number.isFinite(amount) || amount <= 0) return false;
-        return findRunForEvent(event) != null;
-      });
-      const intakeEvent = bucketEvents.find(event => event.kind !== "output");
-      const outputEvent = bucketEvents.find(event => event.kind === "output");
-      const dripSegmentStart = (() => {
-        for (const run of sortedPreparedRuns) {
-          if (!Array.isArray(run.segments)) continue;
-          const segments = [...run.segments]
-            .filter(segment => isVisibleIoSegment(segment))
-            .sort((a, b) => Number(a.ts_from) - Number(b.ts_from));
-          for (let index = 0; index < segments.length; index += 1) {
-            const segment = segments[index];
-            const segStart = Number(segment.ts_from);
-            if (!Number.isFinite(segStart) || segStart < bucketStart || segStart >= bucketEnd) continue;
-            return {
-              run,
-              segment,
-              isFirstSegment: index === 0,
-            };
-          }
+      const bucketEvents = eventsByBucket.get(ts) || [];
+      const markerTypeKey = (marker: ClinicalTimelineIoMarker) => {
+        const category = String(marker.item_category || "").toLowerCase();
+        if (marker.kind === "med") return marker.marker_code === "d" ? "medDrip" : "medBolus";
+        if (marker.kind === "fluid") return category === "bloodproduct" ? "bloodProduct" : "fluid";
+        if (category === "bloodlossoutput") return "bloodLoss";
+        if (category === "urineoutput") return "urine";
+        return "otherOutput";
+      };
+      const markerRank: Record<string, number> = {
+        medBolus: 0,
+        medDrip: 1,
+        fluid: 2,
+        bloodProduct: 3,
+        bloodLoss: 4,
+        urine: 5,
+        otherOutput: 6,
+      };
+      const pushTypeMarker = (marker: ClinicalTimelineIoMarker) => {
+        const typeKey = markerTypeKey(marker);
+        const existing = next[ts].find(candidate => markerTypeKey(candidate) === typeKey);
+        if (existing) {
+          const names = new Set(
+            `${existing.item_name}\n${marker.item_name}`
+              .split("\n")
+              .map(name => name.trim())
+              .filter(Boolean),
+          );
+          existing.item_name = Array.from(names).join("\n");
+          return;
         }
-        return null;
-      })();
+        next[ts].push(marker);
+      };
 
-      if (intakeEvent) {
-        const intakeRun = findRunForEvent(intakeEvent);
-        if (intakeRun) {
-          const intakeLabel =
-            intakeRun.kind === "fluid" &&
-            (intakeRun.item_category || "").toLowerCase() === "bloodproduct"
-              ? "BP"
-              : intakeRun.kind === "fluid"
-                ? "F"
-                : "B";
-          next[ts].push({
-            run_id: intakeRun.id,
-            item_id: intakeRun.item_id,
-            kind: intakeRun.kind,
-            item_name: "Intake",
-            marker_code: "i",
-            marker_label: intakeLabel,
-          });
-        }
-      }
-
-      if (outputEvent) {
-        const outputRun = findRunForEvent(outputEvent);
-        if (outputRun) {
-          next[ts].push({
-            run_id: outputRun.id,
-            item_id: outputRun.item_id,
-            kind: outputRun.kind,
-            item_name: "Output",
-            marker_code: "o",
-            marker_label: "O",
-          });
-        }
-      }
-
-      if (dripSegmentStart?.isFirstSegment) {
-        next[ts].push({
-          run_id: dripSegmentStart.run.id,
-          item_id: dripSegmentStart.run.item_id,
-          kind: dripSegmentStart.run.kind,
-          item_name: formatDripMarkerDetail(dripSegmentStart.run, dripSegmentStart.segment),
-          marker_code: "d",
-          marker_label: "D",
+      for (const ioEvent of bucketEvents) {
+        const run = findRunForEvent(ioEvent);
+        if (!run || run.entry_mode === "drip") continue;
+        pushTypeMarker({
+          run_id: run.id,
+          item_id: run.item_id,
+          kind: run.kind,
+          item_name: run.item_name || run.item_code || (run.kind === "output" ? "Output" : "Intake"),
+          item_category: run.item_category || "",
+          marker_code: run.kind === "output" ? "o" : "i",
         });
       }
+
+      for (const { run, segment: firstSegment } of dripStartsByBucket.get(ts) || []) {
+        pushTypeMarker({
+          run_id: run.id,
+          item_id: run.item_id,
+          kind: run.kind,
+          item_name: formatDripMarkerDetail(run, firstSegment),
+          item_category: run.item_category || "",
+          marker_code: "d",
+        });
+      }
+
+      next[ts].sort((a, b) => markerRank[markerTypeKey(a)] - markerRank[markerTypeKey(b)]);
     }
 
     return next;
   }, [axis, ioEvents, sortedPreparedRuns]);
 
-  const ioGridValues = useMemo<TimeGridValues>(() => {
+  const ioGridValues = useMemo<ClinicalTimelineValues>(() => {
     if (axis.length === 0 || sortedPreparedRuns.length === 0) return {};
     const stepMs = axis.length > 1 ? Math.max(1, axis[1] - axis[0]) : 60_000;
     const startTs = axis[0];
     const endExclusiveTs = axis[axis.length - 1] + stepMs;
-    const next: TimeGridValues = {};
+    const next: ClinicalTimelineValues = {};
     const isIoCellValue = (value: unknown): value is IoGridCellValue =>
       Boolean(
         value &&
@@ -3736,8 +3802,8 @@ export default function CaseView({
           actor,
           reason:
             activeVerificationMode === "manual"
-              ? "caseview blood product manual register refrigerated"
-              : "caseview blood product api verified register refrigerated",
+              ? "clinical-chart blood product manual register refrigerated"
+              : "clinical-chart blood product api verified register refrigerated",
         });
         await createCaseEvent(caseId, {
           event_ts: eventTs,
@@ -3747,7 +3813,7 @@ export default function CaseView({
             ? `Add blood product to case as refrigerated | ${workflowDetail}`
             : "Add blood product to case as refrigerated",
           actor,
-          reason: "caseview blood product refrigerated status",
+          reason: "clinical-chart blood product refrigerated status",
         });
         notifyIoAndEventChanged(caseId);
       } else {
@@ -3755,10 +3821,10 @@ export default function CaseView({
           actor,
           reason:
             activeVerificationMode === "manual"
-              ? "caseview blood product manual give"
+              ? "clinical-chart blood product manual give"
               : activeVerificationMode === "registered"
-                ? "caseview blood product registered warmer give"
-              : "caseview blood product api verified give",
+                ? "clinical-chart blood product registered warmer give"
+              : "clinical-chart blood product api verified give",
           run: { item_id: selectedQuickBloodProductItem.id, route: "IV", note: workflowDetail, include_in_balance: true },
           event: { event_ts: eventTs, volume_ml: volumeMl || 0, note: workflowDetail, include_in_balance: true },
         });
@@ -3817,7 +3883,7 @@ export default function CaseView({
         }
         await createCaseIoDrip(caseId, {
           actor,
-          reason: "caseview fluid running drip entry",
+          reason: "clinical-chart fluid running drip entry",
           run: {
             item_id: selectedQuickFluidItem.id,
             kind: "fluid",
@@ -3851,7 +3917,7 @@ export default function CaseView({
         const rateMlHr = volumeMl / (overMin / 60);
         await createCaseIoDrip(caseId, {
           actor,
-          reason: "caseview fluid over-time entry",
+          reason: "clinical-chart fluid over-time entry",
           run: {
             item_id: selectedQuickFluidItem.id,
             kind: "fluid",
@@ -3877,7 +3943,7 @@ export default function CaseView({
         }
         await createCaseIoEvent(caseId, {
           actor,
-          reason: "caseview fluid bolus entry",
+          reason: "clinical-chart fluid bolus entry",
           item_id: selectedQuickFluidItem.id,
           kind: "fluid",
           event_ts: eventTs,
@@ -4110,7 +4176,7 @@ export default function CaseView({
         if (!manualCategory) {
           throw new Error("Select group before saving manual entry");
         }
-        const createdManualItem = await createDrugDirectoryEntry({
+        const createdManualItem = await createIoCatalogEntry({
           kind: "med",
           code: `manual-med-${Date.now()}`,
           name: manualName,
@@ -4165,7 +4231,7 @@ export default function CaseView({
           entry_mode: "bolus",
           include_in_balance: true,
           note: runNote || undefined,
-          reason: quickMedManualMode ? "caseview quick med manual item" : "caseview quick med save item",
+          reason: quickMedManualMode ? "clinical-chart quick med manual item" : "clinical-chart quick med save item",
           actor,
         });
       }
@@ -4192,7 +4258,7 @@ export default function CaseView({
 
           for (const existing of existingAtTs) {
             promises.push(
-              deleteCaseIoEvent(caseId, existing.id, actor, "caseview quick med bulk replace"),
+              deleteCaseIoEvent(caseId, existing.id, actor, "clinical-chart quick med bulk replace"),
             );
           }
 
@@ -4209,7 +4275,7 @@ export default function CaseView({
               dose_unit: selectedUnit,
               note: eventNote || undefined,
               include_in_balance: true,
-              reason: "caseview quick med bulk bolus",
+              reason: "clinical-chart quick med bulk bolus",
               actor,
             }),
           );
@@ -4264,7 +4330,7 @@ export default function CaseView({
           dose_unit: doseUnit,
           note: eventNote,
           include_in_balance: true,
-          reason: "caseview quick med bolus",
+          reason: "clinical-chart quick med bolus",
           actor,
         });
       } else if (!hasImmediateValue) {
@@ -4365,7 +4431,7 @@ export default function CaseView({
         const manualCategory = quickMedDripManualCategory.trim();
         if (!manualName) throw new Error("Drug name required for manual entry");
         if (!manualCategory) throw new Error("Select group before saving manual entry");
-        const createdManualItem = await createDrugDirectoryEntry({
+        const createdManualItem = await createIoCatalogEntry({
           kind: "med",
           code: `manual-med-${Date.now()}`,
           name: manualName,
@@ -4442,7 +4508,7 @@ export default function CaseView({
           entry_mode: "drip",
           include_in_balance: true,
           note: runNote,
-          reason: "caseview quick med drip edit run",
+          reason: "clinical-chart quick med drip edit run",
           actor,
         });
 
@@ -4456,7 +4522,7 @@ export default function CaseView({
           ) {
             await updateCaseIoSegment(caseId, liveSegment.id, {
               ts_to: startTs,
-              reason: "caseview quick med drip split segment",
+              reason: "clinical-chart quick med drip split segment",
               actor,
             });
             await createCaseIoSegment(caseId, {
@@ -4468,7 +4534,7 @@ export default function CaseView({
               dose_unit: quickMedDripDoseUnit,
               include_in_balance: true,
               note: segmentNote,
-              reason: "caseview quick med drip split segment",
+              reason: "clinical-chart quick med drip split segment",
               actor,
             });
           } else {
@@ -4481,7 +4547,7 @@ export default function CaseView({
               dose_unit: quickMedDripDoseUnit,
               include_in_balance: true,
               note: segmentNote,
-              reason: "caseview quick med drip edit segment",
+              reason: "clinical-chart quick med drip edit segment",
               actor,
             });
           }
@@ -4495,14 +4561,14 @@ export default function CaseView({
             dose_unit: quickMedDripDoseUnit,
             include_in_balance: true,
             note: segmentNote,
-            reason: "caseview quick med drip add segment",
+            reason: "clinical-chart quick med drip add segment",
             actor,
           });
         }
       } else {
         await createCaseIoDrip(caseId, {
           actor,
-          reason: quickMedDripManualMode ? "caseview quick med drip manual start" : "caseview quick med drip start",
+          reason: quickMedDripManualMode ? "clinical-chart quick med drip manual start" : "clinical-chart quick med drip start",
           run: {
             item_id: activeItem.id,
             kind: "med",
@@ -4571,12 +4637,12 @@ export default function CaseView({
     try {
       await updateCaseIoSegment(caseId, segment.id, {
         ts_to: stopTs,
-        reason: "caseview quick med drip stop",
+        reason: "clinical-chart quick med drip stop",
         actor,
       });
       await updateCaseIoRun(caseId, run.id, {
         stopped_at: stopTs,
-        reason: "caseview quick med drip stop",
+        reason: "clinical-chart quick med drip stop",
         actor,
       });
       notifyIoAndEventChanged(caseId);
@@ -4610,29 +4676,6 @@ export default function CaseView({
     void saveQuickMedDrip();
   };
 
-  const confirmRemoveIoRun = async () => {
-    if (!pendingIoRemove) return;
-    if (caseId == null) return;
-    const { runId } = pendingIoRemove;
-    setRemovingIoRunId(runId);
-    setQuickIoError("");
-    try {
-      await discontinueCaseIoRun(caseId, runId, {
-        stopped_at: Date.now(),
-        reason: "caseview remove io row",
-        actor,
-      });
-      notifyIoAndEventChanged(caseId);
-      setPendingIoRemove(null);
-    } catch (err) {
-      setQuickIoError(
-        err instanceof Error ? err.message : "Failed to remove item",
-      );
-    } finally {
-      setRemovingIoRunId(null);
-    }
-  };
-
   const valueTypeForRow = (rowId: string, value: unknown) =>
     rowId === "ecg" ? "code" : typeof value === "number" ? "number" : "text";
 
@@ -4653,7 +4696,7 @@ export default function CaseView({
         "Manual correction in clinical chart",
       );
     } catch (err) {
-      console.error("[CaseView] timeline save failed", err);
+      console.error("[ClinicalChartView] timeline save failed", err);
       for (const change of changes) {
         pendingChangesRef.current.set(
           `${change.param_key}:${change.ts_minute}`,
@@ -4913,7 +4956,7 @@ export default function CaseView({
     setEventModalError("");
   };
 
-  const openEventModalForMarker = (marker: TimeGridEventMarker) => {
+  const openEventModalForMarker = (marker: ClinicalTimelineEventMarker) => {
     const row = caseEventById.get(marker.id);
     const eventTs = row?.event_ts ?? marker.event_ts;
     const eventType = row?.event_type ?? marker.event_type;
@@ -5035,7 +5078,7 @@ export default function CaseView({
           title,
           detail: detailText || undefined,
           actor,
-          reason: "caseview timeline event edit modal",
+          reason: "clinical-chart timeline event edit modal",
         });
       } else {
         await createCaseEvent(caseId, {
@@ -5044,7 +5087,7 @@ export default function CaseView({
           title,
           detail: detailText || undefined,
           actor,
-          reason: "caseview timeline event modal",
+          reason: "clinical-chart timeline event modal",
         });
       }
       window.dispatchEvent(
@@ -5071,7 +5114,7 @@ export default function CaseView({
         caseId,
         eventModalEditingId,
         actor,
-        "caseview timeline event clear modal",
+        "clinical-chart timeline event clear modal",
       );
       window.dispatchEvent(
         new CustomEvent("flora:case-events-changed", { detail: { caseId } }),
@@ -5278,7 +5321,7 @@ export default function CaseView({
 
   const handlePreparedMarkerClick = (
     ts: number,
-    marker: TimeGridPreparedMarker,
+    marker: ClinicalTimelineIoMarker,
   ) => {
     const run = preparedRunById.get(marker.run_id);
     if (!run) return;
@@ -5587,12 +5630,12 @@ export default function CaseView({
           ts_to: endTs,
           rate_value: rateValue,
           rate_unit: "ml/hr",
-          reason: endTs != null ? "caseview stop fluid drip" : "caseview change fluid drip rate",
+          reason: endTs != null ? "clinical-chart stop fluid drip" : "clinical-chart change fluid drip rate",
           actor,
         });
         await updateCaseIoRun(caseId, liveRun.id, {
           stopped_at: endTs,
-          reason: endTs != null ? "caseview stop fluid drip" : "caseview change fluid drip rate",
+          reason: endTs != null ? "clinical-chart stop fluid drip" : "clinical-chart change fluid drip rate",
           actor,
         });
         notifyIoAndEventChanged(caseId);
@@ -5628,7 +5671,7 @@ export default function CaseView({
       if (ioDripModal.segmentId != null) {
         await updateCaseIoSegment(caseId, ioDripModal.segmentId, {
           ...segmentPayload,
-          reason: "caseview edit drip segment",
+          reason: "clinical-chart edit drip segment",
         });
       } else {
         await createCaseIoSegment(caseId, {
@@ -5888,7 +5931,7 @@ export default function CaseView({
             promises.push(updateCaseIoRun(caseId, ioPreparedModal.runId, {
               note: finalNote || null,
               actor,
-              reason: "caseview blood product warmed status",
+              reason: "clinical-chart blood product warmed status",
             }));
           }
         }
@@ -6121,7 +6164,12 @@ export default function CaseView({
   const patientLoaded = patientContext.caseId === caseId;
   const patient = patientLoaded ? patientContext.patient : null;
   const allergies = patientLoaded ? patientContext.allergies : [];
-  const patientName = patientLoaded ? formatPatientName(patient) : "Loading…";
+  const patientName = patientLoaded
+    ? formatPatientDisplayName(
+        patient,
+        normalizePatientNameLanguage(sessionUser?.parameterPreferences?.patientNameLanguage),
+      ) || "Patient name not recorded"
+    : "Loading…";
   const patientAge = patientLoaded ? formatPatientAge(patient) : "Loading…";
   const patientSex = patientLoaded ? String(patient?.sex || "Sex not recorded").trim() : "Loading…";
   const allergySummary = !patientLoaded
@@ -6177,8 +6225,17 @@ export default function CaseView({
     const progress = Math.max(0, Math.min(1, (nowTs - bucketStart) / Math.max(1, bucketEnd - bucketStart)));
     return timelineLabelWidth + (timelineNowIndex + progress) * timelineColWidth;
   })();
+
+  const ioModalPatientContext = (
+    <div className="io-modal__patient-context" aria-label="Active patient and case">
+      <strong>{patientName}</strong>
+      <span>HN {caseStatus.hn || "—"}</span>
+      {patient?.an ? <span>AN {patient.an}</span> : null}
+      <span>Case #{caseStatus.case_id}</span>
+    </div>
+  );
   const renderTimeGrid = (displaySection: "events-io" | "vitals") => (
-    <TimeGrid
+    <ClinicalTimelineGrid
       displaySection={displaySection}
       columns={axis}
       ivyRows={visibleIvyRows}
@@ -6198,12 +6255,6 @@ export default function CaseView({
       onIoHeaderClick={() => setIoAddMenuTs(Date.now())}
       onIoHeaderColumnClick={ts => setIoAddMenuTs(ts)}
       onPreparedMarkerClick={handlePreparedMarkerClick}
-      onIoRowRemove={rowId => {
-        const run = ioRunByRowId.get(rowId);
-        if (!run) return;
-        const runName = run.item_name || run.item_code || `Item ${run.item_id}`;
-        setPendingIoRemove({ runId: run.id, itemName: runName });
-      }}
       sectionCollapseState={{
         ioCollapsed: isIoSectionCollapsed,
         vitalCollapsed: isVitalSectionCollapsed,
@@ -6417,17 +6468,19 @@ export default function CaseView({
               aria-hidden="true"
             />
           ) : null}
-          <TimeAxis axis={axis} nowTs={nowTs} scrollLeft={scrollLeft} viewportWidth={viewportWidth} colWidth={timelineColWidth} labelColWidth={timelineLabelWidth} />
+          <ClinicalTimelineAxis axis={axis} nowTs={nowTs} scrollLeft={scrollLeft} viewportWidth={viewportWidth} colWidth={timelineColWidth} labelColWidth={timelineLabelWidth} />
           <div className="case-kronos__entries">
             {renderTimeGrid("events-io")}
           </div>
-          <TimeChart
+          <VitalSignsTrendChart
             key={`chart-${scopeUsername}-${parameterMasterLoaded ? "master" : "fallback"}`}
             axis={axis}
             values={values}
             nowTs={nowTs}
             configuredGroups={parameterMasterLoaded ? chartGroups : undefined}
-            storageKey={`flora.chartVisibility.${scopeUsername}`}
+            storageKey={chartVisibilityStorageKey(scopeUsername)}
+            preferredVisibleGroups={accountChartGroups || undefined}
+            preferredSmartContrast={accountSmartContrast}
             scrollLeft={scrollLeft}
             viewportWidth={viewportWidth}
             colWidth={timelineColWidth}
@@ -6527,9 +6580,9 @@ export default function CaseView({
 
       {ioAddMenuTs != null && typeof document !== "undefined"
         ? createPortal(
-            <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => setIoAddMenuTs(null)}>
+            <div className="app-theme-scope io-modal-backdrop" onMouseDown={() => setIoAddMenuTs(null)}>
               <section
-                className="case-modal w-full max-w-xl"
+                className="case-modal io-modal w-full max-w-xl"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="case-add-io-title"
@@ -6550,12 +6603,13 @@ export default function CaseView({
                 </header>
 
                 <div className="case-modal__body">
+                  {ioModalPatientContext}
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {[
-                      { key: "med", title: "Medication", detail: "Bolus or one-time dose", icon: "✚", action: openQuickMed },
-                      { key: "drip", title: "Medication infusion", detail: "Continuous drip or rate", icon: "↝", action: openQuickMedDrip },
-                      { key: "fluid", title: "Fluid", detail: "Bolus, timed, or running fluid", icon: "◇", action: openQuickFluid },
-                      { key: "blood", title: "Blood product", detail: "Verify and record a blood product", icon: "◆", action: openBloodProductWorkflow },
+                      { key: "med", title: "Med bolus", detail: "One-time medication dose", icon: "✚", action: openQuickMed },
+                      { key: "drip", title: "Med drip", detail: "Start a medication infusion", icon: "↝", action: openQuickMedDrip },
+                      { key: "fluid", title: "Fluid", detail: "Bolus or infusion", icon: "◇", action: openQuickFluid },
+                      { key: "blood", title: "Blood product", detail: "Verify and record a bag", icon: "◆", action: openBloodProductWorkflow },
                     ].map(option => (
                       <button
                         key={option.key}
@@ -6578,7 +6632,7 @@ export default function CaseView({
                       type="button"
                       onClick={() => {
                         setIoAddMenuTs(null);
-                        onNavigate?.("drug");
+                        onNavigate?.("io");
                       }}
                       className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] sm:col-span-2"
                     >
@@ -6931,17 +6985,20 @@ export default function CaseView({
       {quickMedOpen && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={closeQuickMed}
             >
               <div
-                className="w-full max-w-2xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-3 space-y-3 shadow-2xl backdrop-blur"
+                className="io-modal w-full max-w-2xl p-4 space-y-3"
+                role="dialog"
+                aria-modal="true"
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={handleQuickMedKeyDown}
               >
+                {ioModalPatientContext}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">Medication bolus</div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">
                         {selectedQuickMedItem?.name || "Medication"}
@@ -7390,17 +7447,20 @@ export default function CaseView({
       {quickMedDripOpen && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={closeQuickMedDrip}
             >
               <div
-                className="w-full max-w-3xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-4 space-y-3 shadow-2xl backdrop-blur"
+                className="io-modal w-full max-w-3xl p-4 space-y-3"
+                role="dialog"
+                aria-modal="true"
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={handleQuickMedDripKeyDown}
               >
+                {ioModalPatientContext}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">Medication drip</div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">Medication</span>
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-violet-500/20 text-violet-300">
@@ -7656,7 +7716,7 @@ export default function CaseView({
                     onChange={e => setQuickMedDripAmountUnit(e.target.value)}
                   >
                     {CASEVIEW_UOM_OPTIONS.map(unit => (
-                      <option key={`caseview-med-drip-unit-${unit}`} value={unit}>
+                      <option key={`clinical-chart-med-drip-unit-${unit}`} value={unit}>
                         {normalizeDisplayUnit("med", unit)}
                       </option>
                     ))}
@@ -7674,7 +7734,7 @@ export default function CaseView({
                   >
                     <option value="">Undilute</option>
                     {carrierFluidOptions.map(item => (
-                      <option key={`caseview-med-drip-carrier-${item.id}`} value={item.id}>
+                      <option key={`clinical-chart-med-drip-carrier-${item.id}`} value={item.id}>
                         {item.name}
                       </option>
                     ))}
@@ -7720,7 +7780,7 @@ export default function CaseView({
                     }
                   >
                     {quickMedDripDoseUnitOptions.map(unit => (
-                      <option key={`caseview-med-drip-dose-unit-${unit}`} value={unit}>
+                      <option key={`clinical-chart-med-drip-dose-unit-${unit}`} value={unit}>
                         {normalizeDisplayUnit("med", unit)}
                       </option>
                     ))}
@@ -7887,13 +7947,16 @@ export default function CaseView({
       {bloodBoardOpen && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={() => setBloodBoardOpen(false)}
             >
               <div
-                className="flex h-[min(90vh,820px)] w-[min(96vw,1440px)] flex-col overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-5 shadow-2xl backdrop-blur"
+                className="io-modal flex h-[min(90vh,820px)] w-[min(96vw,1440px)] flex-col p-5"
+                role="dialog"
+                aria-modal="true"
                 onMouseDown={event => event.stopPropagation()}
               >
+                {ioModalPatientContext}
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <div className="text-base font-semibold">Blood Board</div>
@@ -8409,11 +8472,13 @@ export default function CaseView({
       {quickBloodProductOpen && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={closeQuickBloodProduct}
             >
               <div
-                className="w-full max-w-xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-4 space-y-3 shadow-2xl backdrop-blur"
+                className="io-modal w-full max-w-xl p-4 space-y-3"
+                role="dialog"
+                aria-modal="true"
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={e => {
                   if (quickBloodProductSaving) return;
@@ -8421,9 +8486,10 @@ export default function CaseView({
                   if (e.key === "Enter" && !e.shiftKey && !showQuickBloodProductDropdown) { e.preventDefault(); void saveQuickBloodProduct(); }
                 }}
               >
+                {ioModalPatientContext}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">Blood product</div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">Blood Product</span>
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-rose-500/20 text-rose-300">
@@ -8630,11 +8696,13 @@ export default function CaseView({
       {quickFluidOpen && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={closeQuickFluid}
             >
               <div
-                className="w-full max-w-xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-5 space-y-4 shadow-2xl backdrop-blur"
+                className="io-modal w-full max-w-xl p-5 space-y-4"
+                role="dialog"
+                aria-modal="true"
                 data-qfluid-modal
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={e => {
@@ -8643,9 +8711,10 @@ export default function CaseView({
                   if (e.key === "Enter" && !e.shiftKey && !showQuickFluidDropdown) { e.preventDefault(); void saveQuickFluid(); }
                 }}
               >
+                {ioModalPatientContext}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">Fluid</div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">Fluid</span>
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-cyan-500/20 text-cyan-300">
@@ -8895,13 +8964,16 @@ export default function CaseView({
       {ioDripModal && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={closeIoDripModal}
             >
               <div
-                className="w-full max-w-2xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-3 space-y-2 shadow-2xl backdrop-blur"
+                className="io-modal w-full max-w-2xl p-4 space-y-3"
+                role="dialog"
+                aria-modal="true"
                 onMouseDown={e => e.stopPropagation()}
               >
+                {ioModalPatientContext}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-sm font-semibold leading-none">
@@ -9066,7 +9138,7 @@ export default function CaseView({
                           className="rounded border px-2 py-1.5"
                         >
                           {DOSE_PER_KG_RATE_UNITS.map(unit => (
-                            <option key={`caseview-dose-unit-${unit}`} value={unit}>
+                            <option key={`clinical-chart-dose-unit-${unit}`} value={unit}>
                               {unit}
                             </option>
                           ))}
@@ -9222,17 +9294,26 @@ export default function CaseView({
       {ioPreparedModal && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="app-theme-scope fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 px-3"
+              className="app-theme-scope io-modal-backdrop"
               onMouseDown={closeIoModal}
             >
               <div
-                className="w-full max-w-2xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] p-3 space-y-2 shadow-2xl backdrop-blur"
+                className="io-modal w-full max-w-2xl p-4 space-y-3"
+                role="dialog"
+                aria-modal="true"
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={handleIoModalKeyDown}
               >
+                {ioModalPatientContext}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">
+                      {ioPreparedModal.kind === "output"
+                        ? "Output"
+                        : ioPreparedModal.kind === "fluid"
+                          ? "Fluid entry"
+                          : "Medication entry"}
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">
                         {ioPreparedModal.itemName}
@@ -9382,7 +9463,7 @@ export default function CaseView({
                         </label>
                         <input
                           type="text"
-                          list="caseview-blood-groups"
+                          list="clinical-chart-blood-groups"
                           className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full uppercase"
                           placeholder="A+, O-, ..."
                           value={ioModalBloodGroup}
@@ -9507,7 +9588,7 @@ export default function CaseView({
                 {ioModalError ? (
                   <div className="text-xs text-red-600 dark:text-red-400 px-1">{ioModalError}</div>
                 ) : null}
-                <datalist id="caseview-blood-groups">
+                <datalist id="clinical-chart-blood-groups">
                   {BLOOD_GROUP_OPTIONS.map(group => (
                     <option key={group} value={group} />
                   ))}
@@ -9564,20 +9645,6 @@ export default function CaseView({
             document.body,
           )
         : null}
-
-      <ConfirmDialog
-        open={pendingIoRemove != null}
-        title="Remove Item?"
-        message={
-          pendingIoRemove
-            ? `Remove "${pendingIoRemove.itemName}" from current case?\n\nThis will exclude related entries from fluid balance totals.`
-            : ""
-        }
-        confirmLabel="Remove"
-        busy={pendingIoRemove != null && removingIoRunId === pendingIoRemove.runId}
-        onCancel={() => setPendingIoRemove(null)}
-        onConfirm={confirmRemoveIoRun}
-      />
 
     </div>
   );

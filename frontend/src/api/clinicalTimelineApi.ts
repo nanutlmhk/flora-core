@@ -2,7 +2,7 @@ import { BACKEND_BASE } from "./backendBase";
 
 const BASE = `${BACKEND_BASE}/api/case`;
 
-export async function getTimeAxis(
+export async function getClinicalTimelineAxis(
   caseId: number,
   stepMin = 1,
 ): Promise<{ axis: number[]; serverTime: number }> {

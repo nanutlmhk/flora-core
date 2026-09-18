@@ -13,7 +13,7 @@ import reportMenuIcon from "../assets/menu-report.png";
 import configMenuIcon from "../assets/menu-config.png";
 import archiveMenuIcon from "../assets/menu-archive.png";
 
-export type AppView = "case" | "form" | "diagnosis" | "staff" | "drug" | "patient" | "report" | "master" | "account" | "fleet" | "history";
+export type AppView = "case" | "form" | "diagnosis" | "staff" | "io" | "patient" | "report" | "master" | "account" | "fleet" | "history";
 
 type Props = {
   activeView: AppView;
@@ -78,7 +78,7 @@ function SidebarBody({ activeView, setActiveView, sessionUser, caseStatus, colla
         ]
       : [
           { view: "case", label: "Chart", icon: "chart" },
-          { view: "drug", label: "I/O", icon: "io" },
+          { view: "io", label: "I/O", icon: "io" },
           { view: "diagnosis", label: "Diag/Ops", icon: "clinical" },
           { view: "form", label: "Forms", icon: "form" },
           { view: "staff", label: "Staff", icon: "staff" },

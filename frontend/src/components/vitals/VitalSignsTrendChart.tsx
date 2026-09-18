@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { TimeGridValues } from "../timegrid/types";
-import { COL_WIDTH, LABEL_COL_WIDTH } from "../timegrid/layout";
+import type { ClinicalTimelineValues } from "../clinical-timeline/types";
+import { COL_WIDTH, LABEL_COL_WIDTH } from "../clinical-timeline/layout";
 import { useVirtualColumns } from "../../hooks/useVirtualColumns";
 import ClinicalReferenceTooltip from "../common/ClinicalReferenceTooltip";
 import { formatConfiguredTime, getStoredDateTimePreferences } from "../../utils/dateTime";
 import { useTheme } from "../../context/ThemeContext";
+import { CHART_PREFERENCES_CHANGED_EVENT } from "../../utils/chartPreferences";
 
 export type VitalGroup = "spo2" | "hr" | "pr" | "nibp" | "art" | "cvp" | "temp";
 
@@ -29,7 +30,7 @@ type XY = {
 
 type Props = {
   axis: number[];
-  values: TimeGridValues;
+  values: ClinicalTimelineValues;
   nowTs: number;
   height?: number;
   colWidth?: number;
@@ -38,6 +39,8 @@ type Props = {
   viewportWidth?: number;
   configuredGroups?: ChartGroupConfig[];
   storageKey?: string;
+  preferredVisibleGroups?: VitalGroup[];
+  preferredSmartContrast?: boolean;
 };
 
 const CHART_MIN = 0;
@@ -72,18 +75,25 @@ const FALLBACK_GROUPS: ChartGroupConfig[] = [
   { key: "temp", label: "Temp", defaultVisible: false, marker: "diamond" },
 ];
 
-function initialVisibleGroups(groups: ChartGroupConfig[], storageKey?: string): VitalGroup[] {
+function initialVisibleGroups(
+  groups: ChartGroupConfig[],
+  storageKey?: string,
+  preferredVisibleGroups?: VitalGroup[],
+): VitalGroup[] {
   const available = new Set(groups.map(group => group.key));
   if (storageKey && typeof window !== "undefined") {
     try {
       const saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]") as unknown;
       if (Array.isArray(saved)) {
         const valid = saved.filter((key): key is VitalGroup => typeof key === "string" && available.has(key as VitalGroup));
-        if (valid.length > 0) return valid;
+        return valid;
       }
     } catch {
       // Ignore stale or malformed preferences and use the configured defaults.
     }
+  }
+  if (preferredVisibleGroups) {
+    return preferredVisibleGroups.filter(key => available.has(key));
   }
   return groups.filter(group => group.defaultVisible).map(group => group.key);
 }
@@ -92,9 +102,10 @@ function smartContrastKey(storageKey?: string) {
   return `${storageKey || "flora.chart"}.smartContrast`;
 }
 
-function initialSmartContrast(storageKey?: string) {
-  if (typeof window === "undefined") return true;
-  return window.localStorage.getItem(smartContrastKey(storageKey)) !== "0";
+function initialSmartContrast(storageKey?: string, preferred?: boolean) {
+  if (typeof window === "undefined") return preferred ?? true;
+  const saved = window.localStorage.getItem(smartContrastKey(storageKey));
+  return saved == null ? preferred ?? true : saved !== "0";
 }
 
 type Rgb = { r: number; g: number; b: number };
@@ -300,7 +311,7 @@ function SeriesGlyph({ marker = "circle", color, className = "h-3 w-3" }: { mark
   </svg>;
 }
 
-export default function TimeChart({
+export default function VitalSignsTrendChart({
   axis,
   values,
   nowTs,
@@ -311,6 +322,8 @@ export default function TimeChart({
   viewportWidth = 0,
   configuredGroups,
   storageKey,
+  preferredVisibleGroups,
+  preferredSmartContrast,
 }: Props) {
   const { color: themeCode, schemes } = useTheme();
   const chartGroups = useMemo(
@@ -320,15 +333,23 @@ export default function TimeChart({
   const groupConfig = useMemo(() => new Map(chartGroups.map(group => [group.key, group])), [chartGroups]);
   const [hoverColumnIndex, setHoverColumnIndex] = useState<number | null>(null);
   const [rulerValue, setRulerValue] = useState<number | null>(null);
-  const [visibleGroups, setVisibleGroups] = useState<VitalGroup[]>(() => initialVisibleGroups(chartGroups, storageKey));
+  const [visibleGroups, setVisibleGroups] = useState<VitalGroup[]>(() => initialVisibleGroups(chartGroups, storageKey, preferredVisibleGroups));
   const [configOpen, setConfigOpen] = useState(false);
   const [draftVisibleGroups, setDraftVisibleGroups] = useState<VitalGroup[]>(visibleGroups);
-  const [smartContrast, setSmartContrast] = useState(() => initialSmartContrast(storageKey));
+  const [smartContrast, setSmartContrast] = useState(() => initialSmartContrast(storageKey, preferredSmartContrast));
   const [draftSmartContrast, setDraftSmartContrast] = useState(smartContrast);
   const activeTheme = schemes.find(theme => theme.code === themeCode);
   const themeCanvas = parseHexColor(activeTheme?.colors[0] || "#FFFFFF") || { r: 255, g: 255, b: 255 };
   const themeSurface = parseHexColor(activeTheme?.colors[1] || "#FFFFFF") || themeCanvas;
   const chartBackground = mixRgb(themeCanvas, themeSurface, 0.2);
+  useEffect(() => {
+    const applyStoredPreferences = () => {
+      setVisibleGroups(initialVisibleGroups(chartGroups, storageKey, preferredVisibleGroups));
+      setSmartContrast(initialSmartContrast(storageKey, preferredSmartContrast));
+    };
+    window.addEventListener(CHART_PREFERENCES_CHANGED_EVENT, applyStoredPreferences);
+    return () => window.removeEventListener(CHART_PREFERENCES_CHANGED_EVENT, applyStoredPreferences);
+  }, [chartGroups, preferredSmartContrast, preferredVisibleGroups, storageKey]);
   const seriesColor = (key: VitalGroup) => {
     const configured = groupConfig.get(key)?.color;
     return configured ? smartContrastColor(configured, chartBackground, smartContrast) : groupColor(key);
@@ -371,24 +392,14 @@ export default function TimeChart({
     setConfigOpen(false);
   };
 
-  if (axis.length === 0) return null;
-
   const chartKeys = ["spo2", "hr", "pr", "nibp_sys", "nibp_map", "nibp_dia", "art_sys", "art_map", "art_dia", "cvp", "temperature"];
   const hasChartReadings = chartKeys.some(key =>
     Object.values(values[key] || {}).some(value => value !== "" && value != null && Number.isFinite(Number(value))),
   );
-  if (!hasChartReadings) {
-    return (
-      <div className="timechart-empty flex h-12 items-center border-b text-xs" style={{ width: labelColWidth + axis.length * colWidth }}>
-        <strong className="timechart-sticky-label timegrid-cell-border sticky left-0 z-[100] shrink-0 border-r px-3 py-4 text-[var(--app-text)]" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
-        <span className="px-4">No vital readings in this time window</span>
-      </div>
-    );
-  }
 
   const stepMs = axis.length > 1 ? Math.max(1, axis[1] - axis[0]) : MINUTE_MS;
-  const startTs = axis[0];
-  const endExclusiveTs = axis[axis.length - 1] + stepMs;
+  const startTs = axis[0] ?? 0;
+  const endExclusiveTs = (axis[axis.length - 1] ?? startTs) + stepMs;
   const chartWidth = axis.length * colWidth;
   const innerHeight = Math.max(0, height - CHART_PADDING_Y * 2);
 
@@ -401,54 +412,90 @@ export default function TimeChart({
     return CHART_PADDING_Y + (1 - focused) * innerHeight;
   };
 
-  const xForTs = (ts: number) =>
-    ((ts - startTs + MINUTE_MS / 2) / stepMs) * colWidth;
+  const normalizedSeries = useMemo(() => {
+    const keys = [
+      "spo2", "hr", "pr", "nibp_sys", "nibp_map", "nibp_dia",
+      "art_sys", "art_map", "art_dia", "cvp", "temperature",
+    ];
+    const result = new Map<string, Array<{ ts: number; value: number }>>();
+    for (const key of keys) {
+      const row = values[key];
+      if (!row) {
+        result.set(key, []);
+        continue;
+      }
+      const points = Object.entries(row)
+        .map(([tsKey, raw]) => ({ ts: Number(tsKey), value: toNumber(raw) }))
+        .filter(
+          (point): point is { ts: number; value: number } =>
+            Number.isFinite(point.ts) && point.value != null,
+        )
+        .sort((a, b) => a.ts - b.ts);
+      result.set(key, points);
+    }
+    return result;
+  }, [values]);
 
-  const pointsFor = (key: string): XY[] => {
-    const row = values[key];
-    if (!row) return [];
-
-    // Buffer for line drawing continuity
+  const visibleSeries = useMemo(() => {
     const buffer = 5;
     const sIdx = Math.max(0, startIndex - buffer);
     const eIdx = Math.min(axis.length - 1, endIndex + buffer);
-    const minTs = axis[sIdx];
-    const maxTs = axis[eIdx] + stepMs;
+    const minTs = axis[sIdx] ?? startTs;
+    const maxTs = (axis[eIdx] ?? startTs) + stepMs;
+    const pointForValue = (ts: number, value: number): XY => {
+      const x = ((ts - startTs + MINUTE_MS / 2) / stepMs) * colWidth;
+      const clamped = Math.min(CHART_MAX, Math.max(CHART_MIN, value));
+      const normalized = (clamped - CHART_MIN) / (CHART_MAX - CHART_MIN);
+      const focused = normalized * normalized * (3 - 2 * normalized);
+      return {
+        ts,
+        x,
+        y: CHART_PADDING_Y + (1 - focused) * innerHeight,
+        value,
+      };
+    };
+    const pointsFor = (key: string): XY[] =>
+      (normalizedSeries.get(key) || [])
+        .filter(point => point.ts >= minTs && point.ts < maxTs)
+        .map(point => pointForValue(point.ts, point.value))
+        .filter(point => point.x >= 0 && point.x <= chartWidth);
 
-    return Object.entries(row)
-      .map(([tsKey, raw]) => {
-        const ts = Number(tsKey);
-        const n = toNumber(raw);
-        return { ts, n };
-      })
-      .filter(
-        (p): p is { ts: number; n: number } =>
-          Number.isFinite(p.ts) &&
-          p.n != null &&
-          p.ts >= minTs &&
-          p.ts < maxTs,
-      )
-      .sort((a, b) => a.ts - b.ts)
-      .map(p => ({
-        ts: p.ts,
-        x: xForTs(p.ts),
-        y: yFor(p.n),
-        value: p.n,
-      }))
-      .filter(p => p.x >= 0 && p.x <= chartWidth);
-  };
+    return {
+      spo2: pointsFor("spo2"),
+      hr: pointsFor("hr"),
+      pr: pointsFor("pr"),
+      nibpSys: pointsFor("nibp_sys"),
+      nibpMap: pointsFor("nibp_map"),
+      nibpDia: pointsFor("nibp_dia"),
+      artSys: pointsFor("art_sys"),
+      artMap: pointsFor("art_map"),
+      artDia: pointsFor("art_dia"),
+      cvp: pointsFor("cvp"),
+      temp: pointsFor("temperature"),
+    };
+  }, [axis, chartWidth, colWidth, endIndex, innerHeight, normalizedSeries, startIndex, startTs, stepMs]);
 
-  const spo2Points = pointsFor("spo2");
-  const hrPoints = pointsFor("hr");
-  const prPoints = pointsFor("pr");
-  const nibpSysPoints = pointsFor("nibp_sys");
-  const nibpMapPoints = pointsFor("nibp_map");
-  const nibpDiaPoints = pointsFor("nibp_dia");
-  const artSysPoints = pointsFor("art_sys");
-  const artMapPoints = pointsFor("art_map");
-  const artDiaPoints = pointsFor("art_dia");
-  const cvpPoints = pointsFor("cvp");
-  const tempPoints = pointsFor("temperature");
+  if (axis.length === 0) return null;
+  if (!hasChartReadings) {
+    return (
+      <div className="timechart-empty flex h-12 items-center border-b text-xs" style={{ width: labelColWidth + axis.length * colWidth }}>
+        <strong className="timechart-sticky-label timegrid-cell-border sticky left-0 z-[100] shrink-0 border-r px-3 py-4 text-[var(--app-text)]" style={{ width: labelColWidth }}>VITAL SIGNS</strong>
+        <span className="px-4">No vital readings in this time window</span>
+      </div>
+    );
+  }
+
+  const spo2Points = visibleSeries.spo2;
+  const hrPoints = visibleSeries.hr;
+  const prPoints = visibleSeries.pr;
+  const nibpSysPoints = visibleSeries.nibpSys;
+  const nibpMapPoints = visibleSeries.nibpMap;
+  const nibpDiaPoints = visibleSeries.nibpDia;
+  const artSysPoints = visibleSeries.artSys;
+  const artMapPoints = visibleSeries.artMap;
+  const artDiaPoints = visibleSeries.artDia;
+  const cvpPoints = visibleSeries.cvp;
+  const tempPoints = visibleSeries.temp;
   const nibpConnectors = buildVerticalConnectors(
     "nibp",
     nibpSysPoints,

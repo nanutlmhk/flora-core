@@ -1,4 +1,4 @@
-import type { AxisStepMin } from "../views/caseview/constants";
+import type { AxisStepMin } from "../views/clinical-chart/constants";
 
 export type FloraEditionCode = "full" | "rcat" | "eforl";
 export type FloraSurfaceCode = "leaf" | "canopy";

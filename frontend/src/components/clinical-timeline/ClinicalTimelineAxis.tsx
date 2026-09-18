@@ -1,4 +1,4 @@
-import { COL_WIDTH, LABEL_COL_WIDTH } from "../timegrid/layout";
+import { COL_WIDTH, LABEL_COL_WIDTH } from "./layout";
 import { useVirtualColumns } from "../../hooks/useVirtualColumns";
 import { useWorkstationSettings } from "../../hooks/useWorkstationSettings";
 import { formatConfiguredTime } from "../../utils/dateTime";
@@ -12,7 +12,7 @@ type Props = {
   viewportWidth?: number;
 };
 
-export default function TimeAxis({
+export default function ClinicalTimelineAxis({
   axis,
   nowTs,
   colWidth = COL_WIDTH,

@@ -1166,15 +1166,15 @@ input {
 }
 
 /* Keep datalist/autofill controls on app theme colors after selection */
-.app-theme-scope .caseview-io-item-input {
+.app-theme-scope .clinical-chart-io-item-input {
   appearance: none;
   -webkit-appearance: none;
 }
 
-.app-theme-scope .caseview-io-item-input:-webkit-autofill,
-.app-theme-scope .caseview-io-item-input:-webkit-autofill:hover,
-.app-theme-scope .caseview-io-item-input:-webkit-autofill:focus,
-.app-theme-scope .caseview-io-item-input:-webkit-autofill:active {
+.app-theme-scope .clinical-chart-io-item-input:-webkit-autofill,
+.app-theme-scope .clinical-chart-io-item-input:-webkit-autofill:hover,
+.app-theme-scope .clinical-chart-io-item-input:-webkit-autofill:focus,
+.app-theme-scope .clinical-chart-io-item-input:-webkit-autofill:active {
   -webkit-text-fill-color: var(--app-text) !important;
   box-shadow: 0 0 0 1000px var(--app-control-bg) inset !important;
   transition: background-color 9999s ease-out 0s;
@@ -1569,6 +1569,84 @@ input {
 .case-modal__button--primary { border-color: var(--app-accent); background: var(--app-accent); color: var(--app-accent-contrast); }
 .case-modal__button--primary:hover:not(:disabled) { filter: brightness(1.06); }
 .case-modal__button:disabled { cursor: not-allowed; opacity: .48; }
+
+/* Shared clinical entry surface used by every I/O workflow.  The views keep
+   their domain-specific fields and save handlers; this layer makes the modal
+   hierarchy, controls, actions, scrolling, and mobile treatment consistent. */
+.io-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, #050807 58%, transparent);
+  backdrop-filter: blur(3px);
+}
+.io-modal {
+  width: 100%;
+  max-height: min(90dvh, 56rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--app-panel-bg);
+  color: var(--app-text);
+  box-shadow: 0 1.5rem 4rem color-mix(in srgb, #000 42%, transparent);
+  scrollbar-gutter: stable;
+}
+.io-modal :is(input,select,textarea) {
+  min-height: 2.65rem;
+  border-color: var(--app-control-border);
+  border-radius: .68rem;
+  background: var(--app-control-bg);
+  color: var(--app-text);
+  outline: none;
+}
+.io-modal :is(input,select,textarea):focus {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 3px var(--app-control-focus);
+}
+.io-modal :is(input,select,textarea)::placeholder { color: var(--app-muted); opacity: .74; }
+.io-modal > :first-child { scroll-margin-top: 1rem; }
+.io-modal button { min-height: 2.5rem; }
+.io-modal button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.io-modal button:is(.bg-blue-600,.bg-violet-600) {
+  border-color: var(--app-accent) !important;
+  background: var(--app-accent) !important;
+  color: var(--app-accent-contrast) !important;
+}
+.io-modal button:is(.bg-blue-600,.bg-violet-600):hover:not(:disabled) { filter: brightness(1.06); }
+.io-modal .io-modal__patient-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .25rem .65rem;
+  border: 1px solid var(--app-border);
+  border-radius: .72rem;
+  background: color-mix(in srgb,var(--app-accent) 6%,var(--app-control-bg));
+  padding: .55rem .7rem;
+  color: var(--app-muted);
+  font-size: .72rem;
+  font-weight: 650;
+}
+.io-modal .io-modal__patient-context strong { color: var(--app-text); }
+
+@media (max-width: 640px) {
+  .io-modal-backdrop { align-items: flex-end; padding: 0; }
+  .io-modal {
+    max-height: 94dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 1rem 1rem 0 0;
+    padding-bottom: max(.75rem,env(safe-area-inset-bottom));
+  }
+  .io-modal :is(.grid-cols-\[100px_1fr_120px\],.grid-cols-\[110px_1fr_120px\],.grid-cols-\[100px_1fr_110px\],.grid-cols-\[100px_1fr_90px\],.grid-cols-\[80px_1fr\],.grid-cols-\[72px_1fr\]) {
+    grid-template-columns: minmax(0,1fr);
+  }
+}
 
 .case-modal--allergy { width: min(100%, 52rem); }
 .case-modal--event { width: min(100%, 46rem); }
@@ -2133,7 +2211,7 @@ input {
     inset 0 -1px 0 var(--timegrid-row-active-line);
 }
 
-/* TimeGrid lives in an overflow-y container; show tooltips below cell to avoid clipping under chart area */
+/* Clinical timeline grids live in an overflow-y container; show tooltips below cells to avoid clipping under the chart area. */
 .timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):hover::after,
 .timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):focus-visible::after,
 .timegrid-compact .app-tooltip[data-tooltip]:not([data-tooltip=""]):active::after {

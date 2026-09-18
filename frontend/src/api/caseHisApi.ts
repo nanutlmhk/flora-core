@@ -21,6 +21,8 @@ export type CasePatientInfo = {
   dob?: string | null;
   age_text?: string | null;
   weight_kg?: number | null;
+  asa_status?: string | null;
+  asa_emergency?: boolean;
   height_cm?: number | null;
   blood_group_text?: string | null;
   blood_group_abo?: string | null;
@@ -379,6 +381,8 @@ export async function getCasePatientInfo(caseId: number): Promise<CasePatientInf
     dob: optionalText(row.dob || row.date_of_birth),
     age_text: optionalText(row.age_text || row.age),
     weight_kg: numberOrNull(row.weight_kg || row.weightKg),
+    asa_status: optionalText(row.asa_status || row.asaStatus),
+    asa_emergency: row.asa_emergency === true || row.asaEmergency === true || Number(row.asa_emergency || row.asaEmergency || 0) === 1,
     height_cm: numberOrNull(row.height_cm || row.heightCm),
     blood_group_text: optionalText(row.blood_group_text || row.bloodGroupText),
     blood_group_abo: optionalText(row.blood_group_abo || row.bloodGroupABO),

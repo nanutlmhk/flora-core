@@ -11,6 +11,7 @@ import {
 } from "../api/workstationApi";
 import {
   getPreferenceMasters,
+  mergeStoredAuthUser,
   createLanguageMaster,
   createThemeMaster,
   deleteLanguageMaster,
@@ -19,6 +20,7 @@ import {
   updateLanguageMaster,
   updateLanguageTranslations,
   updateThemeMaster,
+  updateOwnPreferences,
   type LanguageMasterRow,
   type ThemeMasterRow,
 } from "../api/authApi";
@@ -34,7 +36,12 @@ import {
   type ClinicalDomain,
   type ObservationParameter,
 } from "../api/terminologyApi";
-import { createIoGroup, deactivateIoGroup, getIoGroups, updateIoGroup, type IoGroup } from "../api/drugApi";
+import { createIoGroup, deactivateIoGroup, getIoGroups, updateIoGroup, type IoGroup } from "../api/ioCatalogApi";
+import {
+  CHART_PREFERENCES_CHANGED_EVENT,
+  chartVisibilityStorageKey,
+  readLocalSmartContrast,
+} from "../utils/chartPreferences";
 
 type ManageTab = "user" | "location" | "datetime" | "language" | "scheme" | "chart" | "terminology" | "staff" | "database" | "license";
 
@@ -233,13 +240,49 @@ function ConceptFields({ value, onChange }: { value: ClinicalConcept; onChange: 
   </div>;
 }
 
-function ChartParameterTab() {
+function ChartParameterTab({ sessionUser }: { sessionUser: AuthUser | null }) {
   const [rows, setRows] = useState<ObservationParameter[]>([]);
   const [busyKey, setBusyKey] = useState("");
   const [note, setNote] = useState("");
+  const [smartContrast, setSmartContrast] = useState(() => {
+    const username = sessionUser?.username || "guest";
+    return readLocalSmartContrast(username) ?? sessionUser?.parameterPreferences?.smartContrast !== false;
+  });
+  const [smartContrastBusy, setSmartContrastBusy] = useState(false);
   useEffect(() => {
     void getObservationParameters().then(setRows).catch(error => setNote(error instanceof Error ? error.message : "Unable to load parameter layout"));
   }, []);
+  useEffect(() => {
+    const username = sessionUser?.username || "guest";
+    setSmartContrast(readLocalSmartContrast(username) ?? sessionUser?.parameterPreferences?.smartContrast !== false);
+  }, [sessionUser?.parameterPreferences?.smartContrast, sessionUser?.username]);
+  const changeSmartContrast = async (next: boolean) => {
+    if (!sessionUser) return;
+    const previous = smartContrast;
+    setSmartContrast(next);
+    setSmartContrastBusy(true);
+    setNote("");
+    try {
+      const saved = await updateOwnPreferences({
+        parameterPreferences: {
+          ...(sessionUser.parameterPreferences || {}),
+          smartContrast: next,
+        },
+      });
+      mergeStoredAuthUser(saved);
+      window.localStorage.setItem(`${chartVisibilityStorageKey(saved.username)}.smartContrast`, next ? "1" : "0");
+      window.dispatchEvent(new CustomEvent(CHART_PREFERENCES_CHANGED_EVENT, {
+        detail: { username: saved.username, smartContrast: next },
+      }));
+      window.dispatchEvent(new Event("flora:auth-changed"));
+      setNote("Smart invert saved.");
+    } catch (error) {
+      setSmartContrast(previous);
+      setNote(error instanceof Error ? error.message : "Unable to save Smart invert");
+    } finally {
+      setSmartContrastBusy(false);
+    }
+  };
   const patchRow = (key: string, patch: Partial<ObservationParameter>) => {
     setRows(current => current.map(row => row.param_key === key ? { ...row, ...patch } : row));
   };
@@ -260,8 +303,15 @@ function ChartParameterTab() {
   const firstParameterForGroup = new Map<string, string>();
   for (const row of rows) if (row.chart_group_key && !firstParameterForGroup.has(row.chart_group_key)) firstParameterForGroup.set(row.chart_group_key, row.param_key);
   return <div className="p-4"><section className="overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)]">
-    <header className="flex items-center justify-between border-b border-[var(--app-border)] px-4 py-3">
-      <span className="font-semibold">Chart & observation table</span><span className="text-xs text-[var(--app-muted)]">{rows.length} parameters</span>
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--app-border)] px-4 py-3">
+      <span className="font-semibold">Chart & observation table</span>
+      <div className="flex items-center gap-4">
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--app-text)]">
+          <input type="checkbox" checked={smartContrast} disabled={smartContrastBusy || !sessionUser} onChange={event => void changeSmartContrast(event.target.checked)} />
+          Smart invert
+        </label>
+        <span className="text-xs text-[var(--app-muted)]">{rows.length} parameters</span>
+      </div>
     </header>
     <div className="p-3">
       <div className="mb-2 hidden grid-cols-[minmax(170px,1fr)_78px_100px_70px_minmax(240px,1.2fr)_76px] gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)] lg:grid">
@@ -789,7 +839,7 @@ export default function ManageView({ caseStatus, sessionUser }: Props) {
         ) : activeTab === "scheme" ? (
           <AppearanceTab section="scheme" />
         ) : activeTab === "chart" ? (
-          <ChartParameterTab />
+          <ChartParameterTab sessionUser={sessionUser} />
         ) : activeTab === "terminology" ? (
           <TerminologyTab />
         ) : activeTab === "staff" ? (

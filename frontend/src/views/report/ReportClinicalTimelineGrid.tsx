@@ -1,11 +1,11 @@
-import { ecgValueToCode } from "../../components/timegrid/ecgOptions";
-import type { TimeGridRow, TimeGridValues } from "../../components/timegrid/types";
+import { ecgValueToCode } from "../../components/clinical-timeline/ecgOptions";
+import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../../components/clinical-timeline/types";
 import type { IoGridCellValue, ReportEventMarker, ReportPreparedMarker } from "./types";
 
 type Props = {
   axis: number[];
-  rows: TimeGridRow[];
-  values: TimeGridValues;
+  rows: ClinicalTimelineRow[];
+  values: ClinicalTimelineValues;
   eventMarkersByTs?: Record<number, ReportEventMarker[]>;
   preparedMarkersByTs?: Record<number, ReportPreparedMarker[]>;
   colWidth: number;
@@ -53,13 +53,14 @@ function markerForEvent(marker: ReportEventMarker) {
 }
 
 function markerForPrepared(marker: ReportPreparedMarker) {
-  if (marker.marker_code === "i") return { label: marker.marker_label || "B", className: "badge-intake" };
-  if (marker.marker_code === "o") return { label: marker.marker_label || "O", className: "badge-output" };
-  if (marker.marker_code === "d") return { label: marker.marker_label || "D", className: "badge-drip" };
-  return { label: marker.kind === "output" ? "O" : "B", className: marker.kind === "output" ? "badge-output" : "badge-intake" };
+  const category = String(marker.item_category || "").toLowerCase();
+  if (marker.kind === "med") return marker.marker_code === "d" ? "#9B6DFF" : "#5B8FF9";
+  if (marker.kind === "fluid") return category === "bloodproduct" ? "#E05252" : "#39C6C8";
+  if (category === "bloodlossoutput") return "#8B2635";
+  return category === "urineoutput" ? "#D99A24" : "var(--badge-output-text)";
 }
 
-export default function ReportTimeGrid({
+export default function ReportClinicalTimelineGrid({
   axis,
   rows,
   values,
@@ -159,11 +160,11 @@ export default function ReportTimeGrid({
                           </span>
                         );
                       })}
-                      {prepared.slice(0, 2).map(marker => {
-                        const token = markerForPrepared(marker);
+                      {prepared.map((marker, markerIndex) => {
+                        const markerColor = markerForPrepared(marker);
                         return (
-                          <span key={`p-${marker.run_id}-${marker.item_id}`} className={`inline-flex h-3 min-w-3 items-center justify-center rounded px-[2px] text-[8px] font-semibold ${token.className}`}>
-                            {token.label}
+                          <span key={`p-${marker.run_id}-${marker.item_id}-${markerIndex}`} className="inline-flex h-4 w-2 min-w-0 items-center justify-center">
+                            <span className="block h-3.5 w-[3px] rounded-full" style={{ backgroundColor: markerColor }} aria-hidden="true" />
                           </span>
                         );
                       })}

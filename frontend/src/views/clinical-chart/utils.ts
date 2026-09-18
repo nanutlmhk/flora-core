@@ -1,4 +1,4 @@
-import type { TimeGridValues } from "../../components/timegrid/types";
+import type { ClinicalTimelineValues } from "../../components/clinical-timeline/types";
 import { normalizeTimeInputHHMM } from "../../utils/clinicalInput";
 import {
   formatConfiguredTime,
@@ -7,8 +7,8 @@ import {
   wallClockInputToTimestamp,
 } from "../../utils/dateTime";
 
-export function mergeValues(base: TimeGridValues, override: TimeGridValues): TimeGridValues {
-  const merged: TimeGridValues = {};
+export function mergeValues(base: ClinicalTimelineValues, override: ClinicalTimelineValues): ClinicalTimelineValues {
+  const merged: ClinicalTimelineValues = {};
 
   for (const [rowId, rowValues] of Object.entries(base)) {
     merged[rowId] = { ...rowValues };

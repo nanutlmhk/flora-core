@@ -34,16 +34,21 @@ import {
 } from "../api/caseHisApi";
 import { getCaseStaff, type StaffMember } from "../api/staffApi";
 import HnBarcode from "../components/common/HnBarcode";
-import type { TimeGridRow, TimeGridValues } from "../components/timegrid/types";
-import { BASE_IVY_ROWS, ROW_META, getRowGroup, makeFallbackLabel } from "./caseview/constants";
-import { readStoredUsername } from "./caseview/storage";
+import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../components/clinical-timeline/types";
+import { BASE_IVY_ROWS, ROW_META, getRowGroup, makeFallbackLabel } from "./clinical-chart/constants";
+import { readStoredUsername } from "./clinical-chart/storage";
 import type { ReportPdfModel } from "./report/pdfModel";
-import ReportTimeAxis from "./report/ReportTimeAxis";
-import ReportTimeChart from "./report/ReportTimeChart";
-import ReportTimeGrid from "./report/ReportTimeGrid";
+import ReportTimelineAxis from "./report/ReportTimelineAxis";
+import ReportVitalSignsTrendChart from "./report/ReportVitalSignsTrendChart";
+import ReportClinicalTimelineGrid from "./report/ReportClinicalTimelineGrid";
 import type { IoDripPart, IoGridCellValue, ReportChartVisibility, ReportEventMarker, ReportPreparedMarker } from "./report/types";
 import { clampEditionReportMode, getEditionInfo, isTimelineParamAllowed } from "../edition/config";
 import eforlLogo from "../assets/eforllogo.png";
+import { useAuth } from "../auth/useAuth";
+import {
+  formatPatientDisplayName,
+  normalizePatientNameLanguage,
+} from "../utils/patientName";
 
 type ReportIoRowMode = "bolus" | "drip";
 
@@ -508,6 +513,10 @@ function formatAsaDisplay(form: Record<string, unknown>): string {
 }
 
 export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: Props) {
+  const { user: sessionUser } = useAuth();
+  const patientNameLanguage = normalizePatientNameLanguage(
+    sessionUser?.parameterPreferences?.patientNameLanguage,
+  );
   const workstation = useWorkstationSettings();
   const edition = getEditionInfo();
   const allowedReportModes = edition.allowedReportModes;
@@ -1408,8 +1417,8 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
   }, [currentCase, data, reportBucketMs, reportTimelinePageMs, timelineLayoutMode]);
 
   const bucketedTimeline = useMemo(() => {
-    const values: TimeGridValues = {};      // 15-min buckets for grid
-    const chartValues: TimeGridValues = {}; // per-minute for chart
+    const values: ClinicalTimelineValues = {};      // 15-min buckets for grid
+    const chartValues: ClinicalTimelineValues = {}; // per-minute for chart
     const rowIds = new Set<string>();
     for (const row of data?.timelineRows || []) {
       const bucketTs = floorToBucket(row.ts_minute, reportBucketMs);
@@ -1433,7 +1442,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
         chartValues[normKey][fiveMinTs] = num;
       }
     }
-    const rows = new Map<string, TimeGridRow>();
+    const rows = new Map<string, ClinicalTimelineRow>();
     for (const row of BASE_IVY_ROWS) {
       rows.set(row.id, { ...row });
     }
@@ -1737,7 +1746,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
 
   const timelineIoPrepared = useMemo(() => {
     const markers: Record<number, ReportPreparedMarker[]> = {};
-    const values: TimeGridValues = {};
+    const values: ClinicalTimelineValues = {};
     const rowMeta = new Map<
       string,
       {
@@ -1780,6 +1789,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
         item_id: item.item_id,
         kind: item.kind,
         item_name: label,
+        item_category: item.item_category,
         marker_code: item.kind === "output" ? "o" : "i",
         marker_label: item.kind === "output" ? "O" : "B",
       });
@@ -1882,9 +1892,49 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
         item_id: run.item_id,
         kind: run.kind,
         item_name: "Drip start",
+        item_category: run.item_category,
         marker_code: "d",
         marker_label: "D",
       });
+    }
+
+    const markerTypeKey = (marker: ReportPreparedMarker) => {
+      const category = String(marker.item_category || "").toLowerCase();
+      if (marker.kind === "med") return marker.marker_code === "d" ? "medDrip" : "medBolus";
+      if (marker.kind === "fluid") return category === "bloodproduct" ? "bloodProduct" : "fluid";
+      if (category === "bloodlossoutput") return "bloodLoss";
+      if (category === "urineoutput") return "urine";
+      return "otherOutput";
+    };
+    const markerRank: Record<string, number> = {
+      medBolus: 0,
+      medDrip: 1,
+      fluid: 2,
+      bloodProduct: 3,
+      bloodLoss: 4,
+      urine: 5,
+      otherOutput: 6,
+    };
+    for (const [bucketKey, bucketMarkers] of Object.entries(markers)) {
+      const grouped = new Map<string, ReportPreparedMarker>();
+      for (const marker of bucketMarkers) {
+        const typeKey = markerTypeKey(marker);
+        const existing = grouped.get(typeKey);
+        if (!existing) {
+          grouped.set(typeKey, marker);
+          continue;
+        }
+        const names = new Set(
+          `${existing.item_name}\n${marker.item_name}`
+            .split("\n")
+            .map(name => name.trim())
+            .filter(Boolean),
+        );
+        existing.item_name = Array.from(names).join("\n");
+      }
+      markers[Number(bucketKey)] = Array.from(grouped.values()).sort(
+        (a, b) => markerRank[markerTypeKey(a)] - markerRank[markerTypeKey(b)],
+      );
     }
 
     const sortedIoRowMeta = Array.from(rowMeta.values()).sort((a, b) => {
@@ -1897,7 +1947,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       return a.itemId - b.itemId;
     });
 
-    const rows: TimeGridRow[] = [
+    const rows: ClinicalTimelineRow[] = [
       { id: "ecg", label: "ECG", type: "ecg" },
       { id: "__io_header__", label: "Fluid&Med", type: "event" },
       ...sortedIoRowMeta.map(meta => ({
@@ -1920,7 +1970,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
 
   const timelineRowLimit = REPORT_HARD_MAX_TOTAL_ROWS;
   const timelinePageStats = useMemo(() => {
-    const valuesMerged: TimeGridValues = {
+    const valuesMerged: ClinicalTimelineValues = {
       ...bucketedTimeline.values,
       ...timelineIoPrepared.values,
     };
@@ -2088,8 +2138,14 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
         ) : null}
         <div>
           <div className="text-[10px] font-semibold">
-            {[getText(form.titleTh), getText(form.firstName), getText(form.lastName)].filter(Boolean).join(" ") ||
-            [getText(form.titleEn), getText(form.firstNameEn), getText(form.lastNameEn)].filter(Boolean).join(" ") || "-"}
+            {formatPatientDisplayName({
+              title_th: getText(form.titleTh),
+              first_name: getText(form.firstName),
+              last_name: getText(form.lastName),
+              title_en: getText(form.titleEn),
+              first_name_en: getText(form.firstNameEn),
+              last_name_en: getText(form.lastNameEn),
+            }, patientNameLanguage) || "-"}
           </div>
           <div>HN: {currentCase?.hn || "-"} | AN: {getText(form.an) || "-"}</div>
           <div>ASA: {formatAsaDisplay(form)} | Blood: {[getText(form.bloodGroupABO), getText(form.bloodGroupRh)].filter(Boolean).join(" ") || "-"}</div>
@@ -2366,7 +2422,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
 
       {timelinePages.map((page, index) => {
         const pageNum = index + 2;
-        const valuesMerged: TimeGridValues = {
+        const valuesMerged: ClinicalTimelineValues = {
           ...bucketedTimeline.values,
           ...timelineIoPrepared.values,
         };
@@ -2388,9 +2444,9 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
                 <span className="ml-2 font-normal normal-case text-gray-500">{REPORT_BUCKET_MIN}-minute columns | 4-hour page | events {eventCount}</span>
               </div>
               <div className="overflow-hidden">
-                <ReportTimeAxis axis={page.axis} colWidth={50} labelColWidth={120} />
-                <ReportTimeChart axis={page.axis} values={bucketedTimeline.chartValues} colWidth={50} labelColWidth={120} height={118} visible={chartSeriesVisibility} onToggle={handleChartToggle} />
-                <ReportTimeGrid
+                <ReportTimelineAxis axis={page.axis} colWidth={50} labelColWidth={120} />
+                <ReportVitalSignsTrendChart axis={page.axis} values={bucketedTimeline.chartValues} colWidth={50} labelColWidth={120} height={118} visible={chartSeriesVisibility} onToggle={handleChartToggle} />
+                <ReportClinicalTimelineGrid
                   axis={page.axis}
                   rows={pageRows}
                   values={valuesMerged}

@@ -1,4 +1,4 @@
-import type { TimeGridRow } from "../../components/timegrid/types";
+import type { ClinicalTimelineRow } from "../../components/clinical-timeline/types";
 import { createElement, type ComponentType } from "react";
 import {
   AntibioticIcon,
@@ -40,7 +40,7 @@ export type AxisStepMin = number;
 export const DEFAULT_AXIS_STEP: AxisStepMin = 1;
 export type RowGroup = "core" | "measured" | "set";
 
-export const BASE_IVY_ROWS: TimeGridRow[] = [
+export const BASE_IVY_ROWS: ClinicalTimelineRow[] = [
   // --- 1. Vital Signs (Core - No Badge) ---
   { id: "hr", label: "HR", type: "vital", unit: "bpm" },
   { id: "pr", label: "PR/PLS", type: "vital", unit: "bpm" },

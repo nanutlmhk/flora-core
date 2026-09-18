@@ -4,12 +4,12 @@ import type { AuthUser } from "../auth/useAuth";
 import StaffView from "../views/StaffView";
 import ManageView from "../views/ManageView";
 import HistoryView from "../views/HistoryView";
-import DrugView from "../views/DrugView";
+import InputOutputBalanceView from "../views/InputOutputBalanceView";
 import CanopyFleetView from "../views/CanopyFleetView";
 import IdleCaseLanding from "../views/IdleCaseLanding";
 import AccountView from "../views/AccountView";
 
-const CaseView = lazy(() => import("../views/CaseView"));
+const ClinicalChartView = lazy(() => import("../views/ClinicalChartView"));
 const FormView = lazy(() => import("../views/FormView"));
 const DiagnosisView = lazy(() => import("../views/DiagnosisView"));
 const ReportView = lazy(() => import("../views/ReportView"));
@@ -22,7 +22,7 @@ interface Props {
     | "form"
     | "diagnosis"
     | "staff"
-    | "drug"
+    | "io"
     | "patient"
     | "report"
     | "master"
@@ -33,7 +33,7 @@ interface Props {
   onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
   onOpenCase?: (c: Exclude<CaseStatus, { status: "IDLE" }>) => void;
   onCaseStarted?: () => Promise<void> | void;
-  onNavigate?: (view: "patient" | "diagnosis" | "drug") => void;
+  onNavigate?: (view: "patient" | "diagnosis" | "io") => void;
 }
 
 class ViewErrorBoundary extends Component<
@@ -108,8 +108,8 @@ export default function MainArea({
         <DiagnosisView key={caseScopedKey} caseStatus={caseStatus} />
       ) : activeView === "staff" ? (
         <StaffView key={caseScopedKey} caseStatus={caseStatus} sessionUser={sessionUser} />
-      ) : activeView === "drug" ? (
-        <DrugView key={caseScopedKey} caseStatus={caseStatus} />
+      ) : activeView === "io" ? (
+        <InputOutputBalanceView key={caseScopedKey} caseStatus={caseStatus} />
       ) : activeView === "master" ? (
         <ManageView caseStatus={caseStatus} sessionUser={sessionUser} />
       ) : activeView === "account" ? (
@@ -127,7 +127,7 @@ export default function MainArea({
       ) : activeView === "history" ? (
         <HistoryView onOpenCase={onOpenCase ?? (() => {})} />
       ) : (
-        <CaseView key={caseScopedKey} caseStatus={caseStatus} sessionUser={sessionUser} onNavigate={onNavigate} />
+        <ClinicalChartView key={caseScopedKey} caseStatus={caseStatus} sessionUser={sessionUser} onNavigate={onNavigate} />
       )}
       </Suspense>
     </ViewErrorBoundary>

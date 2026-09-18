@@ -11,7 +11,7 @@ function formatHHMM(ts: number) {
   return `${hh}:${mm}`;
 }
 
-export default function ReportTimeAxis({ axis, colWidth, labelColWidth }: Props) {
+export default function ReportTimelineAxis({ axis, colWidth, labelColWidth }: Props) {
   if (axis.length === 0) return null;
   const totalWidth = labelColWidth + axis.length * colWidth;
   return (

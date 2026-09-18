@@ -1,9 +1,9 @@
-import type { TimeGridValues } from "../../components/timegrid/types";
+import type { ClinicalTimelineValues } from "../../components/clinical-timeline/types";
 import type { ReportChartVisibility } from "./types";
 
 type Props = {
   axis: number[];
-  values: TimeGridValues;
+  values: ClinicalTimelineValues;
   colWidth: number;
   labelColWidth: number;
   height?: number;
@@ -115,7 +115,7 @@ function PressureMarker({
   );
 }
 
-export default function ReportTimeChart({
+export default function ReportVitalSignsTrendChart({
   axis,
   values,
   colWidth,

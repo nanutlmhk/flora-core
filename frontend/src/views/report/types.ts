@@ -1,4 +1,4 @@
-import type { TimeGridValues } from "../../components/timegrid/types";
+import type { ClinicalTimelineValues } from "../../components/clinical-timeline/types";
 
 export type ReportEventMarker = {
   id: number;
@@ -12,6 +12,7 @@ export type ReportPreparedMarker = {
   item_id: number;
   kind: "fluid" | "med" | "output";
   item_name: string;
+  item_category?: string;
   marker_code?: "i" | "o" | "d";
   marker_label?: string;
 };
@@ -28,7 +29,7 @@ export type IoGridCellValue = {
 
 export type ReportChartProps = {
   axis: number[];
-  values: TimeGridValues;
+  values: ClinicalTimelineValues;
   colWidth: number;
   labelColWidth: number;
   height?: number;

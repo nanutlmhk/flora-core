@@ -10,9 +10,19 @@ import {
 } from "../api/authApi";
 import { getStaffDirectory, type StaffLibraryItem } from "../api/staffApi";
 import type { AuthUser } from "../auth/useAuth";
+import {
+  normalizePatientNameLanguage,
+  type PatientNameLanguage,
+} from "../utils/patientName";
+import {
+  applyChartPreferencesLocally,
+  chartGroupToAccountParameter,
+  readLocalChartGroups,
+  readLocalSmartContrast,
+} from "../utils/chartPreferences";
 
 const PARAMETERS = [
-  ["hr", "Heart rate"], ["spo2", "SpO₂"], ["nibp", "NIBP"],
+  ["hr", "Heart rate"], ["pr", "Pulse rate (PR/PLS)"], ["spo2", "SpO₂"], ["nibp", "NIBP"],
   ["art", "Arterial pressure"], ["cvp", "CVP"], ["temperature", "Temperature"],
 ] as const;
 const REPORT_SECTIONS = [
@@ -26,9 +36,11 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
   const [staff, setStaff] = useState<StaffLibraryItem[]>([]);
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en");
+  const [patientNameLanguage, setPatientNameLanguage] = useState<PatientNameLanguage>("auto");
   const [scheme, setScheme] = useState("monochromatic");
   const [scale, setScale] = useState(5);
   const [parameters, setParameters] = useState<string[]>(PARAMETERS.map(([key]) => key));
+  const [smartContrast, setSmartContrast] = useState(true);
   const [reports, setReports] = useState<Record<string, boolean>>(() => Object.fromEntries(REPORT_SECTIONS.map(([key]) => [key, true])));
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -45,10 +57,20 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
     ]).then(([user, preferenceOptions, directory]) => {
       setAccount(user); setOptions(preferenceOptions); setStaff(directory);
       setName(user.name); setLanguage(String(user.languageCode || preferenceOptions.defaultLanguage));
+      setPatientNameLanguage(normalizePatientNameLanguage(user.parameterPreferences?.patientNameLanguage));
       setScheme(String(user.themeColor || preferenceOptions.defaultTheme));
       const parameterPrefs = user.parameterPreferences || {};
-      setScale(Number(parameterPrefs.timeScaleMin) || 5);
-      if (Array.isArray(parameterPrefs.visibleParameters)) setParameters(parameterPrefs.visibleParameters.map(String));
+      const localScale = typeof window === "undefined"
+        ? Number.NaN
+        : Number(window.localStorage.getItem(`flora.timelineScale.${user.username}`));
+      setScale(Number.isFinite(localScale) && localScale > 0 ? localScale : Number(parameterPrefs.timeScaleMin) || 5);
+      const localGroups = readLocalChartGroups(user.username);
+      if (localGroups != null) {
+        setParameters(localGroups.map(chartGroupToAccountParameter).filter((key): key is string => key != null));
+      } else if (Array.isArray(parameterPrefs.visibleParameters)) {
+        setParameters(parameterPrefs.visibleParameters.map(String));
+      }
+      setSmartContrast(readLocalSmartContrast(user.username) ?? parameterPrefs.smartContrast !== false);
       setReports(current => ({ ...current, ...(user.reportPreferences as Record<string, boolean>) }));
     }).catch(err => setError(err instanceof Error ? err.message : "Unable to load account"));
   }, [sessionUser?.username]);
@@ -61,10 +83,22 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
     try {
       const next = await updateOwnPreferences({
         name: name.trim(), languageCode: language, themeMode: "dark", themeColor: scheme,
-        parameterPreferences: { timeScaleMin: scale, visibleParameters: parameters },
+        parameterPreferences: {
+          ...(account?.parameterPreferences || {}),
+          timeScaleMin: scale,
+          visibleParameters: parameters,
+          smartContrast,
+          patientNameLanguage,
+        },
         reportPreferences: reports,
       });
       mergeStoredAuthUser(next);
+      applyChartPreferencesLocally({
+        username: next.username,
+        timeScaleMin: scale,
+        visibleParameters: parameters,
+        smartContrast,
+      });
       window.dispatchEvent(new Event("flora:auth-changed"));
       setAccount(current => current ? { ...current, name: next.name, languageCode: next.languageCode, themeColor: next.themeColor,
         parameterPreferences: next.parameterPreferences || {}, reportPreferences: next.reportPreferences || {} } : current);
@@ -103,8 +137,9 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
       <section className="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-5">
         <h2 className="font-semibold">Appearance</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">Preferred language<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={language} onChange={e => setLanguage(e.target.value)}>{options?.languages.map(row => <option key={row.code} value={row.code}>{row.nameNative}</option>)}</select></label>
+          <label className="text-sm">Interface language<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={language} onChange={e => setLanguage(e.target.value)}>{options?.languages.map(row => <option key={row.code} value={row.code}>{row.nameNative}</option>)}</select></label>
           <label className="text-sm">Preferred scheme<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={scheme} onChange={e => setScheme(e.target.value)}>{options?.themes.map(row => <option key={row.code} value={row.code}>{row.displayName}</option>)}</select></label>
+          <label className="text-sm sm:col-span-2">Patient name language<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={patientNameLanguage} onChange={e => setPatientNameLanguage(normalizePatientNameLanguage(e.target.value))}><option value="auto">Automatic — use the hospital display name</option><option value="thai">Thai name</option><option value="english">English name</option></select><span className="mt-1 block text-xs text-[var(--app-muted)]">Independent from the interface language. Falls back safely when the selected name is unavailable.</span></label>
         </div>
         <div className="flex flex-wrap gap-2">{options?.themes.find(row => row.code === scheme)?.colors.map((color, index) => <span key={index} className="h-10 w-10 rounded-lg border border-white/15" style={{ backgroundColor: color }} title={color} />)}</div>
       </section>
@@ -112,6 +147,7 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
         <h2 className="font-semibold">Chart preferences</h2>
         <label className="block max-w-xs text-sm">Default time scale<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={scale} onChange={e => setScale(Number(e.target.value))}>{[1,5,10,15,30,60].map(value => <option key={value} value={value}>{value} min</option>)}</select></label>
         <div className="grid gap-2 sm:grid-cols-2">{PARAMETERS.map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-3 py-2 text-sm"><input type="checkbox" checked={parameters.includes(key)} onChange={() => toggleParameter(key)} />{label}</label>)}</div>
+        <label className="flex items-start gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3 text-sm"><input type="checkbox" className="mt-0.5" checked={smartContrast} onChange={event => setSmartContrast(event.target.checked)} /><span><strong className="block">Smart invert color</strong><span className="text-xs text-[var(--app-muted)]">Adjust chart colors that blend into the active scheme.</span></span></label>
       </section>
       <section className="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-5">
         <h2 className="font-semibold">Report preferences</h2>

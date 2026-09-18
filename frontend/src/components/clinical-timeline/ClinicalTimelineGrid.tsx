@@ -1,6 +1,6 @@
 import { ECG_CLEAR_VALUE, ECG_OPTIONS, ecgValueToCode } from "./ecgOptions";
 import { COL_WIDTH, LABEL_COL_WIDTH } from "./layout";
-import type { TimeGridRow, TimeGridValues } from "./types";
+import type { ClinicalTimelineRow, ClinicalTimelineValues } from "./types";
 import type { TimelineCellProvenance, TimelineProvenance } from "../../api/vitalMinutesApi";
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -10,21 +10,22 @@ import { formatConfiguredDateTime, formatConfiguredTime, type DateTimePreference
 import {
   NoteIcon,
 } from "../../assets/icons";
-import { getEventIconByTitle } from "../../views/caseview/constants";
+import { getEventIconByTitle } from "../../views/clinical-chart/constants";
 import ClinicalReferenceTooltip from "../common/ClinicalReferenceTooltip";
 
-export type TimeGridEventMarker = {
+export type ClinicalTimelineEventMarker = {
   id: number;
   event_ts: number;
   event_type: "event" | "note";
   title: string;
 };
 
-export type TimeGridPreparedMarker = {
+export type ClinicalTimelineIoMarker = {
   run_id: number;
   item_id: number;
   kind: "fluid" | "med" | "output";
   item_name: string;
+  item_category?: string;
   item_code?: string;
   item_unit?: string;
   note?: string | null;
@@ -34,26 +35,25 @@ export type TimeGridPreparedMarker = {
 
 interface Props {
   columns: number[];
-  ivyRows: TimeGridRow[];
-  rowsAfterEvent?: TimeGridRow[];
-  values: TimeGridValues;
+  ivyRows: ClinicalTimelineRow[];
+  rowsAfterEvent?: ClinicalTimelineRow[];
+  values: ClinicalTimelineValues;
   cellProvenance?: TimelineProvenance;
   ioDripRateByRowTs?: Record<string, Record<number, number>>;
-  eventMarkersByTs?: Record<number, TimeGridEventMarker[]>;
-  preparedMarkersByTs?: Record<number, TimeGridPreparedMarker[]>;
+  eventMarkersByTs?: Record<number, ClinicalTimelineEventMarker[]>;
+  preparedMarkersByTs?: Record<number, ClinicalTimelineIoMarker[]>;
   includeSystemRows?: boolean;
   displaySection?: "all" | "events-io" | "vitals";
   nowTs: number;
   scrollLeft?: number;
   viewportWidth?: number;
   onChange?: (rowId: string, ts: number, value: unknown) => void;
-  onPreparedMarkerClick?: (ts: number, marker: TimeGridPreparedMarker) => void;
+  onPreparedMarkerClick?: (ts: number, marker: ClinicalTimelineIoMarker) => void;
   onIoCellClick?: (rowId: string, ts: number) => void;
   onIoHeaderClick?: () => void;
   onIoHeaderColumnClick?: (ts: number) => void;
-  onIoRowRemove?: (rowId: string) => void;
   onEventCellClick?: (ts: number) => void;
-  onEventMarkerClick?: (marker: TimeGridEventMarker) => void;
+  onEventMarkerClick?: (marker: ClinicalTimelineEventMarker) => void;
   sectionCollapseState?: {
     ioCollapsed: boolean;
     vitalCollapsed: boolean;
@@ -63,7 +63,7 @@ interface Props {
   labelColWidth?: number;
 }
 
-const SYSTEM_ROWS: TimeGridRow[] = [
+const SYSTEM_ROWS: ClinicalTimelineRow[] = [
   { id: "event", label: "Event", type: "event" },
   { id: "ecg", label: "ECG", type: "ecg" },
 ];
@@ -389,7 +389,7 @@ const isIoDisplayCellValue = (value: unknown): value is IoDisplayCellValue =>
       (value as { kind?: unknown }).kind === "io_cell",
   );
 
-export default function TimeGrid({
+export default function ClinicalTimelineGrid({
   columns,
   ivyRows,
   rowsAfterEvent = [],
@@ -408,7 +408,6 @@ export default function TimeGrid({
   onIoCellClick,
   onIoHeaderClick,
   onIoHeaderColumnClick,
-  onIoRowRemove,
   onEventCellClick,
   onEventMarkerClick,
   sectionCollapseState,
@@ -420,14 +419,14 @@ export default function TimeGrid({
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [eventStack, setEventStack] = useState<{
     ts: number;
-    markers: TimeGridEventMarker[];
+    markers: ClinicalTimelineEventMarker[];
     position: CSSProperties;
   } | null>(null);
 
   const openEventStack = (
     event: ReactMouseEvent<HTMLButtonElement>,
     ts: number,
-    markers: TimeGridEventMarker[],
+    markers: ClinicalTimelineEventMarker[],
   ) => {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -466,7 +465,7 @@ export default function TimeGrid({
     : displaySection === "events-io"
       ? [SYSTEM_ROWS[0], ...rowsAfterEvent.filter(row => row.id !== "__vital_agent_header__")]
       : displaySection === "vitals"
-        ? [rowsAfterEvent.find(row => row.id === "__vital_agent_header__"), SYSTEM_ROWS[1], ...ivyRows].filter((row): row is TimeGridRow => Boolean(row))
+        ? [rowsAfterEvent.find(row => row.id === "__vital_agent_header__"), SYSTEM_ROWS[1], ...ivyRows].filter((row): row is ClinicalTimelineRow => Boolean(row))
         : [SYSTEM_ROWS[0], ...rowsAfterEvent, SYSTEM_ROWS[1], ...ivyRows];
   const rows = baseRows.filter(row => {
     if (sectionCollapseState?.ioCollapsed && row.type === "io" && row.id.startsWith("io_run_")) {
@@ -553,7 +552,7 @@ export default function TimeGrid({
   const normalizeEventTitle = (title: string) =>
     title.toLowerCase().replace(/\s+/g, " ").trim();
 
-  const markerForEvent = (marker: TimeGridEventMarker) => {
+  const markerForEvent = (marker: ClinicalTimelineEventMarker) => {
     if (marker.event_type === "note") {
       return {
         label: "Note",
@@ -579,44 +578,15 @@ export default function TimeGrid({
       className: "badge-event",
     };
   };
-  const markerForPrepared = (marker: TimeGridPreparedMarker) => {
-    if (marker.marker_code === "i") {
-      return {
-        label: marker.marker_label || "B",
-        className: "badge-intake",
-      };
-    }
-    if (marker.marker_code === "o") {
-      return {
-        label: marker.marker_label || "O",
-        className: "badge-output",
-      };
-    }
-    if (marker.marker_code === "d") {
-      return {
-        label: marker.marker_label || "D",
-        className: "badge-drip",
-      };
-    }
-    if (marker.kind === "med") {
-      return {
-        label: "B",
-        className: "badge-intake",
-      };
-    }
-    if (marker.kind === "fluid") {
-      return {
-        label: "B",
-        className: "badge-intake",
-      };
-    }
-    return {
-      label: "O",
-      className: "badge-output",
-    };
+  const markerForPrepared = (marker: ClinicalTimelineIoMarker) => {
+    const category = String(marker.item_category || "").toLowerCase();
+    if (marker.kind === "med") return marker.marker_code === "d" ? "#9B6DFF" : "#5B8FF9";
+    if (marker.kind === "fluid") return category === "bloodproduct" ? "#E05252" : "#39C6C8";
+    if (category === "bloodlossoutput") return "#8B2635";
+    return category === "urineoutput" ? "#D99A24" : "var(--badge-output-text)";
   };
 
-  const markerForRowType = (row: TimeGridRow) => {
+  const markerForRowType = (row: ClinicalTimelineRow) => {
     if (row.type !== "vital") return null;
     if (row.id.startsWith("set_")) {
       return {
@@ -655,7 +625,10 @@ export default function TimeGrid({
             row.unit ? `${row.label} (${row.unit})` : row.label,
             row.ioStatus ? `status: ${row.ioStatus}` : "",
             row.ioDetail || "",
-          ].filter(Boolean).join(" | ");
+            row.ioTotal
+              ? `${row.ioKind === "output" ? "Total recorded" : row.ioKind === "fluid" ? "Total input" : "Total given"}: ${row.ioTotal}`
+              : "",
+          ].filter(Boolean).join("\n");
           const isEventRowLabel = row.id === "event";
           const isIoHeaderRowLabel = row.id === "__io_header__";
           const isVitalAgentHeaderRowLabel = row.id === "__vital_agent_header__";
@@ -665,15 +638,15 @@ export default function TimeGrid({
             row.displayMode === "bolus" &&
             row.ioKind === "fluid" &&
             row.ioCategory?.toLowerCase() === "bloodproduct";
-          const isFluidBolusIoRow =
-            isIoDataRow &&
-            row.displayMode === "bolus" &&
-            row.ioKind === "fluid" &&
-            row.ioCategory?.toLowerCase() !== "bloodproduct";
-          const isMedBolusIoRow =
-            isIoDataRow && row.displayMode === "bolus" && row.ioKind === "med";
-          const isOutputBolusIoRow =
-            isIoDataRow && row.displayMode === "bolus" && row.ioKind === "output";
+          const ioRowAccent = !isIoDataRow
+            ? undefined
+            : row.ioKind === "med"
+              ? row.displayMode === "drip" ? "#9B6DFF" : "#5B8FF9"
+              : row.ioKind === "fluid"
+                ? row.ioCategory?.toLowerCase() === "bloodproduct" ? "#E05252" : "#39C6C8"
+                : row.ioCategory?.toLowerCase() === "bloodlossoutput"
+                  ? "#8B2635"
+                  : row.ioCategory?.toLowerCase() === "urineoutput" ? "#D99A24" : "var(--badge-output-text)";
           const isExpandedIoRow =
             isIoDataRow && (row.displayMode === "drip" || isBloodProductIoRow);
           const isIoSectionHeaderRow = row.id === "__io_header__";
@@ -734,6 +707,7 @@ export default function TimeGrid({
                 style={{
                   width: labelColWidth,
                   minWidth: labelColWidth,
+                  boxShadow: ioRowAccent ? `inset 3px 0 0 ${ioRowAccent}` : undefined,
                 }}
                 className={`
                   sticky left-0 z-[100] timegrid-sticky-label
@@ -747,7 +721,7 @@ export default function TimeGrid({
               >
                 <ClinicalReferenceTooltip
                   text={fullLabel}
-                  helpCursor={Boolean(row.referenceTooltip)}
+                  helpCursor={Boolean(row.referenceTooltip || isIoDataRow)}
                   className={`rounded px-1 py-0.5 w-full flex items-center gap-1 min-w-0 ${labelClass}`}
                 >
                   {rowTypeMarker ? (
@@ -811,16 +785,6 @@ export default function TimeGrid({
                         {row.label}
                       </span>
                       <div className="min-w-0 flex items-center gap-1">
-                        {row.displayMode === "drip" && (
-                          <span className="shrink-0 rounded px-1 text-[8px] font-bold bg-violet-600/20 text-violet-400 leading-none py-0.5">
-                            D
-                          </span>
-                        )}
-                        {isBloodProductIoRow && (
-                          <span className="shrink-0 rounded px-1 text-[8px] font-bold bg-rose-600/20 text-rose-400 leading-none py-0.5">
-                            BP
-                          </span>
-                        )}
                         {isBloodProductIoRow && row.ioStatus ? (
                           <span
                             className={`shrink-0 rounded px-1 text-[8px] font-bold leading-none py-0.5 ${
@@ -832,21 +796,6 @@ export default function TimeGrid({
                             {row.ioStatus}
                           </span>
                         ) : null}
-                        {isFluidBolusIoRow && (
-                          <span className="shrink-0 rounded px-1 text-[8px] font-bold bg-teal-600/20 text-teal-400 leading-none py-0.5">
-                            F
-                          </span>
-                        )}
-                        {isMedBolusIoRow && (
-                          <span className="shrink-0 rounded px-1 text-[8px] font-bold bg-blue-600/20 text-blue-400 leading-none py-0.5">
-                            B
-                          </span>
-                        )}
-                        {isOutputBolusIoRow && (
-                          <span className="shrink-0 rounded px-1 text-[8px] font-bold bg-amber-600/20 text-amber-400 leading-none py-0.5">
-                            O
-                          </span>
-                        )}
                         {row.displayMode === "drip" && row.ioDetail ? (
                           <span className="truncate text-[9px] leading-none font-medium text-[var(--app-muted)]">
                             {row.ioDetail}
@@ -855,20 +804,6 @@ export default function TimeGrid({
                       </div>
                     </div>
                   )}
-                  {isIoDataRow && onIoRowRemove ? (
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        onIoRowRemove(row.id);
-                      }}
-                      className="shrink-0 rounded px-1 text-[10px] font-semibold text-red-500 hover:bg-red-500/15 hover:text-red-400"
-                      title="Remove item"
-                      aria-label={`Remove ${row.label}`}
-                    >
-                      x
-                    </button>
-                  ) : null}
                 </ClinicalReferenceTooltip>
             </td>
 
@@ -952,24 +887,24 @@ export default function TimeGrid({
                             </button>
                           );
                         })}
-                        {prepared.slice(0, 2).map(marker => {
-                          const token = markerForPrepared(marker);
+                        {prepared.map((marker, markerIndex) => {
+                          const markerColor = markerForPrepared(marker);
                           const preparedTooltip =
                             marker.marker_code === "d"
                               ? marker.item_name || "Drip change"
-                              : `Prepared: ${marker.item_name}`;
+                              : marker.item_name;
                           return (
                             <button
-                              key={`prepared-${marker.run_id}-${marker.item_id}`}
+                              key={`prepared-${marker.run_id}-${marker.item_id}-${markerIndex}`}
                               type="button"
-                              className={`app-tooltip inline-flex h-3 min-w-3 items-center justify-center rounded px-[2px] text-[8px] leading-none font-semibold ${token.className}`}
+                              className="app-tooltip inline-flex h-5 w-2 min-w-0 appearance-none items-center justify-center border-0 bg-transparent p-0 shadow-none hover:bg-[var(--app-hover-bg)]"
                               data-tooltip={preparedTooltip}
                               onClick={event => {
                                 event.stopPropagation();
                                 onPreparedMarkerClick?.(ts, marker);
                               }}
                             >
-                              {token.label}
+                              <span className="block h-4 w-[3px] rounded-full" style={{ backgroundColor: markerColor }} aria-hidden="true" />
                             </button>
                           );
                         })}
@@ -987,14 +922,6 @@ export default function TimeGrid({
                           >
                             +{markers.length - visibleEventCount}
                           </button>
-                        ) : null}
-                        {prepared.length > 2 ? (
-                          <span
-                            className="app-tooltip text-[8px] leading-none text-emerald-700 dark:text-emerald-300"
-                            data-tooltip={`${prepared.length - 2} more prepared items`}
-                          >
-                            +{prepared.length - 2}
-                          </span>
                         ) : null}
                       </div>
                     ) : null}

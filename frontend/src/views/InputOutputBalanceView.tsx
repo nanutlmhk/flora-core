@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useRef } from "react";
+import ioIconSetUrl from "../assets/ioiconset.png";
+import inputIconSetUrl from "../assets/inputset.png";
+import bloodLossIconUrl from "../assets/bloodloss.png";
+import urineIconUrl from "../assets/urine.png";
 import type { CaseStatus } from "../api/caseApi";
+import {
+  getCasePatientInfo,
+  type CasePatientInfo,
+} from "../api/caseHisApi";
 import { useAuth } from "../auth/useAuth";
 import ConfirmDialog from "../components/common/ConfirmDialog";
+import ClinicalReferenceTooltip from "../components/common/ClinicalReferenceTooltip";
 import {
   createCaseIoEvent,
   createCaseIoSegment,
@@ -26,30 +35,69 @@ import {
   type CaseIoSummaryTotals,
 } from "../api/caseIoApi";
 import {
-  createDrugDirectoryEntry,
-  deactivateDrugDirectoryEntry,
-  getDrugDirectory,
+  createIoCatalogEntry,
+  deactivateIoCatalogEntry,
+  getIoCatalog,
   getIoGroups,
-  type DrugDirectoryItem,
+  type IoCatalogItem,
   type IoGroup,
   type IoKind,
-  updateDrugDirectoryEntry,
-} from "../api/drugApi";
+  updateIoCatalogEntry,
+} from "../api/ioCatalogApi";
 import {
   formatDateInputDDMMYYYY,
   formatTimeInputHHMM,
   normalizeDateInputDDMMYYYY,
   normalizeTimeInputHHMM,
 } from "../utils/clinicalInput";
+import {
+  formatPatientDisplayName,
+  normalizePatientNameLanguage,
+} from "../utils/patientName";
 
 type Props = {
   caseStatus: CaseStatus;
-  mode?: DrugTab;
+  mode?: IoBalanceTab;
 };
 
-type DrugTab = "current" | "master";
+type IoBalanceTab = "current" | "master";
 type EntryMode = "bolus" | "drip";
 type DisplayMode = EntryMode | "output";
+type MedicationSummaryView = "summary" | "detail";
+const MEDICATION_SUMMARY_VIEW_STORAGE_KEY = "flora:io-medication-summary-view";
+const FLUID_BALANCE_VIEW_STORAGE_KEY = "flora:io-fluid-balance-view";
+
+function readMedicationSummaryView(): MedicationSummaryView {
+  try {
+    return window.localStorage.getItem(MEDICATION_SUMMARY_VIEW_STORAGE_KEY) === "detail"
+      ? "detail"
+      : "summary";
+  } catch {
+    return "summary";
+  }
+}
+
+function readFluidBalanceView(): MedicationSummaryView {
+  try {
+    return window.localStorage.getItem(FLUID_BALANCE_VIEW_STORAGE_KEY) === "detail"
+      ? "detail"
+      : "summary";
+  } catch {
+    return "summary";
+  }
+}
+
+type IoIconName =
+  | "input"
+  | "output"
+  | "balance"
+  | "activeDrips"
+  | "medBolus"
+  | "medDrip"
+  | "fluid"
+  | "bloodProduct"
+  | "bloodLoss"
+  | "urine";
 type NonIdleCaseStatus = Exclude<CaseStatus, { status: "IDLE" }>;
 type DetailedGroup = {
   id: string;
@@ -60,7 +108,7 @@ type DetailedGroup = {
 };
 
 const card =
-  "rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 space-y-3";
+  "rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-4 space-y-4 shadow-[0_14px_40px_rgba(0,0,0,0.08)]";
 const primaryButton = "rounded px-3 py-1.5 text-sm text-white";
 const primaryEnabled = "bg-blue-600 hover:bg-blue-700";
 const primaryDisabled = "bg-gray-400 cursor-not-allowed";
@@ -145,6 +193,93 @@ const DOSE_RATE_UNITS = [
 const BLOOD_GROUP_OPTIONS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] as const;
 const LOCAL_ANESTHETIC_GROUP_ID = "localAnesthetic";
 const DEFAULT_LOCAL_ANESTHETIC_ROUTE = "Local";
+
+type HistoricalBolusSuggestion = {
+  unit: string;
+  doses: number[];
+};
+
+// Common positive bolus records in the NIT Innovian archive, 2024–2026.
+// These are optional entry shortcuts, not prescribing defaults.
+const HISTORICAL_BOLUS_SUGGESTIONS: Record<string, HistoricalBolusSuggestion> = {
+  fentanyl: { unit: "mcg", doses: [25, 50, 100] },
+  propofol: { unit: "mg", doses: [20, 30, 50, 100] },
+  midazolam: { unit: "mg", doses: [1, 2] },
+  cisatracurium: { unit: "mg", doses: [2, 10] },
+  atracurium: { unit: "mg", doses: [10, 40, 50] },
+  rocuronium: { unit: "mg", doses: [10, 40, 50] },
+  ephedrine: { unit: "mg", doses: [3, 6] },
+  phenylephrine: { unit: "mcg", doses: [50, 100] },
+  atropine: { unit: "mg", doses: [0.3, 0.6, 1.2] },
+  cefazolin: { unit: "g", doses: [1, 2] },
+};
+
+const POPULAR_BOLUS_DRUGS = [
+  "Fentanyl",
+  "Propofol",
+  "Midazolam",
+  "Rocuronium",
+  "Ephedrine",
+  "Phenylephrine",
+] as const;
+
+const IO_ICON_CROPS: Record<IoIconName, { x: number; y: number }> = {
+  input: { x: 111, y: 146 },
+  output: { x: 456, y: 146 },
+  balance: { x: 801, y: 146 },
+  activeDrips: { x: 1159, y: 146 },
+  medBolus: { x: 111, y: 532 },
+  medDrip: { x: 456, y: 532 },
+  fluid: { x: 801, y: 532 },
+  bloodProduct: { x: 1159, y: 532 },
+  bloodLoss: { x: 0, y: 0 },
+  urine: { x: 0, y: 0 },
+};
+
+const INPUT_ICON_CROPS: Partial<Record<IoIconName, { x: number; y: number }>> = {
+  medBolus: { x: 107, y: 124 },
+  medDrip: { x: 636, y: 124 },
+  fluid: { x: 1157, y: 124 },
+  bloodProduct: { x: 1688, y: 124 },
+};
+
+function IoSpriteIcon({
+  name,
+  size = 40,
+  className = "",
+}: {
+  name: IoIconName;
+  size?: number;
+  className?: string;
+}) {
+  const standaloneCrop =
+    name === "bloodLoss"
+      ? { x: 210, y: 70, size: 900, width: 1325, height: 1187, url: bloodLossIconUrl }
+      : name === "urine"
+        ? { x: 160, y: 115, size: 930, width: 1254, height: 1254, url: urineIconUrl }
+        : null;
+  const inputCrop = INPUT_ICON_CROPS[name];
+  const cropSize = standaloneCrop?.size ?? (inputCrop ? 380 : 260);
+  const scale = size / cropSize;
+  const crop = standaloneCrop || inputCrop || IO_ICON_CROPS[name];
+  const spriteWidth = standaloneCrop?.width ?? (inputCrop ? 2172 : 1536);
+  const spriteHeight = standaloneCrop?.height ?? (inputCrop ? 724 : 1024);
+  return (
+    <span
+      className={`inline-block shrink-0 ${className}`}
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `url(${standaloneCrop?.url ?? (inputCrop ? inputIconSetUrl : ioIconSetUrl)})`,
+        backgroundRepeat: "no-repeat",
+        backgroundSize: `${spriteWidth * scale}px ${spriteHeight * scale}px`,
+        backgroundPosition: `${-crop.x * scale}px ${-crop.y * scale}px`,
+        imageRendering: "pixelated",
+      }}
+    />
+  );
+}
 
 function fmt(ts?: number) {
   if (!Number.isFinite(ts) || !ts || ts <= 0) return "-";
@@ -809,42 +944,86 @@ function getItemVisual(kind: IoKind, displayMode: DisplayMode, category = ""): {
   iconClass: string;
   badgeClass: string;
 } {
+  if (kind === "output" && normalizeToken(category) === "urineoutput") {
+    return {
+      iconLabel: "Out",
+      iconClass: "bg-[#D99A24]/18 text-[#D99A24] border border-[#D99A24]/45",
+      badgeClass: "bg-[#D99A24]/18 text-[#D99A24] border border-[#D99A24]/45",
+    };
+  }
+  if (kind === "output" && normalizeToken(category) === "bloodlossoutput") {
+    return {
+      iconLabel: "Out",
+      iconClass: "bg-[#8B2635]/18 text-[#8B2635] dark:text-[#d9828e] border border-[#8B2635]/45",
+      badgeClass: "bg-[#8B2635]/18 text-[#8B2635] dark:text-[#d9828e] border border-[#8B2635]/45",
+    };
+  }
   if (kind === "output" || displayMode === "output") {
     return {
       iconLabel: "Out",
-      iconClass: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
-      badgeClass: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+      iconClass: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30",
+      badgeClass: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30",
     };
   }
   if (displayMode === "drip") {
     return {
       iconLabel: "Drip",
-      iconClass: "bg-violet-500/15 text-violet-300 border border-violet-500/30",
-      badgeClass: "bg-violet-500/15 text-violet-300 border border-violet-500/30",
+      iconClass: "bg-[#9B6DFF]/15 text-[#9B6DFF] border border-[#9B6DFF]/35",
+      badgeClass: "bg-[#9B6DFF]/15 text-[#9B6DFF] border border-[#9B6DFF]/35",
     };
   }
   if (kind === "fluid" && normalizeToken(category) === "bloodproduct") {
     return {
       iconLabel: "BP",
-      iconClass: "bg-rose-500/15 text-rose-300 border border-rose-500/30",
-      badgeClass: "bg-rose-500/15 text-rose-300 border border-rose-500/30",
+      iconClass: "bg-[#E05252]/15 text-[#E05252] border border-[#E05252]/35",
+      badgeClass: "bg-[#E05252]/15 text-[#E05252] border border-[#E05252]/35",
     };
   }
   if (kind === "fluid") {
     return {
       iconLabel: "F",
-      iconClass: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
-      badgeClass: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
+      iconClass: "bg-[#39C6C8]/15 text-[#39C6C8] border border-[#39C6C8]/35",
+      badgeClass: "bg-[#39C6C8]/15 text-[#39C6C8] border border-[#39C6C8]/35",
     };
   }
   return {
     iconLabel: "Bol",
-    iconClass: "bg-blue-500/15 text-blue-300 border border-blue-500/30",
-    badgeClass: "bg-blue-500/15 text-blue-300 border border-blue-500/30",
+    iconClass: "bg-[#5B8FF9]/15 text-[#5B8FF9] border border-[#5B8FF9]/35",
+    badgeClass: "bg-[#5B8FF9]/15 text-[#5B8FF9] border border-[#5B8FF9]/35",
   };
 }
 
-function defaultForm(kind: IoKind, category = ""): DrugDirectoryItem {
+function ItemTypeIcon({
+  kind,
+  displayMode,
+  category,
+}: {
+  kind: IoKind;
+  displayMode: DisplayMode;
+  category: string;
+}) {
+  if (kind === "output" || displayMode === "output") {
+    if (normalizeToken(category) === "urineoutput") {
+      return <IoSpriteIcon name="urine" size={34} />;
+    }
+    if (normalizeToken(category) === "bloodlossoutput") {
+      return <IoSpriteIcon name="bloodLoss" size={34} />;
+    }
+    return <IoSpriteIcon name="output" size={34} />;
+  }
+  if (displayMode === "drip") {
+    return <IoSpriteIcon name="medDrip" size={34} />;
+  }
+  if (kind === "fluid" && normalizeToken(category) === "bloodproduct") {
+    return <IoSpriteIcon name="bloodProduct" size={34} />;
+  }
+  if (kind === "fluid") {
+    return <IoSpriteIcon name="fluid" size={34} />;
+  }
+  return <IoSpriteIcon name="medBolus" size={34} />;
+}
+
+function defaultForm(kind: IoKind, category = ""): IoCatalogItem {
   const fallback =
     KIND_OPTIONS.find(option => option.id === kind)?.defaultUnit || "mg";
   return {
@@ -856,7 +1035,7 @@ function defaultForm(kind: IoKind, category = ""): DrugDirectoryItem {
   };
 }
 
-export default function DrugView({ caseStatus, mode = "current" }: Props) {
+export default function InputOutputBalanceView({ caseStatus, mode = "current" }: Props) {
   const { user: sessionUser } = useAuth();
   const caseId = caseStatus.status === "IDLE" ? null : caseStatus.case_id;
   const actor = useMemo(
@@ -881,7 +1060,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   const [currentGroupId, setCurrentGroupId] = useState("");
   const [search, setSearch] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [directory, setDirectory] = useState<DrugDirectoryItem[]>([]);
+  const [directory, setDirectory] = useState<IoCatalogItem[]>([]);
   const [groupRows, setGroupRows] = useState<IoGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -889,7 +1068,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   const [note, setNote] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const initialGroup = DETAILED_GROUP_BY_ID.get("fluids");
-  const [form, setForm] = useState<DrugDirectoryItem>(() =>
+  const [form, setForm] = useState<IoCatalogItem>(() =>
     defaultForm(initialGroup?.kind || "fluid", initialGroup?.category || ""),
   );
 
@@ -898,16 +1077,19 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   const [showItemDropdown, setShowItemDropdown] = useState(false);
   const [prepareRoute, setPrepareRoute] = useState("");
   const [prepareUom, setPrepareUom] = useState("");
-  const [prepareDate] = useState(() => toDateInput(Date.now()));
+  const [prepareDate, setPrepareDate] = useState(() => toDateInput(Date.now()));
   const [prepareTime, setPrepareTime] = useState(() => toTimeInput(Date.now()));
   const [prepareDoseValue, setPrepareDoseValue] = useState("");
   const [prepareLocalConcentration, setPrepareLocalConcentration] = useState("");
   const [prepareLocalVolumeMl, setPrepareLocalVolumeMl] = useState("");
-  const [medicationGuideDismissedCaseId, setMedicationGuideDismissedCaseId] = useState<number | null>(null);
+  const [medBolusComposerOpen, setMedBolusComposerOpen] = useState(false);
+  const [medicationSummaryView, setMedicationSummaryView] = useState<MedicationSummaryView>(readMedicationSummaryView);
+  const [fluidBalanceView, setFluidBalanceView] = useState<MedicationSummaryView>(readFluidBalanceView);
   const [currentItems, setCurrentItems] = useState<CaseIoItem[]>([]);
   const [currentRuns, setCurrentRuns] = useState<CaseIoRun[]>([]);
   const [currentEvents, setCurrentEvents] = useState<CaseIoEvent[]>([]);
   const [currentSummary, setCurrentSummary] = useState<CaseIoSummaryTotals | null>(null);
+  const [casePatient, setCasePatient] = useState<CasePatientInfo | null>(null);
   const [currentLoading, setCurrentLoading] = useState(false);
   const [currentSaving, setCurrentSaving] = useState(false);
   const [removingRunId, setRemovingRunId] = useState<number | null>(null);
@@ -999,6 +1181,9 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   const [medDripEditRunId, setMedDripEditRunId] = useState<number | null>(null);
   const medDripOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const medDripAmountInputRef = useRef<HTMLInputElement | null>(null);
+  const medicationSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const medicationBolusAmountInputRef = useRef<HTMLInputElement | null>(null);
+  const medicationBolusOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const bloodProductOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const bloodProductVolumeRef = useRef<HTMLInputElement | null>(null);
   const [fluidModalOpen, setFluidModalOpen] = useState(false);
@@ -1133,20 +1318,6 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     }
     return null;
   }, [activeRuns, stopDripTarget]);
-  const hasMedicationBolusRecord = useMemo(
-    () =>
-      currentEvents.some(
-        event =>
-          event.kind === "med" &&
-          Number.isFinite(event.dose_value ?? NaN) &&
-          Number(event.dose_value) > 0,
-      ),
-    [currentEvents],
-  );
-  const shouldShowMedicationGuide =
-    caseStatus.status !== "IDLE" &&
-    !hasMedicationBolusRecord &&
-    medicationGuideDismissedCaseId !== caseId;
   const selectedEntryRun = useMemo(
     () => currentRuns.find(run => run.id === entryRunId && run.include_in_balance !== 0) || null,
     [currentRuns, entryRunId],
@@ -1406,6 +1577,32 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       ),
     [itemGroups],
   );
+  const popularBolusItems = useMemo(
+    () =>
+      POPULAR_BOLUS_DRUGS.flatMap(drugName => {
+        const drugToken = normalizeToken(drugName);
+        const item = currentItems.find(candidate => {
+          if (candidate.kind !== "med") return false;
+          const itemToken = normalizeToken(candidate.name);
+          return itemToken === drugToken || itemToken.startsWith(drugToken);
+        });
+        return item ? [item] : [];
+      }),
+    [currentItems],
+  );
+  const patientNameLanguage = normalizePatientNameLanguage(
+    sessionUser?.parameterPreferences?.patientNameLanguage,
+  );
+  const administeredMedicationCount = useMemo(
+    () => medicationItemGroups.filter(group =>
+      group.events.some(event => {
+        const dose = Number(event.dose_value);
+        return Number.isFinite(dose) && dose > 0;
+      }),
+    ).length,
+    [medicationItemGroups],
+  );
+  const preparedMedicationCount = medicationItemGroups.length - administeredMedicationCount;
   const fluidIntakeItemGroups = useMemo(
     () =>
       itemGroups.filter(
@@ -1473,6 +1670,27 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     () => currentItems.find(item => item.id === prepareItemId) || null,
     [currentItems, prepareItemId],
   );
+  const historicalBolusSuggestion = useMemo(() => {
+    const token = normalizeToken(selectedCurrentItem?.name || "");
+    if (!token) return null;
+    const match = Object.entries(HISTORICAL_BOLUS_SUGGESTIONS).find(
+      ([drug]) => token === drug || token.startsWith(drug),
+    );
+    return match?.[1] || null;
+  }, [selectedCurrentItem?.name]);
+  const patientWeightKg = useMemo(() => {
+    const apiWeight = Number(casePatient?.weight_kg);
+    if (Number.isFinite(apiWeight) && apiWeight > 0) return apiWeight;
+    if (caseId == null) return null;
+    const savedWeight = Number(readWeightFromSavedForm(caseId));
+    return Number.isFinite(savedWeight) && savedWeight > 0 ? savedWeight : null;
+  }, [caseId, casePatient?.weight_kg]);
+  const patientAsaLabel = useMemo(() => {
+    const raw = String(casePatient?.asa_status || "").trim();
+    if (!raw) return "ASA —";
+    const base = /^asa\b/i.test(raw) ? raw : `ASA ${raw}`;
+    return casePatient?.asa_emergency && !/\bE$/i.test(base) ? `${base} E` : base;
+  }, [casePatient?.asa_emergency, casePatient?.asa_status]);
   const selectedCurrentItemGroupId = useMemo(
     () =>
       selectedCurrentItem
@@ -1543,7 +1761,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       currentItems.filter(
         item => resolveGroupId(item.kind, item.category || "", item.code, detailedGroups) === "bloodProduct",
       ),
-    [currentItems],
+    [currentItems, detailedGroups],
   );
   const medDripItems = useMemo(
     () =>
@@ -1798,6 +2016,24 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   ]);
 
   useEffect(() => {
+    if (caseId == null) {
+      setCasePatient(null);
+      return;
+    }
+    let active = true;
+    void getCasePatientInfo(caseId)
+      .then(patient => {
+        if (active) setCasePatient(patient);
+      })
+      .catch(() => {
+        if (active) setCasePatient(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [caseId]);
+
+  useEffect(() => {
     if (!medDripModalOpen || medDripLastEdited !== "dose") return;
     const nextRate = medDripCalculatedRateMlHr == null ? "" : String(medDripCalculatedRateMlHr);
     setMedDripRateMlHr(prev => (prev === nextRate ? prev : nextRate));
@@ -1834,7 +2070,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     setLoading(true);
     setError("");
     try {
-      const rows = await getDrugDirectory({
+      const rows = await getIoCatalog({
         kind: activeGroup.kind,
         limit: 400,
         q: search.trim() || undefined,
@@ -1882,8 +2118,23 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
   };
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(MEDICATION_SUMMARY_VIEW_STORAGE_KEY, medicationSummaryView);
+    } catch {
+      // Keep the in-memory preference when browser storage is unavailable.
+    }
+  }, [medicationSummaryView]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FLUID_BALANCE_VIEW_STORAGE_KEY, fluidBalanceView);
+    } catch {
+      // Keep the in-memory preference when browser storage is unavailable.
+    }
+  }, [fluidBalanceView]);
+
+  useEffect(() => {
     void loadGroups();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -2033,7 +2284,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     setError("");
   };
 
-  const pickRow = (row: DrugDirectoryItem) => {
+  const pickRow = (row: IoCatalogItem) => {
     setEditingId(row.id || null);
     setForm({
       ...row,
@@ -2057,10 +2308,10 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       if (!payload.name) throw new Error("Name is required");
 
       if (editingId != null) {
-        await updateDrugDirectoryEntry(editingId, payload);
+        await updateIoCatalogEntry(editingId, payload);
         setNote("Directory updated");
       } else {
-        await createDrugDirectoryEntry(payload);
+        await createIoCatalogEntry(payload);
         setNote("Directory entry created");
       }
 
@@ -2079,7 +2330,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     setError("");
     setNote("");
     try {
-      await deactivateDrugDirectoryEntry(editingId);
+      await deactivateIoCatalogEntry(editingId);
       setNote("Directory entry deactivated");
       await loadDirectory();
       clearForm();
@@ -2096,7 +2347,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     setError("");
     setNote("");
     try {
-      await updateDrugDirectoryEntry(editingId, { is_active: 1 });
+      await updateIoCatalogEntry(editingId, { is_active: 1 });
       setNote("Directory entry activated");
       await loadDirectory();
       clearForm();
@@ -2395,7 +2646,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       try {
         await replaceCaseIoDrip(caseId, fluidEditRunId, {
           actor,
-          reason: "drugview fluid drip edit",
+          reason: "io-balance fluid drip edit",
           run: {
             item_id: selectedFluidItem.id,
             started_at: ts,
@@ -2431,7 +2682,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
         }
         await createCaseIoDrip(caseId, {
           actor,
-          reason: "drugview fluid running drip entry",
+          reason: "io-balance fluid running drip entry",
           run: {
             item_id: selectedFluidItem.id,
             kind: "fluid",
@@ -2465,7 +2716,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
         const rateMlHr = vol / (overMin / 60);
         await createCaseIoDrip(caseId, {
           actor,
-          reason: "drugview fluid over-time entry",
+          reason: "io-balance fluid over-time entry",
           run: {
             item_id: selectedFluidItem.id,
             kind: "fluid",
@@ -2497,7 +2748,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
           volume_ml: vol,
           note: fluidNote.trim() || undefined,
           include_in_balance: true,
-          reason: "drugview fluid bolus",
+          reason: "io-balance fluid bolus",
           actor,
         });
       }
@@ -2610,7 +2861,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       await createCaseIoBloodProduct(caseId, {
         actor,
-        reason: "drugview blood product entry",
+        reason: "io-balance blood product entry",
         run: {
           item_id: selectedBloodProductItem.id,
           route: "IV",
@@ -2700,7 +2951,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
         return;
       }
       try {
-        const createdManualItem = await createDrugDirectoryEntry({
+        const createdManualItem = await createIoCatalogEntry({
           kind: "med",
           name: manualName,
           default_unit: medDripAmountUnit.trim() || "mg",
@@ -2756,7 +3007,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       if (medDripEditRunId != null) {
         await replaceCaseIoDrip(caseId, medDripEditRunId, {
           actor,
-          reason: "drugview med drip edit",
+          reason: "io-balance med drip edit",
           run: {
             item_id: effectiveItemId,
             started_at: startTs,
@@ -2776,7 +3027,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       } else {
         await createCaseIoDrip(caseId, {
           actor,
-          reason: medDripManualMode ? "drugview med drip manual start" : "drugview med drip start",
+          reason: medDripManualMode ? "io-balance med drip manual start" : "io-balance med drip start",
           run: {
             item_id: effectiveItemId,
             kind: "med",
@@ -2814,11 +3065,42 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     setPrepareItemId(null);
     setPrepareRoute("");
     setPrepareUom("");
+    setPrepareDate(toDateInput(Date.now()));
     setPrepareTime(toTimeInput(Date.now()));
     setPrepareDoseValue("");
     setPrepareLocalConcentration("");
     setPrepareLocalVolumeMl("");
     setShowItemDropdown(false);
+  };
+
+  const selectMedicationBolusItem = (item: CaseIoItem) => {
+    const groupId = resolveGroupId(
+      item.kind,
+      item.category,
+      item.code || item.name,
+      detailedGroups,
+    );
+    const group = detailedGroupById.get(groupId);
+    setPrepareItemId(item.id);
+    setItemSearch(item.name);
+    setCurrentGroupId(groupId);
+    setPrepareRoute(
+      group && !ROUTE_DISABLED_GROUP_IDS.has(group.id)
+        ? group.id === LOCAL_ANESTHETIC_GROUP_ID
+          ? DEFAULT_LOCAL_ANESTHETIC_ROUTE
+          : DEFAULT_ROUTE
+        : "",
+    );
+    setPrepareUom(item.default_unit || "");
+    setShowItemDropdown(false);
+    window.requestAnimationFrame(() => medicationBolusAmountInputRef.current?.focus());
+  };
+
+  const openPopularMedicationBolus = (item: CaseIoItem) => {
+    resetMedicationComposer();
+    setCurrentError("");
+    setMedBolusComposerOpen(true);
+    selectMedicationBolusItem(item);
   };
 
   const handleMedicationPrepare = async () => {
@@ -2868,7 +3150,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
           entry_mode: "bolus",
           include_in_balance: true,
           note: noteParts.length > 0 ? noteParts.join(" | ") : undefined,
-          reason: "drugview medication save item",
+          reason: "io-balance medication save item",
           actor,
         });
       }
@@ -2926,15 +3208,15 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
           dose_unit: doseUnit,
           note: eventNote,
           include_in_balance: true,
-          reason: "drugview medication quick bolus",
+          reason: "io-balance medication quick bolus",
           actor,
         });
-        setMedicationGuideDismissedCaseId(caseId);
       }
 
       await loadCurrentCase(caseId, caseStatus);
       notifyIoAndEventChanged(caseId);
       resetMedicationComposer();
+      setMedBolusComposerOpen(false);
     } catch (err) {
       setCurrentError(err instanceof Error ? err.message : "Failed to save medication");
     } finally {
@@ -2997,12 +3279,12 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     try {
       await updateCaseIoSegment(caseId, segment.id, {
         ts_to: stopTs,
-        reason: "drugview stop drip",
+        reason: "io-balance stop drip",
         actor,
       });
       await updateCaseIoRun(caseId, run.id, {
         stopped_at: stopTs,
-        reason: "drugview stop drip",
+        reason: "io-balance stop drip",
         actor,
       });
       await loadCurrentCase(caseId, caseStatus);
@@ -3058,7 +3340,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     try {
       await updateCaseIoSegment(caseId, segment.id, {
         ts_to: changeTs,
-        reason: "drugview change drip rate",
+        reason: "io-balance change drip rate",
         actor,
       });
       await createCaseIoSegment(caseId, {
@@ -3069,7 +3351,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
         dose_value: newDose ? round4(newDose) : undefined,
         dose_unit: newDose ? changeRateTarget.doseUnit : undefined,
         include_in_balance: true,
-        reason: "drugview change drip rate",
+        reason: "io-balance change drip rate",
         actor,
       });
       await loadCurrentCase(caseId, caseStatus);
@@ -3086,7 +3368,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     if (caseId == null || caseStatus.status === "IDLE") return;
     setDeletingEventId(eventId);
     try {
-      await deleteCaseIoEvent(caseId, eventId, actor, "drugview delete entry");
+      await deleteCaseIoEvent(caseId, eventId, actor, "io-balance delete entry");
       await loadCurrentCase(caseId, caseStatus);
       notifyIoAndEventChanged(caseId);
     } catch (err) {
@@ -3234,7 +3516,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
       return;
     }
     const eventTs = combineDateAndTime(entryDate, entryTime, Date.now());
-    const baseReason = "fluidmed entry from drugview";
+    const baseReason = "fluidmed entry from io-balance";
     setEntryError("");
     setEntrySaving(true);
 
@@ -3406,9 +3688,13 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     }
 
     return (
-      <div className="max-h-[calc(100vh-20rem)] overflow-y-auto space-y-1">
+      <div className="space-y-2">
         {groups.map(group => {
           const visual = getItemVisual(group.kind, group.displayMode, group.category);
+          const categoryToken = normalizeToken(group.category);
+          const hasSelfContainedOutputIcon =
+            group.kind === "output" &&
+            (categoryToken === "bloodlossoutput" || categoryToken === "urineoutput");
           const run = group.runId != null
             ? currentRuns.find(candidate => candidate.id === group.runId) || null
             : null;
@@ -3417,93 +3703,82 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
             group.entryMode === "drip" &&
             run.stopped_at == null &&
             activeDripSegment(run, Date.now()) != null;
+          const totalText = getGroupTotalText(group);
           return (
             <div
               key={`${prefix}-${group.key}`}
-              className="rounded border border-gray-200 dark:border-gray-800 px-2 py-1"
+              className="overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/55 transition-colors hover:bg-[var(--app-hover-bg)]"
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 flex items-center gap-1.5 text-sm">
+              <div className="flex items-start justify-between gap-3 p-3">
+                <div className="min-w-0 flex items-center gap-3">
                   <span
-                    className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none font-semibold ${visual.iconClass}`}
-                    aria-hidden
+                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${hasSelfContainedOutputIcon ? "bg-transparent" : visual.iconClass}`}
                   >
-                    {visual.iconLabel}
+                    <ItemTypeIcon kind={group.kind} displayMode={group.displayMode} category={group.category} />
                   </span>
-                  <span className="truncate">{group.itemName}</span>
-                  <span
-                    className={`app-tooltip shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${visual.badgeClass}`}
-                    data-tooltip={group.typeLabel}
-                  >
-                    {group.typeLabel}
-                  </span>
-                  <span className="shrink-0 rounded bg-gray-100 dark:bg-gray-900 px-1 py-0.5 text-[10px] text-gray-500 dark:text-gray-400 leading-none">
-                    {group.itemUnit}
-                  </span>
-                  {group.route ? (
-                    <span className="shrink-0 rounded bg-gray-100 dark:bg-gray-900 px-1 py-0.5 text-[10px] text-gray-500 dark:text-gray-400 leading-none">
-                      {group.route}
-                    </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[var(--app-muted)]">
+                      <span>{group.typeLabel}</span>
+                      {group.route ? <><span aria-hidden="true">•</span><span>{group.route}</span></> : null}
+                      <span aria-hidden="true">•</span>
+                      <span>{group.displayMode === "drip" ? "Infusion" : group.displayMode === "output" ? "Output" : "Bolus"}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Total</div>
+                  <div className="text-lg font-semibold tabular-nums text-[var(--app-text)]">{totalText || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</div>
+                  {group.runId != null ? (
+                    <div className="mt-1 flex items-center justify-end gap-1">
+                      {group.displayMode === "drip" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!run) return;
+                            if (group.kind === "fluid") openEditFluidDripModal(run);
+                            else openEditDripModal(run);
+                          }}
+                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"
+                        >
+                          Edit
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (group.kind === "fluid" && run) openFluidEntryModal(run);
+                            else openEntryModal(group.runId!, "bolus");
+                          }}
+                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"
+                        >
+                          {group.kind === "med" ? "Dose" : "Entry"}
+                        </button>
+                      )}
+                      {canStopDrip ? (
+                        <button
+                          type="button"
+                          onClick={() => openStopDripModal(run!)}
+                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-600 hover:bg-amber-500/10 dark:text-amber-300"
+                        >
+                          Stop
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveRun(group.runId!, group.itemName)}
+                        disabled={removingRunId === group.runId}
+                        className="rounded px-1.5 py-0.5 text-[10px] font-medium text-red-600 hover:bg-red-500/10 disabled:text-gray-400 dark:text-red-300"
+                      >
+                        {removingRunId === group.runId ? "Removing..." : "Remove"}
+                      </button>
+                    </div>
                   ) : null}
                 </div>
-                {group.runId != null ? (
-                  <div className="shrink-0 flex items-center gap-2">
-                    {group.displayMode === "drip" ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!run) return;
-                          if (group.kind === "fluid") openEditFluidDripModal(run);
-                          else openEditDripModal(run);
-                        }}
-                        className="text-[10px] text-blue-600 dark:text-blue-300 hover:underline"
-                      >
-                        Edit
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (group.kind === "fluid" && run) openFluidEntryModal(run);
-                          else openEntryModal(group.runId!, "bolus");
-                        }}
-                        className="text-[10px] text-blue-600 dark:text-blue-300 hover:underline"
-                      >
-                        Entry
-                      </button>
-                    )}
-                    {canStopDrip ? (
-                      <button
-                        type="button"
-                        onClick={() => openStopDripModal(run!)}
-                        className="text-[10px] text-amber-600 dark:text-amber-300 hover:underline"
-                      >
-                        Stop
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void handleRemoveRun(group.runId!, group.itemName)}
-                      disabled={removingRunId === group.runId}
-                      className="text-[10px] text-red-600 dark:text-red-300 hover:underline disabled:text-gray-400 disabled:no-underline"
-                    >
-                      {removingRunId === group.runId ? "Removing..." : "Remove"}
-                    </button>
-                  </div>
-                ) : null}
               </div>
-              {(() => {
-                const totalText = getGroupTotalText(group);
-                if (!totalText) return null;
-                return (
-                  <div className="mt-0.5 text-[11px] font-semibold text-cyan-700 dark:text-cyan-300">
-                    Total {totalText}
-                  </div>
-                );
-              })()}
               {group.events.length === 0 ? (
                 group.segments.length === 0 ? (
-                  <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  <div className="border-t border-[var(--app-border)]/70 px-3 py-2 text-xs text-[var(--app-muted)]">
                     No records yet
                   </div>
                 ) : (
@@ -3628,25 +3903,25 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                   })()
                 )
               ) : (
-                <div className="mt-0.5 space-y-0.5">
+                <div className="divide-y divide-[var(--app-border)]/60 border-t border-[var(--app-border)]/70 px-3">
                   {group.events.map(event => (
                     <div
                       key={`${prefix}-event-${group.key}-${event.id}`}
-                      className="flex items-center justify-between text-[11px]"
+                      className="grid grid-cols-[62px_1fr_auto] items-center gap-2 py-2 text-xs"
                     >
-                      <span>{fmtHHMM(event.event_ts)}</span>
-                      <div className="flex items-center gap-2">
-                        <span>{formatEventValue(event)}</span>
+                      <span className="rounded-md bg-[var(--app-panel-bg)] px-2 py-1 text-center font-medium tabular-nums text-[var(--app-muted)]">{fmtHHMM(event.event_ts)}</span>
+                      <span className="font-semibold tabular-nums text-[var(--app-text)]">{formatEventValue(event)}</span>
+                      <ClinicalReferenceTooltip text={`Delete ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`} compact disabled={deletingEventId === event.id} className="flex">
                         <button
                           type="button"
                           onClick={() => void handleDeleteEvent(event.id)}
                           disabled={deletingEventId === event.id}
-                          className="text-red-500 dark:text-red-400 hover:text-red-400 dark:hover:text-red-300 disabled:opacity-40 leading-none"
-                          title="Delete entry"
+                          className="grid h-7 w-7 place-items-center rounded-md text-red-500 hover:bg-red-500/10 dark:text-red-400 disabled:opacity-40"
+                          aria-label={`Delete ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`}
                         >
-                          {deletingEventId === event.id ? "…" : "✕"}
+                          {deletingEventId === event.id ? "…" : "×"}
                         </button>
-                      </div>
+                      </ClinicalReferenceTooltip>
                     </div>
                   ))}
                   {group.segments.map((segmentText, idx) => (
@@ -3666,8 +3941,17 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
     );
   };
 
+  const ioModalPatientContext = caseStatus.status === "IDLE" ? null : (
+    <div className="io-modal__patient-context" aria-label="Active patient clinical context">
+      <strong>{formatPatientDisplayName(casePatient, patientNameLanguage) || "Patient name not recorded"}</strong>
+      <span>HN {caseStatus.hn || "—"}</span>
+      <span>{patientAsaLabel}</span>
+      <span>Weight {patientWeightKg == null ? "—" : `${patientWeightKg} kg`}</span>
+    </div>
+  );
+
   return (
-    <div className="p-4 pb-24 space-y-4 text-gray-900 dark:text-gray-100">
+    <div className="app-theme-scope p-3 pb-24 space-y-3 text-[var(--app-text)]">
       {tab === "current" ? (
         <section className={card}>
           {caseStatus.status === "IDLE" ? (
@@ -3676,61 +3960,198 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div className="rounded border border-gray-200 dark:border-gray-800 p-2 space-y-2">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold">Medication</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      Search the drug, confirm how it should chart, then add a bolus now or leave dose empty to keep it in the list.
-                    </div>
-                  </div>
-                  {shouldShowMedicationGuide ? (
-                    <div className="rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-400/40 dark:bg-emerald-500/10 px-3 py-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                            Quick Guide
-                          </div>
-                          <div className="text-sm text-emerald-900 dark:text-emerald-100">
-                            พิมพ์ค้นหาชื่อยา เลือก route และ unit ให้เรียบร้อย ถ้าต้องการลง bolus ทันทีให้ใส่ dose แล้วกด Add แต่ถ้ายังไม่ลง dose สามารถปล่อยช่องนี้ว่างไว้เพื่อเพิ่มรายการยาไว้ก่อนได้
-                          </div>
-                          <div className="text-xs text-emerald-800 dark:text-emerald-100/90">
-                            Search drug, confirm group/route/unit, then enter a dose for a one-time bolus or leave dose empty to create the medication line first.
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setMedicationGuideDismissedCaseId(caseId)}
-                          className="rounded border border-emerald-300 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-100 dark:border-emerald-300/40 dark:text-emerald-100 dark:hover:bg-emerald-500/10"
-                        >
-                          Hide
-                        </button>
+              <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--app-border)] pb-2">
+                <h1 className="text-xl font-semibold tracking-tight">Input/Output Balance</h1>
+                <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)]/65 px-3 py-1.5 text-xs">
+                  <strong className="max-w-64 truncate">{formatPatientDisplayName(casePatient, patientNameLanguage) || "Patient name not recorded"}</strong>
+                  <span className="text-[var(--app-muted)]">·</span>
+                  <span className="font-semibold">HN {caseStatus.hn}</span>
+                  <span className="text-[var(--app-muted)]">·</span>
+                  <span>Case <b className="tabular-nums">#{caseStatus.case_id}</b></span>
+                  <span className="text-[var(--app-muted)]">·</span>
+                  <span className="tabular-nums">Started <b>{fmt(caseStatus.start_time)}</b></span>
+                  <span className="rounded-full border border-emerald-500/35 bg-emerald-500/12 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-emerald-600 dark:text-emerald-300">{caseStatus.status}</span>
+                </div>
+              </header>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+                {[
+                  { label: "Intake", icon: "input" as IoIconName, value: currentSummary?.intake_ml ?? 0, suffix: "mL", tone: "#34d399" },
+                  { label: "Output", icon: "output" as IoIconName, value: currentSummary?.output_ml ?? 0, suffix: "mL", tone: "#60a5fa" },
+                  { label: "Balance", icon: "balance" as IoIconName, value: currentSummary?.net_ml ?? 0, suffix: "mL", tone: (currentSummary?.net_ml ?? 0) >= 0 ? "#a78bfa" : "#fb7185", signed: true },
+                  { label: "Active drips", icon: "activeDrips" as IoIconName, value: currentRuns.filter(run => run.stopped_at == null && activeDripSegment(run, Date.now()) != null).length, suffix: "", tone: "#fbbf24" },
+                ].map(metric => (
+                  <div key={metric.label} className="app-tooltip flex min-h-12 items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/70 px-2.5 py-1.5" data-tooltip={metric.label === "Balance" ? "Net balance: intake minus output" : metric.label === "Active drips" ? "Infusions currently running" : `${metric.label} included in fluid balance`} style={{ boxShadow: `inset 3px 0 0 ${metric.tone}` }}>
+                    <IoSpriteIcon name={metric.icon} size={34} />
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">{metric.label}</div>
+                      <div className="mt-0.5 flex items-baseline gap-1">
+                        <span className="text-xl font-semibold tabular-nums">{metric.signed && Number(metric.value) > 0 ? "+" : ""}{formatQuantity(Number(metric.value))}</span>
+                        {metric.suffix ? <span className="text-xs text-[var(--app-muted)]">{metric.suffix}</span> : null}
                       </div>
                     </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMedBolusComposerOpen(true);
+                    window.setTimeout(() => {
+                      medicationSearchInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      medicationSearchInputRef.current?.focus();
+                    }, 50);
+                  }}
+                  disabled={currentLoading || currentSaving}
+                  className="app-tooltip flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-[var(--app-hover-bg)] disabled:opacity-50"
+                  data-tooltip="Record a one-time medication dose"
+                >
+                  <IoSpriteIcon name="medBolus" size={30} />
+                  Med bolus
+                </button>
+                <button type="button" onClick={openMedDripModal} disabled={currentLoading || currentSaving} className="app-tooltip flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-[var(--app-hover-bg)] disabled:opacity-50" data-tooltip="Start a medication infusion">
+                  <IoSpriteIcon name="medDrip" size={30} />
+                  Med drip
+                </button>
+                <button type="button" onClick={() => openFluidModal()} disabled={currentLoading || currentSaving} className="app-tooltip flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-[var(--app-hover-bg)] disabled:opacity-50" data-tooltip="Record a fluid bolus or infusion">
+                  <IoSpriteIcon name="fluid" size={30} />
+                  Fluid
+                </button>
+                <button type="button" onClick={openBloodProductModal} disabled={currentLoading || currentSaving} className="app-tooltip flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-[var(--app-hover-bg)] disabled:opacity-50" data-tooltip="Record a blood product">
+                  <IoSpriteIcon name="bloodProduct" size={30} />
+                  Blood product
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="order-2 flex min-w-0 flex-col gap-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/25 p-3 lg:order-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-base font-semibold">Medication summary</div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2.5 py-1 text-xs font-semibold tabular-nums text-[var(--app-muted)]">{administeredMedicationCount} given{preparedMedicationCount > 0 ? ` · ${preparedMedicationCount} ready` : ""}</span>
+                      <div className="inline-flex overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] p-0.5" aria-label="Medication display mode">
+                        {(["summary", "detail"] as MedicationSummaryView[]).map(view => (
+                          <ClinicalReferenceTooltip key={view} text={`${view === "summary" ? "Summary" : "Detail"} view`} compact className="flex">
+                            <button
+                              type="button"
+                              aria-label={`${view === "summary" ? "Summary" : "Detail"} view`}
+                              aria-pressed={medicationSummaryView === view}
+                              onClick={() => setMedicationSummaryView(view)}
+                              className={`grid h-7 w-8 place-items-center rounded-md transition ${medicationSummaryView === view ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)] hover:text-[var(--app-text)]"}`}
+                            >
+                              {view === "summary" ? (
+                                <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M6 5h10M6 10h10M6 15h10" strokeLinecap="round" /><circle cx="3" cy="5" r=".8" fill="currentColor" stroke="none" /><circle cx="3" cy="10" r=".8" fill="currentColor" stroke="none" /><circle cx="3" cy="15" r=".8" fill="currentColor" stroke="none" /></svg>
+                              ) : (
+                                <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="6" rx="1.5" /><rect x="2.5" y="11.5" width="15" height="6" rx="1.5" /><path d="M5.5 5.5h5M5.5 14.5h5" strokeLinecap="round" /></svg>
+                              )}
+                            </button>
+                          </ClinicalReferenceTooltip>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {popularBolusItems.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Popular</span>
+                      {popularBolusItems.map(item => (
+                        <button
+                          key={`popular-bolus-${item.id}`}
+                          type="button"
+                          onClick={() => openPopularMedicationBolus(item)}
+                          disabled={currentLoading || currentSaving}
+                          className="app-tooltip min-h-8 rounded-full border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1 text-xs font-semibold text-[var(--app-text)] transition hover:border-[var(--app-accent)] hover:bg-[var(--app-hover-bg)] disabled:opacity-50"
+                          data-tooltip={`Record ${item.name} bolus`}
+                        >
+                          {item.name}
+                        </button>
+                      ))}
+                    </div>
                   ) : null}
-                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-black/5 dark:bg-white/[0.03] p-3 space-y-3">
-                    <div className="space-y-2">
+                  {medBolusComposerOpen ? (
+                    <div
+                      className="app-theme-scope io-modal-backdrop"
+                      onMouseDown={() => {
+                        setMedBolusComposerOpen(false);
+                        resetMedicationComposer();
+                        setCurrentError("");
+                      }}
+                    >
+                      <section
+                        className="io-modal w-full max-w-2xl p-4 space-y-3"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="io-balance-med-bolus-title"
+                        onMouseDown={event => event.stopPropagation()}
+                        onKeyDown={event => {
+                          if (event.key !== "Escape" || currentSaving) return;
+                          event.preventDefault();
+                          setMedBolusComposerOpen(false);
+                          resetMedicationComposer();
+                          setCurrentError("");
+                        }}
+                      >
+                      <header className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] pb-3">
+                        <div className="flex min-w-0 items-center gap-5">
+                          <span className="mr-2 grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--timegrid-focus-bg)]">
+                            <IoSpriteIcon name="medBolus" size={42} />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--app-muted)]">Record medication</div>
+                            <div id="io-balance-med-bolus-title" className="text-xl font-semibold leading-tight">Med bolus</div>
+                            <div className="mt-0.5 text-xs text-[var(--app-muted)]">One-time dose</div>
+                          </div>
+                        </div>
+                      <ClinicalReferenceTooltip text="Close" compact className="flex shrink-0">
+                        <button
+                          type="button"
+                          aria-label="Close medication bolus"
+                          onClick={() => {
+                            setMedBolusComposerOpen(false);
+                            resetMedicationComposer();
+                            setCurrentError("");
+                          }}
+                          className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--app-border)] text-xl leading-none text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)] hover:text-[var(--app-text)]"
+                        >
+                          ×
+                        </button>
+                      </ClinicalReferenceTooltip>
+                      </header>
+                      {ioModalPatientContext}
+                      <div className="space-y-4">
+                        <section className="space-y-2">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Medication</div>
                       <div className="relative">
                         <input
+                          ref={medicationSearchInputRef}
                           className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
                           placeholder="Search drug name..."
                           value={itemSearch}
                           onChange={e => {
                             setItemSearch(e.target.value);
-                            setShowItemDropdown(true);
+                            setShowItemDropdown(normalizeToken(e.target.value).length >= 2);
                             setPrepareItemId(null);
                           }}
-                          onFocus={() => setShowItemDropdown(true)}
+                          onFocus={() => setShowItemDropdown(prepareItemId == null && normalizeToken(itemSearch).length >= 2)}
+                          onKeyDown={event => {
+                            if (event.key === "ArrowDown" && showItemDropdown && filteredSearchItems.length > 0) {
+                              event.preventDefault();
+                              medicationBolusOptionRefs.current[0]?.focus();
+                              return;
+                            }
+                            if (event.key !== "Enter" && event.key !== "Tab") return;
+                            const query = normalizeToken(itemSearch);
+                            const exact = filteredSearchItems.find(item =>
+                              normalizeToken(item.name) === query || normalizeToken(item.code) === query,
+                            );
+                            const match = exact || (filteredSearchItems.length === 1 ? filteredSearchItems[0] : null);
+                            if (!match) return;
+                            event.preventDefault();
+                            selectMedicationBolusItem(match);
+                          }}
                         />
-                        {showItemDropdown && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-0"
-                              onClick={() => setShowItemDropdown(false)}
-                            />
-                            <div className="absolute z-10 w-full mt-1 max-h-60 overflow-y-auto rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 shadow-lg">
+                        {showItemDropdown && normalizeToken(itemSearch).length >= 2 ? (
+                            <div className="relative z-20 mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg">
                               {filteredSearchItems.length > 0 ? (
-                                filteredSearchItems.map(item => {
+                                filteredSearchItems.map((item, index) => {
                                   const groupId = resolveGroupId(
                                     item.kind,
                                     item.category,
@@ -3741,21 +4162,24 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                                   return (
                                     <button
                                       key={`search-item-${item.id}`}
-                                      type="button"
+                                     type="button"
+                                      ref={element => { medicationBolusOptionRefs.current[index] = element; }}
                                       className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-900 last:border-0"
-                                      onClick={() => {
-                                        setPrepareItemId(item.id);
-                                        setItemSearch(item.name);
-                                        setCurrentGroupId(groupId);
-                                        setPrepareRoute(
-                                          group && !ROUTE_DISABLED_GROUP_IDS.has(group.id)
-                                            ? group.id === LOCAL_ANESTHETIC_GROUP_ID
-                                              ? DEFAULT_LOCAL_ANESTHETIC_ROUTE
-                                              : DEFAULT_ROUTE
-                                            : "",
-                                        );
-                                        setPrepareUom(item.default_unit || "");
-                                        setShowItemDropdown(false);
+                                      onClick={() => selectMedicationBolusItem(item)}
+                                      onKeyDown={event => {
+                                        if (event.key === "Enter" || event.key === "Tab") {
+                                          event.preventDefault();
+                                          selectMedicationBolusItem(item);
+                                          return;
+                                        }
+                                        if (event.key === "ArrowDown") {
+                                          event.preventDefault();
+                                          medicationBolusOptionRefs.current[Math.min(index + 1, filteredSearchItems.length - 1)]?.focus();
+                                        } else if (event.key === "ArrowUp") {
+                                          event.preventDefault();
+                                          if (index === 0) medicationSearchInputRef.current?.focus();
+                                          else medicationBolusOptionRefs.current[index - 1]?.focus();
+                                        }
                                       }}
                                     >
                                       <div className="font-medium">{item.name}</div>
@@ -3805,219 +4229,232 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
                                 </div>
                               )}
                             </div>
-                          </>
-                        )}
+                        ) : null}
                       </div>
-                      <div className="grid grid-cols-12 gap-2 items-center">
-                        <select
-                          className="col-span-6 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                          value={currentGroupId}
-                          onChange={e => {
-                            setCurrentGroupId(e.target.value);
-                            setPrepareItemId(null);
-                          }}
-                          disabled={isPrepareGroupLocked}
-                        >
-                          <option value="">All Groups</option>
-                          {detailedGroups.filter(group => group.kind === "med").map(group => (
-                            <option key={group.id} value={group.id}>
-                              {groupOptionLabel(group)}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="col-span-3 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                          value={isCurrentGroupRouteEnabled ? prepareRoute : ""}
-                          onChange={e => setPrepareRoute(e.target.value)}
-                          disabled={!currentGroup || !isCurrentGroupRouteEnabled}
-                        >
-                          {!currentGroup ? (
-                            <option value="">Route</option>
-                          ) : !isCurrentGroupRouteEnabled ? (
-                            <option value="">No route</option>
-                          ) : (
-                            <>
-                              <option value="">Route</option>
-                              {ROUTE_OPTIONS.map(route => (
-                                <option key={route} value={route}>
-                                  {route}
-                                </option>
-                              ))}
-                            </>
-                          )}
-                        </select>
-                        {isCurrentGroupLocalAnesthetic ? (
-                          <input
-                            className="col-span-3 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                            placeholder="Conc. % (mg/mL)"
-                            value={prepareLocalConcentration}
-                            onChange={e => setPrepareLocalConcentration(e.target.value)}
-                          />
-                        ) : (
-                          <select
-                            className="col-span-3 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                            value={prepareUom}
-                            onChange={e => setPrepareUom(e.target.value)}
-                          >
-                            <option value="">UOM</option>
-                            {UOM_OPTIONS.map(unit => (
-                              <option key={unit} value={unit}>
-                                {unit}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                      {isPrepareGroupLocked && selectedCurrentItem ? (
-                        <div className="rounded border border-amber-300 bg-amber-50 dark:border-amber-400/40 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-                          <div className="flex items-center justify-between gap-3">
-                            <span>
-                              Group is locked to the selected drug:
-                              {" "}
-                              <span className="font-semibold">
-                                {detailedGroupById.get(selectedCurrentItemGroupId)?.label || "Medication"}
-                              </span>
-                              . Clear or re-search the drug first if you want another group.
-                            </span>
-                            <button
-                              type="button"
-                              onClick={resetMedicationComposer}
-                              className="shrink-0 rounded border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-100 dark:hover:bg-amber-500/10"
-                            >
-                              Clear
-                            </button>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <label className="space-y-1">
+                              <span className="text-xs font-semibold text-[var(--app-muted)]">Group</span>
+                              <select
+                                className="w-full px-3 py-2 text-sm"
+                                value={currentGroupId}
+                                onChange={e => {
+                                  setCurrentGroupId(e.target.value);
+                                  setPrepareItemId(null);
+                                }}
+                                disabled={isPrepareGroupLocked}
+                              >
+                                <option value="">Select group</option>
+                                {detailedGroups.filter(group => group.kind === "med").map(group => (
+                                  <option key={group.id} value={group.id}>{groupOptionLabel(group)}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-xs font-semibold text-[var(--app-muted)]">Route</span>
+                              <select
+                                className="w-full px-3 py-2 text-sm"
+                                value={isCurrentGroupRouteEnabled ? prepareRoute : ""}
+                                onChange={e => setPrepareRoute(e.target.value)}
+                                disabled={!currentGroup || !isCurrentGroupRouteEnabled}
+                              >
+                                {!currentGroup ? <option value="">Select drug first</option> : !isCurrentGroupRouteEnabled ? <option value="">Not required</option> : <><option value="">Select route</option>{ROUTE_OPTIONS.map(route => <option key={route} value={route}>{route}</option>)}</>}
+                              </select>
+                            </label>
+                            {!isCurrentGroupLocalAnesthetic ? (
+                              <label className="space-y-1">
+                                <span className="text-xs font-semibold text-[var(--app-muted)]">Dose unit</span>
+                                <select className="w-full px-3 py-2 text-sm" value={prepareUom} onChange={e => setPrepareUom(e.target.value)}>
+                                  <option value="">Select unit</option>
+                                  {UOM_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                                </select>
+                              </label>
+                            ) : null}
                           </div>
-                        </div>
-                      ) : null}
-                      <div className="grid grid-cols-12 gap-2 items-center">
-                        <input
-                          className="col-span-4 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                          placeholder="HH:mm"
-                          value={prepareTime}
-                          onChange={e => setPrepareTime(formatTimeInputHHMM(e.target.value))}
-                        />
-                        <input
-                          className="col-span-5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm"
-                          placeholder={isCurrentGroupLocalAnesthetic ? "Volume mL" : "Dose"}
-                          value={
-                            isCurrentGroupLocalAnesthetic
-                              ? prepareLocalVolumeMl
-                              : prepareDoseValue
-                          }
-                          onChange={e =>
-                            isCurrentGroupLocalAnesthetic
-                              ? setPrepareLocalVolumeMl(e.target.value)
-                              : setPrepareDoseValue(e.target.value)
-                          }
-                          onKeyDown={e => {
-                            if (e.key !== "Enter" || e.shiftKey) return;
-                            e.preventDefault();
-                            if (
-                              currentSaving ||
-                              currentLoading ||
-                              prepareItemId == null ||
-                              !currentGroup
-                            ) {
-                              return;
-                            }
-                            void handleMedicationPrepare();
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void handleMedicationPrepare();
-                          }}
-                          disabled={
-                            currentSaving || currentLoading || prepareItemId == null || !currentGroup
-                          }
-                          className={`col-span-3 ${primaryButton} ${
-                            currentSaving || currentLoading || prepareItemId == null || !currentGroup
-                              ? primaryDisabled
-                              : primaryEnabled
-                          }`}
-                        >
-                          {currentSaving ? "Saving..." : "Add"}
-                        </button>
+                          {isPrepareGroupLocked && selectedCurrentItem ? (
+                            <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold">{selectedCurrentItem.name}</div>
+                                <div className="text-xs text-[var(--app-muted)]">{detailedGroupById.get(selectedCurrentItemGroupId)?.label || "Medication"}</div>
+                              </div>
+                              <button type="button" onClick={resetMedicationComposer} className="shrink-0 rounded-lg border border-[var(--app-border)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--app-hover-bg)]">Change</button>
+                            </div>
+                          ) : null}
+                        </section>
+
+                        <section className="space-y-2 border-t border-[var(--app-border)] pt-4">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Administration</div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="space-y-1">
+                              <span className="text-xs font-semibold text-[var(--app-muted)]">Date</span>
+                              <input
+                                className="w-full px-3 py-2 text-sm tabular-nums"
+                                value={prepareDate}
+                                onChange={e => setPrepareDate(formatDateInputDDMMYYYY(e.target.value))}
+                                onBlur={e => {
+                                  const normalized = normalizeDateInputDDMMYYYY(e.target.value);
+                                  if (normalized) setPrepareDate(normalized);
+                                }}
+                                placeholder="dd/mm/yyyy"
+                              />
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-xs font-semibold text-[var(--app-muted)]">Time</span>
+                              <input className="w-full px-3 py-2 text-sm tabular-nums" placeholder="HH:mm" value={prepareTime} onChange={e => setPrepareTime(formatTimeInputHHMM(e.target.value))} />
+                            </label>
+                          </div>
+                          {isCurrentGroupLocalAnesthetic ? (
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="space-y-1"><span className="text-xs font-semibold text-[var(--app-muted)]">Concentration</span><div className="flex"><input ref={medicationBolusAmountInputRef} type="number" min="0" step="0.01" className="min-w-0 flex-1 rounded-r-none px-3 py-2 text-sm" value={prepareLocalConcentration} onChange={e => setPrepareLocalConcentration(e.target.value)} placeholder="0" /><span className="grid min-w-16 place-items-center rounded-r-lg border border-l-0 border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-2 text-sm">%</span></div></label>
+                              <label className="space-y-1"><span className="text-xs font-semibold text-[var(--app-muted)]">Volume</span><div className="flex"><input type="number" min="0" step="0.01" className="min-w-0 flex-1 rounded-r-none px-3 py-2 text-sm" value={prepareLocalVolumeMl} onChange={e => setPrepareLocalVolumeMl(e.target.value)} onKeyDown={e => { if (e.key !== "Enter" || e.shiftKey || currentSaving || currentLoading || prepareItemId == null || !currentGroup) return; e.preventDefault(); void handleMedicationPrepare(); }} placeholder="0" /><span className="grid min-w-16 place-items-center rounded-r-lg border border-l-0 border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-2 text-sm">mL</span></div></label>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <label className="block space-y-1">
+                                <span className="text-xs font-semibold text-[var(--app-muted)]">Dose</span>
+                                <div className="flex">
+                                  <input
+                                    ref={medicationBolusAmountInputRef}
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="min-w-0 flex-1 rounded-r-none px-3 py-2 text-lg font-semibold tabular-nums"
+                                    value={prepareDoseValue}
+                                    onChange={e => setPrepareDoseValue(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key !== "Enter" || e.shiftKey || currentSaving || currentLoading || prepareItemId == null || !currentGroup) return;
+                                      e.preventDefault();
+                                      void handleMedicationPrepare();
+                                    }}
+                                    placeholder="0"
+                                  />
+                                  <span className="grid min-w-20 place-items-center rounded-r-lg border border-l-0 border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-3 text-sm font-semibold">{prepareUom || selectedCurrentItem?.default_unit || "unit"}</span>
+                                </div>
+                              </label>
+                              {historicalBolusSuggestion ? (
+                                <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/55 px-3 py-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Suggestion</span>
+                                    {historicalBolusSuggestion.doses.map(dose => {
+                                      const selected = Number(prepareDoseValue) === dose && prepareUom === historicalBolusSuggestion.unit;
+                                      return (
+                                        <button
+                                          key={`${selectedCurrentItem?.id || "med"}-${dose}-${historicalBolusSuggestion.unit}`}
+                                          type="button"
+                                          aria-pressed={selected}
+                                          onClick={() => {
+                                            setPrepareDoseValue(String(dose));
+                                            setPrepareUom(historicalBolusSuggestion.unit);
+                                            medicationBolusAmountInputRef.current?.focus();
+                                          }}
+                                          className={`min-h-8 rounded-lg border px-3 py-1 text-xs font-bold tabular-nums ${selected ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"}`}
+                                        >
+                                          {dose} {historicalBolusSuggestion.unit}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </section>
                       </div>
+                      {currentError ? <div className="case-modal__error">{currentError}</div> : null}
+                      <footer className="flex items-center justify-between gap-3 border-t border-[var(--app-border)] pt-3">
+                        <div className="text-xs text-[var(--app-muted)]">Dose may be left empty to add the medication row only.</div>
+                        <div className="flex shrink-0 gap-2">
+                          <button type="button" onClick={() => { setMedBolusComposerOpen(false); resetMedicationComposer(); setCurrentError(""); }} disabled={currentSaving} className="rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-semibold hover:bg-[var(--app-hover-bg)]">Cancel</button>
+                          <button type="button" onClick={() => void handleMedicationPrepare()} disabled={currentSaving || currentLoading || prepareItemId == null || !currentGroup} className={`rounded-lg px-4 py-2 text-sm font-semibold ${currentSaving || currentLoading || prepareItemId == null || !currentGroup ? primaryDisabled : "bg-[var(--app-accent)] text-[var(--app-accent-contrast)] hover:brightness-105"}`}>
+                            {currentSaving ? "Saving…" : (isCurrentGroupLocalAnesthetic ? prepareLocalVolumeMl || prepareLocalConcentration : prepareDoseValue) ? "Record bolus" : "Add medication"}
+                          </button>
+                        </div>
+                      </footer>
+                      </section>
                     </div>
-                    {currentError ? (
-                      <div className="text-xs text-red-600 dark:text-red-400">{currentError}</div>
-                    ) : null}
-                  </div>
-                  <div className="rounded border border-gray-200 dark:border-gray-800 p-2 space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Recorded Medication
-                    </div>
-                  {renderItemGroupCards(
-                    medicationItemGroups,
-                    "No medication items.",
-                    "medication",
-                  )}
+                  ) : null}
+                  <div className="order-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3 space-y-2">
+                    {medicationSummaryView === "detail" ? (
+                      <>
+                        <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Administered medication & total dose</div>
+                        {renderItemGroupCards(medicationItemGroups, "No medications added yet.", "medication")}
+                      </>
+                    ) : medicationItemGroups.length === 0 ? (
+                      <div className="text-xs text-[var(--app-muted)]">No medications added yet.</div>
+                    ) : (
+                      <div className="divide-y divide-[var(--app-border)]">
+                        {medicationItemGroups.map(group => (
+                          <div key={`medication-summary-${group.key}`} className="flex min-h-10 items-center justify-between gap-4 px-1 py-2">
+                            <span className="min-w-0 truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</span>
+                            <strong className="shrink-0 text-sm tabular-nums text-[var(--app-text)]">{getGroupTotalText(group) || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="rounded border border-gray-200 dark:border-gray-800 p-2 space-y-3">
-                  <div className="space-y-2">
-                    <div className="text-sm font-semibold">Fluid Balance</div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={openMedDripModal}
-                        disabled={currentLoading || currentSaving}
-                        className="inline-flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                        style={{
-                          borderColor: "color-mix(in srgb, #a78bfa 52%, var(--app-border))",
-                          background: "color-mix(in srgb, #a78bfa 12%, var(--app-control-bg))",
-                          color: "var(--app-text)",
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true" style={{ color: "#a78bfa" }}>
-                          <path d="M12 3v7m0 0l-3-3m3 3l3-3M8 21h8M7 14h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span>Med Drip</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openFluidModal()}
-                        disabled={currentLoading || currentSaving}
-                        className="inline-flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                        style={{
-                          borderColor: "color-mix(in srgb, #fb923c 52%, var(--app-border))",
-                          background: "color-mix(in srgb, #fb923c 12%, var(--app-control-bg))",
-                          color: "var(--app-text)",
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true" style={{ color: "#fb923c" }}>
-                          <path d="M12 3C9 7 7 10 7 13a5 5 0 0010 0c0-3-2-6-5-10z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span>Fluid</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openBloodProductModal}
-                        disabled={currentLoading || currentSaving}
-                        className="inline-flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                        style={{
-                          borderColor: "color-mix(in srgb, #f87171 52%, var(--app-border))",
-                          background: "color-mix(in srgb, #f87171 12%, var(--app-control-bg))",
-                          color: "var(--app-text)",
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true" style={{ color: "#f87171" }}>
-                          <path d="M12 3l5 8a5 5 0 11-10 0l5-8zM9 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span>Blood Product</span>
-                      </button>
+                <div className="order-1 min-w-0 rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/25 p-3 space-y-3 lg:order-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-base font-semibold">Fluids Balance</div>
+                    <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] p-0.5" aria-label="Fluid balance display mode">
+                      {(["summary", "detail"] as MedicationSummaryView[]).map(view => (
+                        <ClinicalReferenceTooltip key={view} text={`${view === "summary" ? "Summary" : "Detail"} view`} compact className="flex">
+                          <button
+                            type="button"
+                            aria-label={`${view === "summary" ? "Summary" : "Detail"} view`}
+                            aria-pressed={fluidBalanceView === view}
+                            onClick={() => setFluidBalanceView(view)}
+                            className={`grid h-7 w-8 place-items-center rounded-md transition ${fluidBalanceView === view ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)] hover:text-[var(--app-text)]"}`}
+                          >
+                            {view === "summary" ? (
+                              <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M6 5h10M6 10h10M6 15h10" strokeLinecap="round" /><circle cx="3" cy="5" r=".8" fill="currentColor" stroke="none" /><circle cx="3" cy="10" r=".8" fill="currentColor" stroke="none" /><circle cx="3" cy="15" r=".8" fill="currentColor" stroke="none" /></svg>
+                            ) : (
+                              <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="6" rx="1.5" /><rect x="2.5" y="11.5" width="15" height="6" rx="1.5" /><path d="M5.5 5.5h5M5.5 14.5h5" strokeLinecap="round" /></svg>
+                            )}
+                          </button>
+                        </ClinicalReferenceTooltip>
+                      ))}
                     </div>
                   </div>
-                  <div className="rounded border border-gray-200 dark:border-gray-800 p-2 space-y-2">
-                    <div className="text-sm font-semibold">Intake</div>
-                    {renderItemGroupCards(fluidIntakeItemGroups, "No intake items.", "intake")}
+                  <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Intake</div>
+                      <span className="text-sm font-semibold tabular-nums text-emerald-500">{formatQuantity(currentSummary?.intake_ml ?? 0)} mL</span>
+                    </div>
+                    {fluidBalanceView === "detail" ? (
+                      renderItemGroupCards(fluidIntakeItemGroups, "No intake items.", "intake")
+                    ) : fluidIntakeItemGroups.length === 0 ? (
+                      <div className="text-xs text-[var(--app-muted)]">No intake items.</div>
+                    ) : (
+                      <div className="divide-y divide-[var(--app-border)]">
+                        {fluidIntakeItemGroups.map(group => (
+                          <div key={`intake-summary-${group.key}`} className="flex min-h-9 items-center justify-between gap-4 py-1.5">
+                            <span className="min-w-0 truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</span>
+                            <strong className="shrink-0 text-sm tabular-nums text-[var(--app-text)]">{getGroupTotalText(group) || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="rounded border border-gray-200 dark:border-gray-800 p-2 space-y-2">
-                    <div className="text-sm font-semibold">Output</div>
-                    {renderItemGroupCards(outputItemGroups, "No output items.", "output")}
+                  <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Output</div>
+                      <span className="text-sm font-semibold tabular-nums text-blue-500">{formatQuantity(currentSummary?.output_ml ?? 0)} mL</span>
+                    </div>
+                    {fluidBalanceView === "detail" ? (
+                      renderItemGroupCards(outputItemGroups, "No output items.", "output")
+                    ) : outputItemGroups.length === 0 ? (
+                      <div className="text-xs text-[var(--app-muted)]">No output items.</div>
+                    ) : (
+                      <div className="divide-y divide-[var(--app-border)]">
+                        {outputItemGroups.map(group => (
+                          <div key={`output-summary-${group.key}`} className="flex min-h-9 items-center justify-between gap-4 py-1.5">
+                            <span className="min-w-0 truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</span>
+                            <strong className="shrink-0 text-sm tabular-nums text-[var(--app-text)]">{getGroupTotalText(group) || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4211,24 +4648,27 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       {entryRunId != null && selectedEntryRun != null ? (
         <div
-          className="app-theme-scope fixed inset-0 z-[140] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-3"
+          className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeEntryModal}
         >
           <div
-            className={`w-full ${
+            className={`io-modal w-full ${
               (selectedEntryRun.kind === "med" && entryMode === "bolus") ||
               selectedEntryRun.kind === "output"
                 ? "max-w-2xl"
                 : "max-w-4xl"
-            } rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] shadow-2xl p-4 space-y-3 backdrop-blur`}
+              } p-4 space-y-3`}
+            role="dialog"
+            aria-modal="true"
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={handleEntryModalKeyDown}
           >
+            {ioModalPatientContext}
             {selectedEntryRun.kind === "med" && entryMode === "bolus" ? (
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">Medication bolus</div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">
                         {selectedEntryRun.item_name || selectedEntryRun.item_code || `Item ${selectedEntryRun.item_id}`}
@@ -4381,13 +4821,13 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">Output</div>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium leading-none">
                         {selectedEntryRun.item_name || selectedEntryRun.item_code || `Item ${selectedEntryRun.item_id}`}
                       </span>
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold bg-blue-600/20 text-blue-400 leading-none">
-                        Bolus
+                        Record
                       </span>
                     </div>
                   </div>
@@ -4484,7 +4924,9 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Entry</div>
+                    <div className="text-sm font-semibold leading-none">
+                      {selectedEntryRun.kind === "fluid" ? "Fluid entry" : "Medication entry"}
+                    </div>
                     <div className="text-base font-medium leading-none">
                       {selectedEntryRun.item_name || selectedEntryRun.item_code || `Item ${selectedEntryRun.item_id}`}
                     </div>
@@ -4795,17 +5237,20 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       {medDripModalOpen ? (
         <div
-          className="app-theme-scope fixed inset-0 z-[140] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-3"
+          className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeMedDripModal}
         >
           <div
-            className="w-full max-w-3xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] shadow-2xl p-4 space-y-3 backdrop-blur"
+            className="io-modal w-full max-w-3xl p-4 space-y-3"
+            role="dialog"
+            aria-modal="true"
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={handleMedDripModalKeyDown}
           >
+            {ioModalPatientContext}
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <div className="text-sm font-semibold leading-none">Entry</div>
+                <div className="text-sm font-semibold leading-none">Medication drip</div>
                 <div className="flex items-center gap-2">
                   <span className="text-base font-medium leading-none">Medication</span>
                   <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-violet-500/20 text-violet-300">
@@ -5225,17 +5670,20 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       {bloodProductModalOpen ? (
         <div
-          className="app-theme-scope fixed inset-0 z-[140] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-3"
+          className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeBloodProductModal}
         >
           <div
-            className="w-full max-w-3xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] shadow-2xl p-4 space-y-3 backdrop-blur"
+            className="io-modal w-full max-w-3xl p-4 space-y-3"
+            role="dialog"
+            aria-modal="true"
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={handleBloodProductModalKeyDown}
           >
+            {ioModalPatientContext}
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <div className="text-sm font-semibold leading-none">Entry</div>
+                <div className="text-sm font-semibold leading-none">Blood product</div>
                 <div className="flex items-center gap-2">
                   <span className="text-base font-medium leading-none">Blood Product</span>
                   <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-rose-500/20 text-rose-300">
@@ -5449,18 +5897,21 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       {fluidModalOpen ? (
         <div
-          className="app-theme-scope fixed inset-0 z-[140] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-3"
+          className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeFluidModal}
         >
           <div
-            className="w-full max-w-xl rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] shadow-2xl p-5 space-y-4 backdrop-blur"
+            className="io-modal w-full max-w-xl p-5 space-y-4"
+            role="dialog"
+            aria-modal="true"
             data-fluid-modal
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={handleFluidModalKeyDown}
           >
+            {ioModalPatientContext}
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <div className="text-sm font-semibold leading-none">Entry</div>
+                <div className="text-sm font-semibold leading-none">Fluid</div>
                 <div className="flex items-center gap-2">
                   <span className="text-base font-medium leading-none">Fluid</span>
                   <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-cyan-500/20 text-cyan-300">
@@ -5761,11 +6212,13 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       {changeRateTarget != null ? (
         <div
-          className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/35 px-3"
+          className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeChangeRateModal}
         >
           <div
-            className={`${card} w-full max-w-lg`}
+            className="io-modal w-full max-w-lg p-4 space-y-3"
+            role="dialog"
+            aria-modal="true"
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={e => {
               if (changeRateSaving) return;
@@ -5773,6 +6226,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void confirmChangeRate(); }
             }}
           >
+            {ioModalPatientContext}
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold leading-none">Change Rate</div>
@@ -5866,11 +6320,13 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
 
       {stopDripTarget != null ? (
         <div
-          className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/35 px-3"
+          className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeStopDripModal}
         >
           <div
-            className={`${card} w-full max-w-lg`}
+            className="io-modal w-full max-w-lg p-4 space-y-3"
+            role="dialog"
+            aria-modal="true"
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={e => {
               if (stopDripSaving) return;
@@ -5885,6 +6341,7 @@ export default function DrugView({ caseStatus, mode = "current" }: Props) {
               }
             }}
           >
+            {ioModalPatientContext}
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold leading-none">Stop Drip</div>

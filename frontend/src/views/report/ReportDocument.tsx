@@ -1,16 +1,21 @@
 import type { ReactNode } from "react";
+import { useAuth } from "../../auth/useAuth";
+import {
+  formatPatientDisplayName,
+  normalizePatientNameLanguage,
+} from "../../utils/patientName";
 import type { CaseStatus } from "../../api/caseApi";
 import type { CaseDiagnosisRow, CaseProcedureRow } from "../../api/caseClinicalApi";
 import type { CaseEvent } from "../../api/caseEventApi";
 import type { CaseIoSummaryTotals } from "../../api/caseIoApi";
 import type { CaseAllergyRow, CaseLabRow } from "../../api/caseHisApi";
 import HnBarcode from "../../components/common/HnBarcode";
-import type { TimeGridRow, TimeGridValues } from "../../components/timegrid/types";
+import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../../components/clinical-timeline/types";
 import { getEditionInfo } from "../../edition/config";
 import eforlLogo from "../../assets/eforllogo.png";
-import ReportTimeAxis from "./ReportTimeAxis";
-import ReportTimeChart from "./ReportTimeChart";
-import ReportTimeGrid from "./ReportTimeGrid";
+import ReportTimelineAxis from "./ReportTimelineAxis";
+import ReportVitalSignsTrendChart from "./ReportVitalSignsTrendChart";
+import ReportClinicalTimelineGrid from "./ReportClinicalTimelineGrid";
 import type { ReportChartVisibility, ReportEventMarker, ReportPreparedMarker } from "./types";
 
 type ActiveCaseStatus = Exclude<CaseStatus, { status: "IDLE" }>;
@@ -83,13 +88,13 @@ type TimelinePage = {
 
 type TimelineIoPrepared = {
   markers: Record<number, ReportPreparedMarker[]>;
-  values: TimeGridValues;
-  rows: TimeGridRow[];
+  values: ClinicalTimelineValues;
+  rows: ClinicalTimelineRow[];
 };
 
 type BucketedTimeline = {
-  values: TimeGridValues;
-  chartValues: TimeGridValues;
+  values: ClinicalTimelineValues;
+  chartValues: ClinicalTimelineValues;
 };
 
 type Props = {
@@ -233,14 +238,22 @@ export default function ReportDocument({
   formatDateDDMMYYYY,
   formatAmount,
 }: Props) {
+  const { user: sessionUser } = useAuth();
+  const patientNameLanguage = normalizePatientNameLanguage(
+    sessionUser?.parameterPreferences?.patientNameLanguage,
+  );
   const edition = getEditionInfo();
   const totalPageCount = 1 + Math.max(1, timelinePages.length);
   const th = "border border-gray-500 bg-gray-100 px-1 py-0.5 text-[9px] font-semibold text-left align-top";
   const td = "border border-gray-500 px-1 py-0.5 text-[9px] align-top leading-4";
-  const patientName =
-    [getText(form.titleTh), getText(form.firstName), getText(form.lastName)].filter(Boolean).join(" ") ||
-    [getText(form.titleEn), getText(form.firstNameEn), getText(form.lastNameEn)].filter(Boolean).join(" ") ||
-    "-";
+  const patientName = formatPatientDisplayName({
+    title_th: getText(form.titleTh),
+    first_name: getText(form.firstName),
+    last_name: getText(form.lastName),
+    title_en: getText(form.titleEn),
+    first_name_en: getText(form.firstNameEn),
+    last_name_en: getText(form.lastNameEn),
+  }, patientNameLanguage) || "-";
   const bloodText = [getText(form.bloodGroupABO), getText(form.bloodGroupRh)].filter(Boolean).join(" ") || "-";
   const ageText = getText(form.ageY) ? `${getText(form.ageY)}y ${getText(form.ageM) || "0"}m` : "-";
   const weightText = getText(form.weightKg) ? `${getText(form.weightKg)} kg` : "-";
@@ -560,7 +573,7 @@ export default function ReportDocument({
 
       {timelinePages.map((page, index) => {
         const pageNum = index + 2;
-        const valuesMerged: TimeGridValues = {
+        const valuesMerged: ClinicalTimelineValues = {
           ...bucketedTimeline.values,
           ...timelineIoPrepared.values,
         };
@@ -582,8 +595,8 @@ export default function ReportDocument({
                 <span className="ml-2 font-normal normal-case text-gray-500">{reportBucketMin}-minute columns | 4-hour page | events {eventCount}</span>
               </div>
               <div className="overflow-hidden">
-                <ReportTimeAxis axis={page.axis} colWidth={50} labelColWidth={120} />
-                <ReportTimeChart
+                <ReportTimelineAxis axis={page.axis} colWidth={50} labelColWidth={120} />
+                <ReportVitalSignsTrendChart
                   axis={page.axis}
                   values={bucketedTimeline.chartValues}
                   colWidth={50}
@@ -592,7 +605,7 @@ export default function ReportDocument({
                   visible={chartSeriesVisibility}
                   onToggle={onChartToggle}
                 />
-                <ReportTimeGrid
+                <ReportClinicalTimelineGrid
                   axis={page.axis}
                   rows={pageRows}
                   values={valuesMerged}

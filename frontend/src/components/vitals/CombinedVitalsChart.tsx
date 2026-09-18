@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import type { TimeGridValues } from "../timegrid/types";
-import { COL_WIDTH, LABEL_COL_WIDTH } from "../timegrid/layout";
+import type { ClinicalTimelineValues } from "../clinical-timeline/types";
+import { COL_WIDTH, LABEL_COL_WIDTH } from "../clinical-timeline/layout";
 
 type VitalGroup = "spo2" | "hr" | "nibp" | "art" | "cvp";
 
@@ -32,7 +32,7 @@ type XY = {
 
 type Props = {
   axis: number[];
-  values: TimeGridValues;
+  values: ClinicalTimelineValues;
   nowTs: number;
   height?: number;
 };
