@@ -20,18 +20,14 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
-const THEME_COLORS: ThemeColor[] = ["monochromatic", "neon", "warm", "pastel", "jewel", "vibrant"];
+const THEME_COLORS: ThemeColor[] = ["monochromatic", "neon", "warm", "pastel", "pink-pastel"];
 const DEFAULT_THEME: ThemeColor = "monochromatic";
 const FALLBACK_SCHEMES: ThemeSchemeOption[] = [
   { code: "monochromatic", displayName: "Mono", colors: ["#121212", "#1c1c1c", "#444444", "#e0e0e0", "#b0b0b0", "#a1a1aa"] },
   { code: "neon", displayName: "Neon", colors: ["#0d0d0d", "#171717", "#444444", "#ffffff", "#b0b0b0", "#00ff85"] },
   { code: "warm", displayName: "Warm", colors: ["#1c1c1c", "#292421", "#554640", "#f5e8d8", "#c8b9a9", "#ff6f61"] },
   { code: "pastel", displayName: "Pastel", colors: ["#2c2c2c", "#383838", "#5a5a5a", "#e4e4e4", "#c5c5c5", "#a8dadc"] },
-  { code: "jewel", displayName: "Jewel", colors: ["#1a1a1a", "#202827", "#3e5641", "#f0f0f0", "#bdbdbd", "#89c1cf"] },
-  { code: "vibrant", displayName: "Vibrant", colors: ["#181818", "#252120", "#555555", "#f7f7f7", "#c6c6c6", "#ff5722"] },
-  { code: "air", displayName: "Air", colors: ["#f3f7fa", "#ffffff", "#c7d4dc", "#17232d", "#60717d", "#147d92"] },
-  { code: "sage", displayName: "Sage", colors: ["#f3f7f2", "#ffffff", "#c8d7c7", "#1d2b23", "#66756b", "#2f7d5a"] },
-  { code: "lilac", displayName: "Lilac", colors: ["#f7f5fb", "#ffffff", "#d5cde3", "#282135", "#71677f", "#7257a8"] },
+  { code: "pink-pastel", displayName: "Pink Pastel", colors: ["#fff4f7", "#ffffff", "#e7c6d2", "#362832", "#75626c", "#ad416f"] },
 ];
 
 function isLightCanvas(color: string) {

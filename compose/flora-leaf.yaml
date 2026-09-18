@@ -15,6 +15,7 @@ services:
     depends_on:
       flora-leaf-api:
         condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   flora_frontend_modules:

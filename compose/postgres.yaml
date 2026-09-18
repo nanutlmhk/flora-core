@@ -34,6 +34,7 @@ services:
       - ../infrastructure/postgres/0021-observation-parameter-layout.sql:/docker-entrypoint-initdb.d/0021-observation-parameter-layout.sql:ro
       - ../infrastructure/postgres/0022-timeline-device-provenance.sql:/docker-entrypoint-initdb.d/0022-timeline-device-provenance.sql:ro
       - ../infrastructure/postgres/0023-chart-series-appearance.sql:/docker-entrypoint-initdb.d/0023-chart-series-appearance.sql:ro
+      - ../infrastructure/postgres/0024-curated-theme-schemes.sql:/docker-entrypoint-initdb.d/0024-curated-theme-schemes.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

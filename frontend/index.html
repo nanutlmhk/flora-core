@@ -7,16 +7,16 @@
     <title>Flora 1.2.1</title>
 
     <!--
-      Apply the saved dark palette before first paint.
+      Apply the saved palette before first paint.
     -->
     <script>
       (function () {
         try {
           var savedColor = localStorage.getItem("theme-color");
-          var colors = ["monochromatic", "neon", "warm", "pastel", "jewel", "vibrant"];
+          var colors = ["monochromatic", "neon", "warm", "pastel", "pink-pastel"];
           var color = colors.indexOf(savedColor) >= 0 ? savedColor : "monochromatic";
           var el = document.documentElement;
-          el.classList.add("dark");
+          el.classList.add(color === "pink-pastel" ? "light" : "dark");
           el.classList.add("theme-" + color);
         } catch (_) {}
       })();

@@ -970,7 +970,7 @@ export default function CaseView({
 }: {
   caseStatus: CaseStatus;
   sessionUser: AuthUser | null;
-  onNavigate?: (view: "patient" | "diagnosis") => void;
+  onNavigate?: (view: "patient" | "diagnosis" | "drug") => void;
 }) {
   const workstation = useWorkstationSettings();
   const edition = getEditionInfo();
@@ -1267,6 +1267,7 @@ export default function CaseView({
   const [ioPreparedModal, setIoPreparedModal] = useState<IoPreparedModalState | null>(null);
   const [quickIoItems, setQuickIoItems] = useState<CaseIoItem[]>([]);
   const [quickIoError, setQuickIoError] = useState("");
+  const [ioAddMenuTs, setIoAddMenuTs] = useState<number | null>(null);
   const [quickMedOpen, setQuickMedOpen] = useState(false);
   const [quickMedSearch, setQuickMedSearch] = useState("");
   const [quickMedItemId, setQuickMedItemId] = useState<number | null>(null);
@@ -3263,14 +3264,15 @@ export default function CaseView({
     void loadBloodBoardAnesthetists();
   };
 
-  const openQuickBloodProduct = () => {
+  const openQuickBloodProduct = (entryTs?: number) => {
+    const targetTs = Number.isFinite(entryTs) ? Number(entryTs) : Date.now();
     setQuickBloodProductOpen(true);
     setQuickBloodProductError("");
     setQuickBloodProductSearch("");
     setQuickBloodProductItemId(null);
     setShowQuickBloodProductDropdown(false);
-    setQuickBloodProductDate(formatDDMMYYYY(Date.now()));
-    setQuickBloodProductTime(formatHHMM(Date.now()));
+    setQuickBloodProductDate(formatDDMMYYYY(targetTs));
+    setQuickBloodProductTime(formatHHMM(targetTs));
     setQuickBloodProductVolumeMl("");
     setQuickBloodProductGroup("");
     setQuickBloodProductBagNo("");
@@ -3287,12 +3289,12 @@ export default function CaseView({
     window.requestAnimationFrame(() => quickBloodProductBagRef.current?.focus());
   };
 
-  const openBloodProductWorkflow = () => {
+  const openBloodProductWorkflow = (entryTs?: number) => {
     if (shouldUseBloodBoard) {
       openBloodBoard();
       return;
     }
-    openQuickBloodProduct();
+    openQuickBloodProduct(entryTs);
   };
 
   const registerEforlBloodBag = () => {
@@ -3770,13 +3772,14 @@ export default function CaseView({
     }
   };
 
-  const openQuickFluid = () => {
+  const openQuickFluid = (entryTs?: number) => {
+    const targetTs = Number.isFinite(entryTs) ? Number(entryTs) : Date.now();
     setQuickFluidOpen(true);
     setQuickFluidSearch("");
     setQuickFluidItemId(null);
     setShowQuickFluidDropdown(false);
-    setQuickFluidDate(formatDDMMYYYY(Date.now()));
-    setQuickFluidTime(formatHHMM(Date.now()));
+    setQuickFluidDate(formatDDMMYYYY(targetTs));
+    setQuickFluidTime(formatHHMM(targetTs));
     setQuickFluidEntryMode("bolus");
     setQuickFluidVolumeMl("");
     setQuickFluidOverMin("");
@@ -3894,14 +3897,15 @@ export default function CaseView({
     }
   };
 
-  const openQuickMed = () => {
+  const openQuickMed = (entryTs?: number) => {
+    const targetTs = Number.isFinite(entryTs) ? Number(entryTs) : Date.now();
     quickMedSaveLockRef.current = false;
     setQuickMedOpen(true);
     setQuickMedSearch("");
     setQuickMedItemId(null);
     setShowQuickMedDropdown(false);
-    setQuickMedDate(formatDDMMYYYY(Date.now()));
-    setQuickMedTime(formatHHMM(Date.now()));
+    setQuickMedDate(formatDDMMYYYY(targetTs));
+    setQuickMedTime(formatHHMM(targetTs));
     setQuickMedDose("");
     setQuickMedLocalConcentration("");
     setQuickMedLocalVolumeMl("");
@@ -3940,15 +3944,16 @@ export default function CaseView({
     }
   };
 
-  const openQuickMedDrip = () => {
+  const openQuickMedDrip = (entryTs?: number) => {
+    const targetTs = Number.isFinite(entryTs) ? Number(entryTs) : Date.now();
     quickMedDripSaveLockRef.current = false;
     setQuickMedDripEditTarget(null);
     setQuickMedDripOpen(true);
     setQuickMedDripSearch("");
     setQuickMedDripItemId(null);
     setShowQuickMedDripDropdown(false);
-    setQuickMedDripDate(formatDDMMYYYY(Date.now()));
-    setQuickMedDripTime(formatHHMM(Date.now()));
+    setQuickMedDripDate(formatDDMMYYYY(targetTs));
+    setQuickMedDripTime(formatHHMM(targetTs));
     setQuickMedDripRoute(DEFAULT_CASEVIEW_ROUTE);
     setQuickMedDripAmountValue("");
     setQuickMedDripAmountUnit("mg");
@@ -6190,6 +6195,8 @@ export default function CaseView({
       labelColWidth={timelineLabelWidth}
       onChange={handleCellChange}
       onIoCellClick={handleIoCellClick}
+      onIoHeaderClick={() => setIoAddMenuTs(Date.now())}
+      onIoHeaderColumnClick={ts => setIoAddMenuTs(ts)}
       onPreparedMarkerClick={handlePreparedMarkerClick}
       onIoRowRemove={rowId => {
         const run = ioRunByRowId.get(rowId);
@@ -6511,6 +6518,78 @@ export default function CaseView({
                     <button type="button" className="case-modal__button" onClick={() => setIsParamMenuOpen(false)}>Cancel</button>
                     <button type="button" className="case-modal__button case-modal__button--primary" onClick={saveParameterVisibility}>Done</button>
                   </footer>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {ioAddMenuTs != null && typeof document !== "undefined"
+        ? createPortal(
+            <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => setIoAddMenuTs(null)}>
+              <section
+                className="case-modal w-full max-w-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="case-add-io-title"
+                onMouseDown={event => event.stopPropagation()}
+              >
+                <header className="case-modal__header">
+                  <div className="case-modal__identity">
+                    <span className="case-modal__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.9"><path d="M8 3v15m0 0-3-3m3 3 3-3M16 21V6m0 0-3 3m3-3 3 3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </span>
+                    <div>
+                      <div className="case-modal__eyebrow">Timeline entry</div>
+                      <h2 id="case-add-io-title" className="case-modal__title">Add I/O</h2>
+                      <p className="case-modal__context">{formatDDMMYYYY(ioAddMenuTs)} · {formatHHMM(ioAddMenuTs)} — choose what you want to record.</p>
+                    </div>
+                  </div>
+                  <button type="button" className="case-modal__close" onClick={() => setIoAddMenuTs(null)} aria-label="Close">×</button>
+                </header>
+
+                <div className="case-modal__body">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      { key: "med", title: "Medication", detail: "Bolus or one-time dose", icon: "✚", action: openQuickMed },
+                      { key: "drip", title: "Medication infusion", detail: "Continuous drip or rate", icon: "↝", action: openQuickMedDrip },
+                      { key: "fluid", title: "Fluid", detail: "Bolus, timed, or running fluid", icon: "◇", action: openQuickFluid },
+                      { key: "blood", title: "Blood product", detail: "Verify and record a blood product", icon: "◆", action: openBloodProductWorkflow },
+                    ].map(option => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          const selectedTs = ioAddMenuTs;
+                          setIoAddMenuTs(null);
+                          option.action(selectedTs);
+                        }}
+                        className="flex min-h-16 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                      >
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[var(--timegrid-focus-bg)] text-xl font-black text-[var(--app-accent)]" aria-hidden="true">{option.icon}</span>
+                        <span className="min-w-0">
+                          <strong className="block text-sm text-[var(--app-text)]">{option.title}</strong>
+                          <span className="mt-0.5 block text-[10px] leading-4 text-[var(--app-muted)]">{option.detail}</span>
+                        </span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIoAddMenuTs(null);
+                        onNavigate?.("drug");
+                      }}
+                      className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] sm:col-span-2"
+                    >
+                      <span className="grid h-9 w-10 shrink-0 place-items-center rounded-lg bg-[var(--timegrid-focus-bg)] text-lg font-black text-[var(--app-accent)]" aria-hidden="true">↗</span>
+                      <span className="min-w-0 flex-1">
+                        <strong className="block text-sm text-[var(--app-text)]">Output or advanced I/O</strong>
+                        <span className="mt-0.5 block text-[10px] leading-4 text-[var(--app-muted)]">Open the full I/O workspace for urine, blood loss, and detailed configuration.</span>
+                      </span>
+                      <span className="text-lg text-[var(--app-muted)]" aria-hidden="true">›</span>
+                    </button>
+                  </div>
                 </div>
               </section>
             </div>,

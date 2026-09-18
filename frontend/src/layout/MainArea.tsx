@@ -33,7 +33,7 @@ interface Props {
   onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
   onOpenCase?: (c: Exclude<CaseStatus, { status: "IDLE" }>) => void;
   onCaseStarted?: () => Promise<void> | void;
-  onNavigate?: (view: "patient" | "diagnosis") => void;
+  onNavigate?: (view: "patient" | "diagnosis" | "drug") => void;
 }
 
 class ViewErrorBoundary extends Component<

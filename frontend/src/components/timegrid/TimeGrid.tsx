@@ -49,6 +49,8 @@ interface Props {
   onChange?: (rowId: string, ts: number, value: unknown) => void;
   onPreparedMarkerClick?: (ts: number, marker: TimeGridPreparedMarker) => void;
   onIoCellClick?: (rowId: string, ts: number) => void;
+  onIoHeaderClick?: () => void;
+  onIoHeaderColumnClick?: (ts: number) => void;
   onIoRowRemove?: (rowId: string) => void;
   onEventCellClick?: (ts: number) => void;
   onEventMarkerClick?: (marker: TimeGridEventMarker) => void;
@@ -170,9 +172,9 @@ function EcgPicker({ value, displayCode, onChange }: {
   const openPicker = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (rect) {
-      const width = 270;
+      const width = Math.min(380, window.innerWidth - 16);
       const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
-      const openAbove = window.innerHeight - rect.bottom < 330 && rect.top > window.innerHeight - rect.bottom;
+      const openAbove = window.innerHeight - rect.bottom < 420 && rect.top > window.innerHeight - rect.bottom;
       setPosition(openAbove
         ? { left, width, bottom: window.innerHeight - rect.top + 6 }
         : { left, width, top: rect.bottom + 6 });
@@ -190,7 +192,11 @@ function EcgPicker({ value, displayCode, onChange }: {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
-    const onViewportChange = () => close();
+    const onViewportChange = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      close();
+    };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", onViewportChange);
@@ -246,7 +252,7 @@ function EcgPicker({ value, displayCode, onChange }: {
               className="mt-1.5 h-9 w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 text-xs outline-none focus:border-[var(--app-accent)]"
             />
           </div>
-          <div className="max-h-64 overflow-y-auto p-1.5" role="listbox">
+          <div className="max-h-80 overflow-y-auto overscroll-contain p-1.5" role="listbox">
             <button
               type="button"
               onClick={() => choose(ECG_CLEAR_VALUE)}
@@ -269,7 +275,13 @@ function EcgPicker({ value, displayCode, onChange }: {
                   className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${index === activeIndex ? "bg-[var(--timegrid-focus-bg)]" : "hover:bg-[var(--app-control-bg-hover)]"}`}
                 >
                   <span className={`w-10 rounded-md px-1.5 py-1 text-center font-mono font-black ${selected ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "bg-[var(--app-control-bg)] text-[var(--app-accent)]"}`}>{option.code}</span>
-                  <span className="min-w-0 flex-1 font-medium">{option.value}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{option.value}</span>
+                    <svg viewBox="0 0 120 32" preserveAspectRatio="none" className="mt-1 h-7 w-full" aria-hidden="true">
+                      <path d="M0 18H120" fill="none" stroke="var(--app-border)" strokeWidth="0.8" />
+                      <path d={option.waveform} fill="none" stroke="var(--app-accent)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  </span>
                   {selected ? <span className="text-[var(--app-accent)]">✓</span> : null}
                 </button>
               );
@@ -394,6 +406,8 @@ export default function TimeGrid({
   onChange,
   onPreparedMarkerClick,
   onIoCellClick,
+  onIoHeaderClick,
+  onIoHeaderColumnClick,
   onIoRowRemove,
   onEventCellClick,
   onEventMarkerClick,
@@ -743,12 +757,42 @@ export default function TimeGrid({
                       {rowTypeMarker.label}
                     </span>
                   ) : null}
-                  {isSectionHeaderRow ? (
+                  {isIoSectionHeaderRow ? (
+                    <div className="flex flex-1 min-w-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          onIoHeaderClick?.();
+                        }}
+                        className="timegrid-section-button flex-1 min-w-0 rounded px-1 py-0.5 text-left hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+                        aria-label="Add I/O entry"
+                        title="Add I/O entry"
+                      >
+                        <span className="truncate block text-[11px] font-medium text-[var(--app-text)]">{row.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          onSectionCollapseToggle?.("io");
+                        }}
+                        className="timegrid-section-button grid h-6 w-6 shrink-0 place-items-center rounded hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+                        aria-label={`${sectionCollapsed ? "Show" : "Hide"} ${row.label}`}
+                        aria-expanded={!sectionCollapsed}
+                        title={`${sectionCollapsed ? "Show" : "Hide"} I/O rows`}
+                      >
+                        <svg viewBox="0 0 16 16" className={`h-3.5 w-3.5 transition-transform ${sectionCollapsed ? "" : "rotate-90"}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                          <path d="m6 3 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : isSectionHeaderRow ? (
                     <button
                       type="button"
                       onClick={event => {
                         event.stopPropagation();
-                        onSectionCollapseToggle?.(isIoSectionHeaderRow ? "io" : "vital");
+                        onSectionCollapseToggle?.("vital");
                       }}
                       className="timegrid-section-button flex-1 min-w-0 inline-flex items-center justify-between rounded px-1 py-0.5"
                       aria-label={`${sectionCollapsed ? "Show" : "Hide"} ${row.label}`}
@@ -855,13 +899,14 @@ export default function TimeGrid({
                 const prepared = isFluidMedHeaderRow ? preparedMarkersByTs[ts] ?? [] : [];
                 const visibleEventCount = colWidth < 88 ? 1 : 2;
                 const canOpenEvent = isPrimaryEventRow && Boolean(onEventCellClick);
-                const cellActionClass = canOpenEvent
+                const canOpenIo = isFluidMedHeaderRow && Boolean(onIoHeaderColumnClick);
+                const cellActionClass = canOpenEvent || canOpenIo
                   ? "timegrid-cell-action cursor-pointer"
                   : "";
                 const emptyTooltip = isPrimaryEventRow
                   ? "Add Event/Note"
                   : isFluidMedHeaderRow
-                    ? "Fluid&Med segment"
+                    ? `Add I/O at ${formatHHMM(ts)}`
                     : isVitalAgentHeaderRow
                       ? "Params segment"
                       : "";
@@ -873,6 +918,7 @@ export default function TimeGrid({
                     className={`app-tooltip ${cellClass} px-0.5 ${cellActionClass}`}
                     onClick={() => {
                       if (canOpenEvent) onEventCellClick?.(ts);
+                      if (canOpenIo) onIoHeaderColumnClick?.(ts);
                     }}
                     data-tooltip={
                       markers.length > 0 || prepared.length > 0

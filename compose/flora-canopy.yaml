@@ -43,6 +43,7 @@ services:
     depends_on:
       flora-canopy-api:
         condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   flora_canopy_frontend_modules:
