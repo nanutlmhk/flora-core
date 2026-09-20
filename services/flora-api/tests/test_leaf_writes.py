@@ -563,6 +563,12 @@ class LeafWrites(unittest.TestCase):
             "item_id":item_id, "kind":"med", "event_ts":start, "dose_value":2, "dose_unit":"mg"
         }, token)
         self.assertEqual(status, 200, event)
+        status, edited_event = request(f"/api/case/{case_id}/io/events/{event['row']['id']}", {
+            "event_ts":start+60000, "dose_value":3, "dose_unit":"mg", "note":"corrected dose"
+        }, token, "PUT")
+        self.assertEqual(status, 200, edited_event)
+        self.assertEqual(edited_event["row"]["dose_value"], 3)
+        self.assertEqual(edited_event["row"]["event_ts"], start+60000)
         status, summary = request(f"/api/case/{case_id}/io/summary?from={start}&to={start+60000}", token=token)
         self.assertEqual(status, 200, summary)
         tsv = "HN\tAdmit Date\nEPHIS-"+self.suffix+"\t2026-09-16"

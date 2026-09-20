@@ -7,6 +7,7 @@ import ClinicalReferenceTooltip from "../common/ClinicalReferenceTooltip";
 import { formatConfiguredTime, getStoredDateTimePreferences } from "../../utils/dateTime";
 import { useTheme } from "../../context/ThemeContext";
 import { CHART_PREFERENCES_CHANGED_EVENT } from "../../utils/chartPreferences";
+import { mixRgb, parseHexColor, smartContrastColor } from "../../utils/smartContrast";
 
 export type VitalGroup = "spo2" | "hr" | "pr" | "nibp" | "art" | "cvp" | "temp";
 
@@ -108,58 +109,6 @@ function initialSmartContrast(storageKey?: string, preferred?: boolean) {
   return saved == null ? preferred ?? true : saved !== "0";
 }
 
-type Rgb = { r: number; g: number; b: number };
-
-function parseHexColor(color: string): Rgb | null {
-  const match = /^#([0-9a-f]{6})$/i.exec(color.trim());
-  if (!match) return null;
-  return {
-    r: Number.parseInt(match[1].slice(0, 2), 16),
-    g: Number.parseInt(match[1].slice(2, 4), 16),
-    b: Number.parseInt(match[1].slice(4, 6), 16),
-  };
-}
-
-function mixRgb(from: Rgb, to: Rgb, amount: number): Rgb {
-  return {
-    r: Math.round(from.r + (to.r - from.r) * amount),
-    g: Math.round(from.g + (to.g - from.g) * amount),
-    b: Math.round(from.b + (to.b - from.b) * amount),
-  };
-}
-
-function rgbToHex(color: Rgb) {
-  return `#${[color.r, color.g, color.b].map(value => value.toString(16).padStart(2, "0")).join("")}`;
-}
-
-function relativeLuminance(color: Rgb) {
-  const channel = (value: number) => {
-    const normalized = value / 255;
-    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
-}
-
-function contrastRatio(first: Rgb, second: Rgb) {
-  const light = Math.max(relativeLuminance(first), relativeLuminance(second));
-  const dark = Math.min(relativeLuminance(first), relativeLuminance(second));
-  return (light + 0.05) / (dark + 0.05);
-}
-
-function smartContrastColor(color: string, background: Rgb, enabled: boolean) {
-  if (!enabled) return color;
-  const source = parseHexColor(color);
-  if (!source || contrastRatio(source, background) >= 4.5) return color;
-  const black = { r: 0, g: 0, b: 0 };
-  const white = { r: 255, g: 255, b: 255 };
-  const target = contrastRatio(black, background) >= contrastRatio(white, background) ? black : white;
-  for (let amount = 0.1; amount <= 1; amount += 0.1) {
-    const adjusted = mixRgb(source, target, amount);
-    if (contrastRatio(adjusted, background) >= 4.5) return rgbToHex(adjusted);
-  }
-  return rgbToHex(target);
-}
-
 function groupColor(key: VitalGroup) {
   return {
     spo2: SPO2_COLOR, hr: HR_COLOR, pr: PR_COLOR, nibp: NIBP_COLOR,
@@ -195,6 +144,36 @@ function splitByTimeGap(points: XY[], maxGapMs: number): XY[][] {
   }
 
   return parts;
+}
+
+function markerIntervalForAxisStep(stepMs: number) {
+  const stepMinutes = stepMs / MINUTE_MS;
+  if (stepMinutes <= 5) return MINUTE_MS;
+  if (stepMinutes <= 10) return 2 * MINUTE_MS;
+  if (stepMinutes <= 20) return 5 * MINUTE_MS;
+  if (stepMinutes <= 30) return 10 * MINUTE_MS;
+  if (stepMinutes <= 60) return 15 * MINUTE_MS;
+  return 30 * MINUTE_MS;
+}
+
+function samplePointsByInterval(points: XY[], intervalMs: number, anchorTs: number): XY[] {
+  if (points.length < 2 || intervalMs <= MINUTE_MS) return points;
+
+  const sampled: XY[] = [];
+  let activeBucket = Number.NaN;
+  let lastInBucket: XY | null = null;
+
+  for (const point of points) {
+    const bucket = Math.floor((point.ts - anchorTs) / intervalMs);
+    if (bucket !== activeBucket) {
+      if (lastInBucket) sampled.push(lastInBucket);
+      activeBucket = bucket;
+    }
+    lastInBucket = point;
+  }
+
+  if (lastInBucket) sampled.push(lastInBucket);
+  return sampled;
 }
 
 type VerticalConnector = {
@@ -475,6 +454,24 @@ export default function VitalSignsTrendChart({
     };
   }, [axis, chartWidth, colWidth, endIndex, innerHeight, normalizedSeries, startIndex, startTs, stepMs]);
 
+  const markerSeries = useMemo(() => {
+    const intervalMs = markerIntervalForAxisStep(stepMs);
+    const sample = (points: XY[]) => samplePointsByInterval(points, intervalMs, startTs);
+    return {
+      spo2: sample(visibleSeries.spo2),
+      hr: sample(visibleSeries.hr),
+      pr: sample(visibleSeries.pr),
+      nibpSys: sample(visibleSeries.nibpSys),
+      nibpMap: sample(visibleSeries.nibpMap),
+      nibpDia: sample(visibleSeries.nibpDia),
+      artSys: sample(visibleSeries.artSys),
+      artMap: sample(visibleSeries.artMap),
+      artDia: sample(visibleSeries.artDia),
+      cvp: sample(visibleSeries.cvp),
+      temp: sample(visibleSeries.temp),
+    };
+  }, [startTs, stepMs, visibleSeries]);
+
   if (axis.length === 0) return null;
   if (!hasChartReadings) {
     return (
@@ -498,15 +495,15 @@ export default function VitalSignsTrendChart({
   const tempPoints = visibleSeries.temp;
   const nibpConnectors = buildVerticalConnectors(
     "nibp",
-    nibpSysPoints,
-    nibpMapPoints,
-    nibpDiaPoints,
+    markerSeries.nibpSys,
+    markerSeries.nibpMap,
+    markerSeries.nibpDia,
   );
   const artConnectors = buildVerticalConnectors(
     "art",
-    artSysPoints,
-    artMapPoints,
-    artDiaPoints,
+    markerSeries.artSys,
+    markerSeries.artMap,
+    markerSeries.artDia,
   );
 
   const hrSegments = splitByTimeGap(hrPoints, 2 * MINUTE_MS);
@@ -765,7 +762,7 @@ export default function VitalSignsTrendChart({
           )}
 
           {isVisible("spo2") &&
-            spo2Points.map((p, i) => (
+            markerSeries.spo2.map((p, i) => (
               <PointMarker
                 key={`spo2-dot-${i}-${p.ts}`}
                 x={p.x}
@@ -788,7 +785,7 @@ export default function VitalSignsTrendChart({
                   />
                 ) : null,
               )}
-              {hrPoints.map(p => (
+              {markerSeries.hr.map(p => (
                 <PointMarker key={`hr-dot-${p.ts}`} x={p.x} y={p.y} color={hrColor} marker={seriesMarker("hr")} />
               ))}
             </g>
@@ -807,7 +804,7 @@ export default function VitalSignsTrendChart({
                   />
                 ) : null,
               )}
-              {prPoints.map(p => (
+              {markerSeries.pr.map(p => (
                 <PointMarker
                   key={`pr-dot-${p.ts}`}
                   x={p.x}
@@ -834,13 +831,13 @@ export default function VitalSignsTrendChart({
             ))}
 
           {isVisible("nibp") &&
-            nibpSysPoints.map(p => (
+            markerSeries.nibpSys.map(p => (
               seriesMarker("nibp") === "range"
                 ? <TriangleDown key={`nibp-sys-${p.ts}`} x={p.x} y={p.y} color={nibpColor} />
                 : <PointMarker key={`nibp-sys-${p.ts}`} x={p.x} y={p.y} color={nibpColor} marker={seriesMarker("nibp")} />
             ))}
           {isVisible("nibp") &&
-            nibpMapPoints.map(p => (
+            markerSeries.nibpMap.map(p => (
               <PointMarker
                 key={`nibp-map-${p.ts}`}
                 x={p.x}
@@ -850,7 +847,7 @@ export default function VitalSignsTrendChart({
               />
             ))}
           {isVisible("nibp") &&
-            nibpDiaPoints.map(p => (
+            markerSeries.nibpDia.map(p => (
               seriesMarker("nibp") === "range"
                 ? <TriangleUp key={`nibp-dia-${p.ts}`} x={p.x} y={p.y} color={nibpColor} />
                 : <PointMarker key={`nibp-dia-${p.ts}`} x={p.x} y={p.y} color={nibpColor} marker={seriesMarker("nibp")} />
@@ -871,13 +868,13 @@ export default function VitalSignsTrendChart({
             ))}
 
           {isVisible("art") &&
-            artSysPoints.map(p => (
+            markerSeries.artSys.map(p => (
               seriesMarker("art") === "range"
                 ? <TriangleDown key={`art-sys-${p.ts}`} x={p.x} y={p.y} color={artColor} />
                 : <PointMarker key={`art-sys-${p.ts}`} x={p.x} y={p.y} color={artColor} marker={seriesMarker("art")} />
             ))}
           {isVisible("art") &&
-            artMapPoints.map(p => (
+            markerSeries.artMap.map(p => (
               <PointMarker
                 key={`art-map-${p.ts}`}
                 x={p.x}
@@ -887,14 +884,14 @@ export default function VitalSignsTrendChart({
               />
             ))}
           {isVisible("art") &&
-            artDiaPoints.map(p => (
+            markerSeries.artDia.map(p => (
               seriesMarker("art") === "range"
                 ? <TriangleUp key={`art-dia-${p.ts}`} x={p.x} y={p.y} color={artColor} />
                 : <PointMarker key={`art-dia-${p.ts}`} x={p.x} y={p.y} color={artColor} marker={seriesMarker("art")} />
             ))}
 
           {isVisible("cvp") &&
-            cvpPoints.map(p => (
+            markerSeries.cvp.map(p => (
               <PointMarker
                 key={`cvp-${p.ts}`}
                 x={p.x}
@@ -913,7 +910,7 @@ export default function VitalSignsTrendChart({
             />
           ) : null}
           {isVisible("temp") &&
-            tempPoints.map(p => (
+            markerSeries.temp.map(p => (
               <PointMarker
                 key={`temp-${p.ts}`}
                 x={p.x}

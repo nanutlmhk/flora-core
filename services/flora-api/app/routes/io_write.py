@@ -121,6 +121,25 @@ def create_event(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_p
     return {"ok":True,"row":row}
 
 
+@router.put("/{case_id}/io/events/{event_id}")
+def edit_io_event(case_id:int,event_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
+    with database.transaction():
+        editable_case(database,case_id); old=event_row(database,event_id)
+        if not old or old["case_id"]!=case_id: raise HTTPException(404,"event not found")
+        event_ts=timestamp(payload.get("event_ts",old["event_ts"]),"event_ts")
+        if event_ts is None: raise HTTPException(400,"event_ts required")
+        volume=number(payload.get("volume_ml",old["volume_ml"]),"volume_ml",0)
+        dose=number(payload.get("dose_value",old["dose_value"]),"dose_value",0)
+        if old["kind"] in {"fluid","output"} and flag(payload.get("include_in_balance",old["include_in_balance"])) and volume is None:
+            raise HTTPException(400,"volume_ml required for fluid/output balance")
+        values=dict(event_ts=event_ts,volume_ml=volume,dose_value=dose,
+          dose_unit=text(payload.get("dose_unit",old["dose_unit"])),note=text(payload.get("note",old["note"])),
+          include_in_balance=flag(payload.get("include_in_balance",old["include_in_balance"])),updated_at=now_ms())
+        update(database,"case_io_event",event_id,values)
+        result=event_row(database,event_id); io_audit(database,case_id,"event",old,result,actor,payload.get("reason"))
+    return {"ok":True,"row":result}
+
+
 @router.delete("/{case_id}/io/events/{event_id}")
 def delete_event(case_id:int,event_id:int,payload:dict=Body(default={}),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     with database.transaction():

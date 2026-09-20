@@ -13,7 +13,7 @@ const API_BASE_URL = String(process.env.FLORA_API_BASE_URL || "http://127.0.0.1:
 const EDITION_CODE = String(process.env.FLORA_EDITION || packageJson.floraEdition || "full").toLowerCase();
 const PRODUCT_NAME = EDITION_CODE === "eforl" ? "Flora EforL" : EDITION_CODE === "rcat" ? "Flora RCAT" : "Flora";
 const APP_ID = EDITION_CODE === "eforl" ? "com.flora.eforl.desktop" : EDITION_CODE === "rcat" ? "com.flora.rcat.desktop" : "com.flora.desktop";
-const iconPath = path.join(__dirname, "assets", process.platform === "win32" ? "flora-app.ico" : "flora-app.png");
+const iconPath = path.join(__dirname, "assets", process.platform === "win32" ? "floraicon.ico" : "floraicon.png");
 const generatedPreviewFiles = new Set();
 let mainWindow = null;
 

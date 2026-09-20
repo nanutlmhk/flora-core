@@ -50,7 +50,7 @@
       "output": "dist-electron"
     },
     "win": {
-      "icon": "electron/assets/flora-app.ico",
+      "icon": "electron/assets/floraicon.ico",
       "signAndEditExecutable": true,
       "target": [
         {
@@ -65,8 +65,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "include": "electron/installer.nsh",
-      "installerIcon": "electron/assets/flora-app.ico",
-      "uninstallerIcon": "electron/assets/flora-app.ico"
+      "installerIcon": "electron/assets/floraicon.ico",
+      "uninstallerIcon": "electron/assets/floraicon.ico"
     }
   }
 }

@@ -3,10 +3,37 @@ import { getClinicalTimelineAxis } from "../api/clinicalTimelineApi";
 
 type CaseStatus = "IDLE" | "ACTIVE" | "DISCHARGED" | "ARCHIVED";
 
+const MINUTE_MS = 60_000;
+
+function reserveFutureColumns(
+  axis: number[],
+  serverTime: number,
+  stepMin: number,
+  futureColumnCount: number,
+): number[] {
+  if (axis.length === 0 || !Number.isFinite(serverTime)) return axis;
+
+  const stepMs = axis.length > 1
+    ? Math.max(1, axis[1] - axis[0])
+    : Math.max(1, stepMin) * MINUTE_MS;
+  const startTs = axis[0];
+  const currentIndex = Math.max(0, Math.floor((serverTime - startTs) / stepMs));
+  const safeFutureColumnCount = Math.min(12, Math.max(0, Math.round(futureColumnCount)));
+  const requiredLastIndex = currentIndex + safeFutureColumnCount;
+  if (axis.length > requiredLastIndex) return axis;
+
+  const extended = [...axis];
+  while (extended.length <= requiredLastIndex) {
+    extended.push(startTs + extended.length * stepMs);
+  }
+  return extended;
+}
+
 export function useClinicalTimelineAxis(
   caseId: number | null,
   status: CaseStatus,
   stepMin = 1,
+  futureColumnCount = 2,
 ) {
   const [axis, setAxis] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,7 +55,9 @@ export function useClinicalTimelineAxis(
       try {
         const receivedAt = Date.now();
         const result = await getClinicalTimelineAxis(activeCaseId, stepMin);
-        const next = result.axis;
+        const next = status === "ACTIVE"
+          ? reserveFutureColumns(result.axis, result.serverTime, stepMin, futureColumnCount)
+          : result.axis;
         if (!alive) return;
 
         if (Number.isFinite(result.serverTime)) {
@@ -73,7 +102,7 @@ export function useClinicalTimelineAxis(
     return () => {
       alive = false;
     };
-  }, [caseId, status, stepMin]);
+  }, [caseId, status, stepMin, futureColumnCount]);
 
   return { axis, loading, serverOffsetMs, lastSyncedAt };
 }

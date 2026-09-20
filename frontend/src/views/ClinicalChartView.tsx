@@ -104,6 +104,13 @@ import {
   normalizeTimeInputHHMM,
 } from "../utils/clinicalInput";
 import HeaderCard from "../components/case/HeaderCard";
+import ClinicalReferenceTooltip from "../components/common/ClinicalReferenceTooltip";
+import IoSpriteIcon from "../components/io/IoSpriteIcon";
+import MedicationBolusEntryModal from "../components/io/MedicationBolusEntryModal";
+import {
+  getHistoricalDripSuggestion,
+  POPULAR_DRIP_MEDICATIONS,
+} from "../utils/medicationDrip";
 import allergyCardIcon from "../assets/card-allergy.png";
 import patientCardIcon from "../assets/card-patient.png";
 import timeCardIcon from "../assets/card-time.png";
@@ -113,8 +120,15 @@ import { clampEditionTimelineScale, getEditionInfo, isTimelineParamAllowed } fro
 import {
   CHART_PREFERENCES_CHANGED_EVENT,
   chartVisibilityStorageKey,
+  normalizeDripGroupColors,
   normalizeChartGroups,
+  normalizeFutureColumns,
+  readLocalDripGroupColors,
+  readLocalFutureColumns,
+  readLocalSmartContrast,
+  type DripGroupColors,
 } from "../utils/chartPreferences";
+import { getHistoricalBolusSuggestion } from "../utils/medicationBolus";
 
 type IoPreparedModalState = {
   runId: number;
@@ -176,6 +190,13 @@ type BloodGivingAuthorization = {
   name: string;
   username?: string;
 };
+
+function formatHHMMSS(ts: number) {
+  const date = new Date(ts);
+  return [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map(value => String(value).padStart(2, "0"))
+    .join(":");
+}
 
 type CaseHeaderCardId = "los" | "patient" | "allergy" | "diagnosis" | "operation";
 type SummaryDock = "top" | "left" | "bottom" | "right";
@@ -993,12 +1014,26 @@ export default function ClinicalChartView({
     ? sessionUser.parameterPreferences.smartContrast
     : undefined;
   const accountTimelineScale = sessionUser?.parameterPreferences?.timeScaleMin;
+  const accountFutureColumns = normalizeFutureColumns(sessionUser?.parameterPreferences?.futureColumns);
+  const accountDripGroupColors = useMemo(
+    () => normalizeDripGroupColors(sessionUser?.parameterPreferences?.dripGroupColors),
+    [sessionUser?.parameterPreferences?.dripGroupColors],
+  );
   const [loadedPrefsScope, setLoadedPrefsScope] = useState("");
   const [axisStepMin, setAxisStepMin] = useState<AxisStepMin>(() =>
     clampEditionTimelineScale(
       readTimelineScaleForUser(scopeUsername, accountTimelineScale),
       availableAxisSteps,
     ),
+  );
+  const [futureColumnCount, setFutureColumnCount] = useState(() =>
+    readLocalFutureColumns(scopeUsername) ?? accountFutureColumns,
+  );
+  const [dripGroupColors, setDripGroupColors] = useState<DripGroupColors>(() =>
+    readLocalDripGroupColors(scopeUsername) ?? accountDripGroupColors,
+  );
+  const [dripSmartContrast, setDripSmartContrast] = useState(
+    () => readLocalSmartContrast(scopeUsername) ?? accountSmartContrast ?? true,
   );
   const [scaleDraft, setScaleDraft] = useState(String(axisStepMin));
   const minimumScale = Math.min(...availableAxisSteps);
@@ -1070,7 +1105,7 @@ export default function ClinicalChartView({
       return next;
     });
   };
-  const { axis, loading: axisLoading, serverOffsetMs, lastSyncedAt } = useClinicalTimelineAxis(caseId, caseStatus.status, axisStepMin);
+  const { axis, loading: axisLoading, serverOffsetMs, lastSyncedAt } = useClinicalTimelineAxis(caseId, caseStatus.status, axisStepMin, futureColumnCount);
   const {
     values: liveValues,
     provenance: storedCellProvenance,
@@ -1282,7 +1317,6 @@ export default function ClinicalChartView({
   const [showQuickMedDropdown, setShowQuickMedDropdown] = useState(false);
   const [quickMedDate, setQuickMedDate] = useState(() => formatDDMMYYYY(Date.now()));
   const [quickMedTime, setQuickMedTime] = useState(() => formatHHMM(Date.now()));
-  const [quickMedEntryMode, setQuickMedEntryMode] = useState<"basic" | "bulk">("basic");
   const [quickMedDose, setQuickMedDose] = useState("");
   const [quickMedLocalConcentration, setQuickMedLocalConcentration] = useState("");
   const [quickMedLocalVolumeMl, setQuickMedLocalVolumeMl] = useState("");
@@ -1293,8 +1327,6 @@ export default function ClinicalChartView({
   const [quickMedManualCategory, setQuickMedManualCategory] = useState("");
   const [quickMedSaving, setQuickMedSaving] = useState(false);
   const [quickMedError, setQuickMedError] = useState("");
-  const [quickMedBucketValues, setQuickMedBucketValues] = useState<Record<number, string>>({});
-  const [quickMedBucketNotes, setQuickMedBucketNotes] = useState<Record<number, string>>({});
   const [quickMedDripOpen, setQuickMedDripOpen] = useState(false);
   const [quickMedDripSearch, setQuickMedDripSearch] = useState("");
   const [quickMedDripItemId, setQuickMedDripItemId] = useState<number | null>(null);
@@ -1318,6 +1350,7 @@ export default function ClinicalChartView({
   const [quickMedDripNote, setQuickMedDripNote] = useState("");
   const [quickMedDripSaving, setQuickMedDripSaving] = useState(false);
   const [quickMedDripStopping, setQuickMedDripStopping] = useState(false);
+  const [quickMedDripExactStopTs, setQuickMedDripExactStopTs] = useState<number | null>(null);
   const [quickMedDripError, setQuickMedDripError] = useState("");
   const [quickMedDripEditTarget, setQuickMedDripEditTarget] = useState<{
     runId: number;
@@ -1389,7 +1422,6 @@ export default function ClinicalChartView({
   }, []);
 
   const [ioDripModal, setIoDripModal] = useState<IoDripModalState | null>(null);
-  const [ioEntryMode, setIoEntryMode] = useState<"basic" | "bulk">("basic");
   const [ioModalValue, setIoModalValue] = useState("");
   const [ioModalDate, setIoModalDate] = useState("");
   const [ioModalTime, setIoModalTime] = useState("");
@@ -1493,17 +1525,20 @@ export default function ClinicalChartView({
         availableAxisSteps,
       ),
     );
+    setFutureColumnCount(readLocalFutureColumns(scopeUsername) ?? accountFutureColumns);
+    setDripGroupColors(readLocalDripGroupColors(scopeUsername) ?? accountDripGroupColors);
+    setDripSmartContrast(readLocalSmartContrast(scopeUsername) ?? accountSmartContrast ?? true);
     setPreferredVisibleRowIds(readVisibleRowsForUser(scopeUsername));
     setHiddenRowIds(readHiddenRowsForUser(scopeUsername));
     const sectionCollapse = readSectionCollapseForUser(scopeUsername);
     setIsIoSectionCollapsed(sectionCollapse.ioCollapsed);
     setIsVitalSectionCollapsed(sectionCollapse.vitalCollapsed);
     setLoadedPrefsScope(scopeUsername);
-  }, [accountTimelineScale, availableAxisSteps, scopeUsername]);
+  }, [accountDripGroupColors, accountFutureColumns, accountSmartContrast, accountTimelineScale, availableAxisSteps, scopeUsername]);
 
   useEffect(() => {
     const handleChartPreferencesChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ username?: string; timeScaleMin?: number }>).detail;
+      const detail = (event as CustomEvent<{ username?: string; timeScaleMin?: number; futureColumns?: number; smartContrast?: boolean; dripGroupColors?: unknown }>).detail;
       if (detail?.username && detail.username !== scopeUsername) return;
       const next = clampEditionTimelineScale(
         detail?.timeScaleMin ?? readTimelineScaleForUser(scopeUsername, accountTimelineScale),
@@ -1511,10 +1546,13 @@ export default function ClinicalChartView({
       );
       setAxisStepMin(next);
       setScaleDraft(String(next));
+      setFutureColumnCount(normalizeFutureColumns(detail?.futureColumns ?? readLocalFutureColumns(scopeUsername) ?? accountFutureColumns));
+      setDripGroupColors(normalizeDripGroupColors(detail?.dripGroupColors ?? readLocalDripGroupColors(scopeUsername) ?? accountDripGroupColors));
+      setDripSmartContrast(detail?.smartContrast ?? readLocalSmartContrast(scopeUsername) ?? accountSmartContrast ?? true);
     };
     window.addEventListener(CHART_PREFERENCES_CHANGED_EVENT, handleChartPreferencesChanged);
     return () => window.removeEventListener(CHART_PREFERENCES_CHANGED_EVENT, handleChartPreferencesChanged);
-  }, [accountTimelineScale, availableAxisSteps, scopeUsername]);
+  }, [accountDripGroupColors, accountFutureColumns, accountSmartContrast, accountTimelineScale, availableAxisSteps, scopeUsername]);
 
   useEffect(() => {
     if (loadedPrefsScope !== scopeUsername) return;
@@ -2587,6 +2625,32 @@ export default function ClinicalChartView({
     if (quickMedDripItemId == null) return null;
     return quickMedDripItems.find(item => item.id === quickMedDripItemId) || null;
   }, [quickMedDripItemId, quickMedDripItems]);
+  const drippedQuickMedicationItemIds = useMemo(
+    () =>
+      new Set(
+        ioRuns
+          .filter(
+            run =>
+              run.kind === "med" &&
+              run.entry_mode === "drip" &&
+              Number(run.include_in_balance ?? 1) !== 0,
+          )
+          .map(run => run.item_id),
+      ),
+    [ioRuns],
+  );
+  const popularQuickMedDripItems = useMemo(
+    () =>
+      POPULAR_DRIP_MEDICATIONS.flatMap(name => {
+        const item = quickMedDripItems.find(candidate => normalizeToken(candidate.name) === normalizeToken(name));
+        return item && !drippedQuickMedicationItemIds.has(item.id) ? [item] : [];
+      }),
+    [drippedQuickMedicationItemIds, quickMedDripItems],
+  );
+  const quickMedDripSuggestion = useMemo(
+    () => getHistoricalDripSuggestion(selectedQuickMedDripItem?.name),
+    [selectedQuickMedDripItem?.name],
+  );
   const quickMedDripFuzzyMatches = useMemo(() => {
     const keyword = normalizeToken(quickMedDripSearch);
     if (!keyword || keyword.length < 4 || quickMedDripMatches.length > 0) return [];
@@ -2688,27 +2752,6 @@ export default function ClinicalChartView({
     // action helpers below are render-local closures over that same state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickMedOpen, quickMedDripOpen, quickBloodProductOpen, bloodBoardOpen, quickFluidOpen, quickMedSaving, quickMedDripSaving, quickBloodProductSaving, quickFluidSaving, caseId, caseStatus.status, shouldUseBloodBoard]);
-
-  useEffect(() => {
-    if (!isModalBloodProduct) return;
-    if (ioEntryMode !== "basic") {
-      setIoEntryMode("basic");
-    }
-  }, [isModalBloodProduct, ioEntryMode]);
-
-  useEffect(() => {
-    if (!isModalLocalAnesthetic) return;
-    if (ioEntryMode !== "basic") {
-      setIoEntryMode("basic");
-    }
-  }, [isModalLocalAnesthetic, ioEntryMode]);
-
-  useEffect(() => {
-    if (!quickMedIsLocalAnesthetic) return;
-    if (quickMedEntryMode !== "basic") {
-      setQuickMedEntryMode("basic");
-    }
-  }, [quickMedEntryMode, quickMedIsLocalAnesthetic]);
 
   const quickMedCanSave =
     caseId != null &&
@@ -3159,37 +3202,6 @@ export default function ClinicalChartView({
     () => toTsFromDateAndTime(quickMedDate, quickMedTime),
     [quickMedDate, quickMedTime],
   );
-  const quickMedBucketMinutes = useMemo(() => {
-    if (quickMedEventTs == null) return [];
-    const mins: number[] = [];
-    for (let i = 0; i < axisStepMin; i += 1) {
-      mins.push(quickMedEventTs + i * 60_000);
-    }
-    return mins;
-  }, [axisStepMin, quickMedEventTs]);
-
-  useEffect(() => {
-    if (!quickMedOpen || quickMedEntryMode !== "bulk") return;
-    const nextValues: Record<number, string> = {};
-    const nextNotes: Record<number, string> = {};
-    for (const ts of quickMedBucketMinutes) {
-      const existing = ioEvents
-        .filter(
-          event =>
-            event.kind === "med" &&
-            event.item_id === quickMedItemId &&
-            event.event_ts === ts,
-        )
-        .slice()
-        .sort((a, b) => b.id - a.id)[0];
-      if (!existing) continue;
-      if (existing.dose_value != null) nextValues[ts] = String(existing.dose_value);
-      if (existing.note) nextNotes[ts] = existing.note;
-    }
-    setQuickMedBucketValues(nextValues);
-    setQuickMedBucketNotes(nextNotes);
-  }, [ioEvents, quickMedBucketMinutes, quickMedEntryMode, quickMedItemId, quickMedOpen]);
-
   const openQuickFluidFromSuggestion = (item: CaseIoItem) => {
     closeQuickMed();
     closeQuickMedDrip();
@@ -4014,6 +4026,7 @@ export default function ClinicalChartView({
     const targetTs = Number.isFinite(entryTs) ? Number(entryTs) : Date.now();
     quickMedDripSaveLockRef.current = false;
     setQuickMedDripEditTarget(null);
+    setQuickMedDripExactStopTs(null);
     setQuickMedDripOpen(true);
     setQuickMedDripSearch("");
     setQuickMedDripItemId(null);
@@ -4027,7 +4040,7 @@ export default function ClinicalChartView({
     setQuickMedDripTotalVolumeMl("");
     setQuickMedDripDoseValue("");
     setQuickMedDripDoseUnit("mg/hr");
-    setQuickMedDripWeightKg(caseId != null ? readWeightFromSavedForm(caseId) : "");
+    setQuickMedDripWeightKg(patientWeightKg == null ? "" : String(patientWeightKg));
     setQuickMedDripRateMlHr("");
     setQuickMedDripLastEdited("dose");
     setQuickMedDripNote("");
@@ -4093,7 +4106,7 @@ export default function ClinicalChartView({
         ? nextDoseUnit
         : "mg/hr") as (typeof CASEVIEW_DOSE_RATE_UNITS)[number],
     );
-    setQuickMedDripWeightKg(caseId != null ? readWeightFromSavedForm(caseId) : "");
+    setQuickMedDripWeightKg(patientWeightKg == null ? "" : String(patientWeightKg));
     setQuickMedDripRateMlHr(
       segment?.rate_value == null ? "" : String(Number(segment.rate_value)),
     );
@@ -4112,7 +4125,6 @@ export default function ClinicalChartView({
     quickMedSaveLockRef.current = false;
     setQuickMedOpen(false);
     setQuickMedError("");
-    setQuickMedEntryMode("basic");
   };
 
   const closeQuickMedDrip = () => {
@@ -4131,7 +4143,6 @@ export default function ClinicalChartView({
     setShowQuickMedDropdown(false);
     setQuickMedDate(formatDDMMYYYY(Date.now()));
     setQuickMedTime(formatHHMM(Date.now()));
-    setQuickMedEntryMode("basic");
     setQuickMedDose("");
     setQuickMedLocalConcentration("");
     setQuickMedLocalVolumeMl("");
@@ -4140,13 +4151,12 @@ export default function ClinicalChartView({
     setQuickMedNote("");
     setQuickMedManualMode(false);
     setQuickMedManualCategory("");
-    setQuickMedBucketValues({});
-    setQuickMedBucketNotes({});
     setQuickMedError("");
     window.requestAnimationFrame(() => {
       quickMedSearchRef.current?.focus();
       quickMedSearchRef.current?.select();
     });
+    setQuickMedDripExactStopTs(null);
   };
 
   const saveQuickMed = async () => {
@@ -4242,49 +4252,7 @@ export default function ClinicalChartView({
       const hasImmediateValue = activeIsLocalAnesthetic
         ? hasLocalConcentration || hasLocalVolume
         : Boolean(trimmedDose);
-      if (quickMedEntryMode === "bulk") {
-        const promises: Promise<unknown>[] = [];
-        const selectedUnit = normalizedUnit || defaultUnit || run.item_unit || "mg";
-        for (const ts of quickMedBucketMinutes) {
-          const nextDoseStr = (quickMedBucketValues[ts] || "").trim();
-          const nextNote = (quickMedBucketNotes[ts] || "").trim();
-          const nextDose = Number(nextDoseStr);
-          const existingAtTs = ioEvents.filter(
-            event =>
-              event.kind === "med" &&
-              event.item_id === run.item_id &&
-              event.event_ts === ts,
-          );
-
-          for (const existing of existingAtTs) {
-            promises.push(
-              deleteCaseIoEvent(caseId, existing.id, actor, "clinical-chart quick med bulk replace"),
-            );
-          }
-
-          if (!Number.isFinite(nextDose) || nextDose <= 0) continue;
-          const eventNote = [nextNote, quickMedManualMode ? "manualcase:1" : ""]
-            .filter(Boolean)
-            .join(" | ");
-          promises.push(
-            createCaseIoEvent(caseId, {
-              item_id: run.item_id,
-              kind: "med",
-              event_ts: ts,
-              dose_value: nextDose,
-              dose_unit: selectedUnit,
-              note: eventNote || undefined,
-              include_in_balance: true,
-              reason: "clinical-chart quick med bulk bolus",
-              actor,
-            }),
-          );
-        }
-        if (promises.length === 0) {
-          throw new Error("Enter at least one dose in Time Scale mode");
-        }
-        await Promise.all(promises);
-      } else if (hasImmediateValue) {
+      if (hasImmediateValue) {
         let numericDose = 0;
         let doseUnit = normalizedUnit || defaultUnit || run.item_unit || "mg";
         let eventNote = quickMedNote.trim() || undefined;
@@ -4333,8 +4301,6 @@ export default function ClinicalChartView({
           reason: "clinical-chart quick med bolus",
           actor,
         });
-      } else if (!hasImmediateValue) {
-        throw new Error("Dose must be > 0");
       }
 
       notifyIoAndEventChanged(caseId);
@@ -4343,7 +4309,6 @@ export default function ClinicalChartView({
       setQuickMedItemId(null);
       setShowQuickMedDropdown(false);
       setQuickMedDate(formatDDMMYYYY(Date.now()));
-      setQuickMedEntryMode("basic");
       setQuickMedDose("");
       setQuickMedLocalConcentration("");
       setQuickMedLocalVolumeMl("");
@@ -4351,8 +4316,6 @@ export default function ClinicalChartView({
       setQuickMedNote("");
       setQuickMedManualMode(false);
       setQuickMedManualCategory("");
-      setQuickMedBucketValues({});
-      setQuickMedBucketNotes({});
       setQuickMedError("");
     } catch (err) {
       setQuickMedError(err instanceof Error ? err.message : "Failed to save medication");
@@ -4374,7 +4337,6 @@ export default function ClinicalChartView({
     }
     if (e.key !== "Enter" || e.shiftKey) return;
     if (target?.tagName === "TEXTAREA") return;
-    if (quickMedEntryMode === "bulk" && target?.tagName === "INPUT") return;
     e.preventDefault();
     e.stopPropagation();
     void saveQuickMed();
@@ -4622,7 +4584,8 @@ export default function ClinicalChartView({
       setQuickMedDripError("Running drip segment not found");
       return;
     }
-    const stopTs = toTsFromDateAndTime(quickMedDripDate, quickMedDripTime);
+    const stopTs = quickMedDripExactStopTs ??
+      toTsFromDateAndTime(quickMedDripDate, quickMedDripTime);
     if (stopTs == null) {
       setQuickMedDripError("Stop must be HH:mm (24-hour) and Date must be dd/mm/yyyy");
       return;
@@ -5181,7 +5144,6 @@ export default function ClinicalChartView({
       ts,
       entryMode: run.entry_mode,
     });
-    setIoEntryMode("basic");
     setIoModalValue(existingValue > 0 ? String(existingValue) : "");
     setIoModalDate(formatDDMMYYYY(firstEventTs));
     setIoModalTime(formatHHMM(firstEventTs));
@@ -5694,44 +5656,6 @@ export default function ClinicalChartView({
     }
   };
 
-  const bucketMinutes = useMemo(() => {
-    if (!ioPreparedModal) return [];
-    const mins: number[] = [];
-    // We use a fixed step from the modal state if possible, or axisStepMin if not
-    // But once open, it should ideally stay the same size.
-    for (let i = 0; i < axisStepMin; i++) {
-      mins.push(ioPreparedModal.ts + i * 60_000);
-    }
-    return mins;
-  }, [axisStepMin, ioPreparedModal]);
-
-  const [bucketValues, setBucketValues] = useState<Record<number, string>>({});
-  const [bucketNotes, setBucketNotes] = useState<Record<number, string>>({});
-  const lastModalRef = useRef<string>("");
-
-  useEffect(() => {
-    if (!ioPreparedModal) {
-      lastModalRef.current = "";
-      return;
-    }
-    
-    const modalKey = `${ioPreparedModal.runId}-${ioPreparedModal.ts}`;
-    if (lastModalRef.current === modalKey) return;
-    lastModalRef.current = modalKey;
-
-    const vals: Record<number, string> = {};
-    const notes: Record<number, string> = {};
-    for (const event of modalExistingEvents) {
-      const amount = ioPreparedModal.kind === "med" ? event.dose_value : event.volume_ml;
-      vals[event.event_ts] = String(amount || "");
-      notes[event.event_ts] = isModalBloodProduct
-        ? sanitizeBloodProductNote(String(event.note || ""))
-        : (event.note || "");
-    }
-    setBucketValues(vals);
-    setBucketNotes(notes);
-  }, [ioPreparedModal, modalExistingEvents, isModalBloodProduct]);
-
   const resetIoModalBloodVerification = () => {
     setIoModalBloodVerified(null);
     setIoModalBloodVerificationMode(null);
@@ -5804,6 +5728,13 @@ export default function ClinicalChartView({
 
     const bloodGroup = ioModalBloodGroup.trim().toUpperCase();
     const bloodBagNo = ioModalBloodBagNo.trim();
+    if (isModalMedicationBolus && !isModalLocalAnesthetic) {
+      const dose = Number(ioModalValue);
+      if (!Number.isFinite(dose) || dose <= 0) {
+        setIoModalError("Dose must be > 0");
+        return;
+      }
+    }
     if (isModalBloodProduct && !bloodBagNo) {
       setIoModalError("Blood bag no. is required for blood product");
       return;
@@ -5814,8 +5745,8 @@ export default function ClinicalChartView({
     try {
       const promises: Promise<unknown>[] = [];
 
-      if (ioEntryMode === "basic") {
-        // Basic Mode: Single point in time (can be custom time)
+      {
+        // A timeline-cell entry is always a single point in time.
         const editedTs = toTsFromDateAndTime(ioModalDate, ioModalTime);
         if (editedTs == null) {
           setIoModalError("Time must be HH:mm (24-hour) and Date must be dd/mm/yyyy");
@@ -5935,62 +5866,6 @@ export default function ClinicalChartView({
             }));
           }
         }
-      } else {
-        // Bulk Mode: Timeline-aligned buckets
-        for (const ts of bucketMinutes) {
-          const newValueStr = bucketValues[ts] || "";
-          const newValue = parseFloat(newValueStr);
-          const newNote = (bucketNotes[ts] || "").trim();
-          const finalNote = buildIoEntryNote(newNote, {
-            includeBloodMeta: isModalBloodProduct,
-            bloodType: modalBloodType,
-            bloodGroup,
-            bloodBagNo,
-          });
-          
-          const existing = modalExistingEvents.find(e => e.event_ts === ts);
-          const existingValue = existing ? (ioPreparedModal.kind === "med" ? existing.dose_value : existing.volume_ml) : null;
-          const existingNote = existing ? (existing.note || "") : "";
-
-          const hasChanged = 
-            (existingValue !== (Number.isNaN(newValue) || newValue <= 0 ? null : newValue)) ||
-            (existingNote !== finalNote);
-
-          if (!hasChanged) continue;
-
-          // If it existed, we delete it first to replace or clear
-          if (existing) {
-            promises.push(deleteCaseIoEvent(caseId, existing.id, actor, "bucket update clear"));
-          }
-
-          // If new value is valid and > 0, create new event
-          if (!Number.isNaN(newValue) && newValue > 0) {
-            if (ioPreparedModal.kind === "med") {
-              promises.push(createCaseIoEvent(caseId, {
-                item_id: ioPreparedModal.itemId,
-                kind: "med",
-                event_ts: ts,
-                dose_value: newValue,
-                dose_unit: ioModalUnit.trim() || ioPreparedModal.itemUnit || "mg",
-                note: finalNote || undefined,
-                include_in_balance: true,
-                reason: "timegrid bucket save",
-                actor,
-              }));
-            } else {
-              promises.push(createCaseIoEvent(caseId, {
-                item_id: ioPreparedModal.itemId,
-                kind: ioPreparedModal.kind,
-                event_ts: ts,
-                volume_ml: newValue,
-                note: finalNote || undefined,
-                include_in_balance: true,
-                reason: "timegrid bucket save",
-                actor,
-              }));
-            }
-          }
-        }
       }
 
       if (promises.length > 0) {
@@ -6016,6 +5891,7 @@ export default function ClinicalChartView({
     if (e.key !== "Enter" || e.shiftKey) return;
     const target = e.target as HTMLElement | null;
     if (target?.tagName === "TEXTAREA") return;
+    if (target?.tagName === "BUTTON") return;
     e.preventDefault();
     e.stopPropagation();
     void savePreparedValue();
@@ -6172,6 +6048,23 @@ export default function ClinicalChartView({
     : "Loading…";
   const patientAge = patientLoaded ? formatPatientAge(patient) : "Loading…";
   const patientSex = patientLoaded ? String(patient?.sex || "Sex not recorded").trim() : "Loading…";
+  const patientWeightKg = (() => {
+    const apiWeight = Number(patient?.weight_kg);
+    if (Number.isFinite(apiWeight) && apiWeight > 0) return apiWeight;
+    if (caseId == null) return null;
+    const savedWeight = Number(readWeightFromSavedForm(caseId));
+    return Number.isFinite(savedWeight) && savedWeight > 0 ? savedWeight : null;
+  })();
+  useEffect(() => {
+    if (!quickMedDripOpen || patientWeightKg == null) return;
+    setQuickMedDripWeightKg(current => current.trim() || String(patientWeightKg));
+  }, [patientWeightKg, quickMedDripOpen]);
+  const patientAsaLabel = (() => {
+    const raw = String(patient?.asa_status || "").trim();
+    if (!raw) return "ASA —";
+    const label = /^asa\b/i.test(raw) ? raw : `ASA ${raw}`;
+    return patient?.asa_emergency && !/\be\b/i.test(label) ? `${label} E` : label;
+  })();
   const allergySummary = !patientLoaded
     ? "Loading…"
     : allergies.length
@@ -6226,12 +6119,16 @@ export default function ClinicalChartView({
     return timelineLabelWidth + (timelineNowIndex + progress) * timelineColWidth;
   })();
 
+  const isModalMedicationBolus = ioPreparedModal?.kind === "med" && ioPreparedModal.entryMode === "bolus";
+  const preparedBolusSuggestion = isModalMedicationBolus
+    ? getHistoricalBolusSuggestion(ioPreparedModal?.itemName)
+    : null;
   const ioModalPatientContext = (
-    <div className="io-modal__patient-context" aria-label="Active patient and case">
+    <div className="io-modal__patient-context" aria-label="Active patient clinical context">
       <strong>{patientName}</strong>
       <span>HN {caseStatus.hn || "—"}</span>
-      {patient?.an ? <span>AN {patient.an}</span> : null}
-      <span>Case #{caseStatus.case_id}</span>
+      <span>{patientAsaLabel}</span>
+      <span>Weight {patientWeightKg == null ? "—" : `${patientWeightKg} kg`}</span>
     </div>
   );
   const renderTimeGrid = (displaySection: "events-io" | "vitals") => (
@@ -6250,6 +6147,8 @@ export default function ClinicalChartView({
       viewportWidth={viewportWidth}
       colWidth={timelineColWidth}
       labelColWidth={timelineLabelWidth}
+      dripGroupColors={dripGroupColors}
+      smartContrast={dripSmartContrast}
       onChange={handleCellChange}
       onIoCellClick={handleIoCellClick}
       onIoHeaderClick={() => setIoAddMenuTs(Date.now())}
@@ -6996,6 +6895,7 @@ export default function ClinicalChartView({
                 onKeyDown={handleQuickMedKeyDown}
               >
                 {ioModalPatientContext}
+
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-sm font-semibold leading-none">Medication bolus</div>
@@ -7009,31 +6909,6 @@ export default function ClinicalChartView({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 rounded-lg bg-black/5 dark:bg-white/5 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setQuickMedEntryMode("basic")}
-                        className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                          quickMedEntryMode === "basic"
-                            ? "bg-white dark:bg-gray-800 shadow-sm text-blue-600 dark:text-blue-400"
-                            : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                        }`}
-                      >
-                        Basic
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setQuickMedEntryMode("bulk")}
-                        disabled={quickMedIsLocalAnesthetic}
-                        className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                          quickMedEntryMode === "bulk"
-                            ? "bg-white dark:bg-gray-800 shadow-sm text-blue-600 dark:text-blue-400"
-                            : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                        } ${quickMedIsLocalAnesthetic ? "opacity-50 cursor-not-allowed" : ""}`}
-                      >
-                        Time Scale
-                      </button>
-                    </div>
                     <button
                       type="button"
                       onClick={closeQuickMed}
@@ -7242,70 +7117,7 @@ export default function ClinicalChartView({
                     />
                   </div>
 
-                  {quickMedEntryMode === "bulk" ? (
-                    <>
-                      <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                        <label className="text-sm text-[var(--app-muted)] font-medium">Unit</label>
-                        <div className="flex items-center gap-2">
-                          <select
-                            className="px-2 py-1.5 text-sm bg-black/5 dark:bg-white/5 rounded min-w-[80px] text-center border border-[var(--app-border)]"
-                            value={quickMedUnit}
-                            onChange={e => setQuickMedUnit(e.target.value)}
-                          >
-                            {CASEVIEW_UOM_OPTIONS.map(unit => (
-                              <option key={`quick-med-bulk-unit-${unit}`} value={unit}>
-                                {unit}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="text-xs text-[var(--app-muted)]">
-                            One row per minute from the selected start time
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="max-h-[42vh] overflow-y-auto pr-1 space-y-3">
-                        <div className="grid grid-cols-[80px_1fr_1fr] gap-2 items-center px-2 py-1 bg-black/5 dark:bg-white/5 rounded text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)] sticky top-0 z-10">
-                          <div>Time</div>
-                          <div>{`Dose (${quickMedUnit || "mg"})`}</div>
-                          <div>Note</div>
-                        </div>
-                        {quickMedBucketMinutes.map(ts => (
-                          <div key={`quick-med-bucket-${ts}`} className="grid grid-cols-[80px_1fr_1fr] gap-2 items-center">
-                            <div className="text-sm font-mono font-medium">
-                              {formatTimeInputHHMM(formatHHMM(ts))}
-                            </div>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
-                              placeholder="0.00"
-                              value={quickMedBucketValues[ts] || ""}
-                              onChange={e =>
-                                setQuickMedBucketValues(prev => ({
-                                  ...prev,
-                                  [ts]: e.target.value,
-                                }))
-                              }
-                            />
-                            <input
-                              type="text"
-                              className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
-                              placeholder="Note"
-                              value={quickMedBucketNotes[ts] || ""}
-                              onChange={e =>
-                                setQuickMedBucketNotes(prev => ({
-                                  ...prev,
-                                  [ts]: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : quickMedIsLocalAnesthetic ? (
+                  {quickMedIsLocalAnesthetic ? (
                     <>
                       <div className="grid grid-cols-[100px_1fr_100px] gap-2 items-center">
                         <label className="text-sm text-[var(--app-muted)] font-medium">Conc. %</label>
@@ -7369,18 +7181,16 @@ export default function ClinicalChartView({
                     </div>
                   )}
 
-                  {quickMedEntryMode === "basic" ? (
-                    <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                      <label className="text-sm text-[var(--app-muted)] font-medium">Note</label>
-                      <input
-                        type="text"
-                        className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
-                        placeholder="Optional note"
-                        value={quickMedNote}
-                        onChange={e => setQuickMedNote(e.target.value)}
-                      />
-                    </div>
-                  ) : null}
+                  <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
+                    <label className="text-sm text-[var(--app-muted)] font-medium">Note</label>
+                    <input
+                      type="text"
+                      className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
+                      placeholder="Optional note"
+                      value={quickMedNote}
+                      onChange={e => setQuickMedNote(e.target.value)}
+                    />
+                  </div>
 
                   <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
                     <label className="text-sm text-[var(--app-muted)] font-medium">Route</label>
@@ -7398,11 +7208,9 @@ export default function ClinicalChartView({
                   </div>
 
                   <div className="text-xs text-[var(--app-muted)] pl-[108px]">
-                    {quickMedEntryMode === "bulk"
-                      ? "Fill any minute rows you want to chart in this time block"
-                      : quickMedIsLocalAnesthetic
-                        ? "Leave concentration and volume empty to create line only"
-                        : "Leave dose empty to create line only"}
+                    {quickMedIsLocalAnesthetic
+                      ? "Leave concentration and volume empty to add the medication row only"
+                      : "Leave dose empty to add the medication row only"}
                   </div>
                 </div>
 
@@ -7462,7 +7270,9 @@ export default function ClinicalChartView({
                   <div className="space-y-1">
                     <div className="text-sm font-semibold leading-none">Medication drip</div>
                     <div className="flex items-center gap-2">
-                      <span className="text-base font-medium leading-none">Medication</span>
+                      <span className="text-xl font-bold leading-none">
+                        {selectedQuickMedDripItem?.name || quickMedDripSearch.trim() || "Select medication"}
+                      </span>
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-violet-500/20 text-violet-300">
                         Drip
                       </span>
@@ -7482,6 +7292,24 @@ export default function ClinicalChartView({
                     Close
                   </button>
                 </div>
+
+                {quickMedDripEditTarget == null && selectedQuickMedDripItem == null && !quickMedDripManualMode && popularQuickMedDripItems.length > 0 ? (
+                  <div className="grid grid-cols-[110px_1fr] items-start gap-2">
+                    <span className="pt-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Popular</span>
+                    <div className="flex flex-wrap gap-2">
+                      {popularQuickMedDripItems.map(item => (
+                        <button
+                          key={`popular-quick-med-drip-${item.id}`}
+                          type="button"
+                          onClick={() => applyQuickMedDripSelection(item, true)}
+                          className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"
+                        >
+                          {item.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 {quickMedDripEditTarget == null && selectedQuickMedDripItem == null && quickMedDripFluidMatches.length > 0 ? (
                   <div className="rounded border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-sm space-y-2">
@@ -7607,10 +7435,14 @@ export default function ClinicalChartView({
                       setQuickMedDripItemId(null);
                       setQuickMedDripManualMode(false);
                       setQuickMedDripManualCategory("");
-                      setShowQuickMedDripDropdown(true);
+                      setShowQuickMedDripDropdown(normalizeToken(e.target.value).length >= 2);
                     }}
                     onFocus={() => {
-                      if (quickMedDripEditTarget == null) {
+                      if (
+                        quickMedDripEditTarget == null &&
+                        quickMedDripItemId == null &&
+                        normalizeToken(quickMedDripSearch).length >= 2
+                      ) {
                         setShowQuickMedDripDropdown(true);
                       }
                     }}
@@ -7630,7 +7462,7 @@ export default function ClinicalChartView({
                       }
                     }}
                   />
-                  {showQuickMedDripDropdown && quickMedDripEditTarget == null ? (
+                  {showQuickMedDripDropdown && quickMedDripEditTarget == null && normalizeToken(quickMedDripSearch).length >= 2 ? (
                     <>
                       <div
                         className="fixed inset-0 z-0"
@@ -7697,6 +7529,32 @@ export default function ClinicalChartView({
                     </>
                   ) : null}
                 </div>
+
+                {quickMedDripEditTarget == null && quickMedDripSuggestion ? (
+                  <div className="grid grid-cols-[110px_1fr] items-start gap-2">
+                    <span className="pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Suggestion</span>
+                    <div className="flex flex-wrap gap-2">
+                      {quickMedDripSuggestion.preparations.map(preparation => (
+                        <button
+                          key={`${preparation.amount}-${preparation.amountUnit}-${preparation.carrier || "undiluted"}-${preparation.totalVolumeMl}`}
+                          type="button"
+                          onClick={() => {
+                            setQuickMedDripAmountValue(String(preparation.amount));
+                            setQuickMedDripAmountUnit(preparation.amountUnit);
+                            setQuickMedDripTotalVolumeMl(String(preparation.totalVolumeMl));
+                            const carrier = preparation.carrier
+                              ? carrierFluidOptions.find(item => normalizeToken(item.name) === normalizeToken(preparation.carrier))
+                              : null;
+                            setQuickMedDripCarrierFluidId(carrier?.id ?? null);
+                          }}
+                          className="rounded-lg border border-violet-400/35 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:bg-violet-500/20"
+                        >
+                          {preparation.amount} {preparation.amountUnit} · {preparation.carrier || "Undiluted"} {preparation.totalVolumeMl} mL
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
                   <label className="text-[var(--app-muted)]">Drug Amount</label>
@@ -7786,6 +7644,27 @@ export default function ClinicalChartView({
                     ))}
                   </select>
                 </div>
+                {quickMedDripEditTarget == null && quickMedDripSuggestion ? (
+                  <div className="grid grid-cols-[110px_1fr] items-start gap-2">
+                    <span className="pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Suggestion</span>
+                    <div className="flex flex-wrap gap-2">
+                      {quickMedDripSuggestion.doses.map(dose => (
+                        <button
+                          key={`${dose.value}-${dose.unit}`}
+                          type="button"
+                          onClick={() => {
+                            setQuickMedDripLastEdited("dose");
+                            setQuickMedDripDoseUnit(dose.unit as (typeof CASEVIEW_DOSE_RATE_UNITS)[number]);
+                            setQuickMedDripDoseValue(String(dose.value));
+                          }}
+                          className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-xs font-bold tabular-nums text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"
+                        >
+                          {dose.value} {dose.unit}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {quickMedDripEditTarget && quickMedDripCurrentProgress?.deliveredDisplay ? (
                   <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center -mt-1 text-[11px]">
                     <div />
@@ -7798,7 +7677,7 @@ export default function ClinicalChartView({
 
                 {quickMedDripIsWeightBased ? (
                   <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-                    <label className="text-[var(--app-muted)]">Weight</label>
+                    <label className="text-[var(--app-muted)]">Patient weight</label>
                     <input
                       type="number"
                       min="0"
@@ -7851,7 +7730,7 @@ export default function ClinicalChartView({
                       Suggested stop at prepared volume:{" "}
                       <span className="font-medium text-[var(--app-text)]">
                         {formatDDMMYYYY(quickMedDripCurrentProgress.suggestedStopTs)}{" "}
-                        {formatHHMM(quickMedDripCurrentProgress.suggestedStopTs)}
+                        {formatHHMMSS(quickMedDripCurrentProgress.suggestedStopTs)}
                       </span>
                     </div>
                     <button
@@ -7859,6 +7738,7 @@ export default function ClinicalChartView({
                       onClick={() => {
                         setQuickMedDripDate(formatDDMMYYYY(quickMedDripCurrentProgress.suggestedStopTs!));
                         setQuickMedDripTime(formatHHMM(quickMedDripCurrentProgress.suggestedStopTs!));
+                        setQuickMedDripExactStopTs(quickMedDripCurrentProgress.suggestedStopTs!);
                       }}
                       className="rounded border border-blue-400 px-2 py-1 text-[11px] text-blue-600 dark:text-blue-300"
                       disabled={quickMedDripSaving || quickMedDripStopping}
@@ -7873,10 +7753,16 @@ export default function ClinicalChartView({
                   <input
                     className="rounded border px-2 py-1.5"
                     value={quickMedDripDate}
-                    onChange={e => setQuickMedDripDate(formatDateInputDDMMYYYY(e.target.value))}
+                    onChange={e => {
+                      setQuickMedDripExactStopTs(null);
+                      setQuickMedDripDate(formatDateInputDDMMYYYY(e.target.value));
+                    }}
                     onBlur={e => {
                       const normalized = normalizeDDMMYYYY(e.target.value);
-                      if (normalized) setQuickMedDripDate(normalized);
+                      if (normalized) {
+                        setQuickMedDripExactStopTs(null);
+                        setQuickMedDripDate(normalized);
+                      }
                     }}
                     placeholder="dd/mm/yyyy"
                     tabIndex={-1}
@@ -7885,10 +7771,16 @@ export default function ClinicalChartView({
                     ref={quickMedDripTimeRef}
                     className="rounded border px-2 py-1.5"
                     value={quickMedDripTime}
-                    onChange={e => setQuickMedDripTime(formatTimeInputHHMM(e.target.value))}
+                    onChange={e => {
+                      setQuickMedDripExactStopTs(null);
+                      setQuickMedDripTime(formatTimeInputHHMM(e.target.value));
+                    }}
                     onBlur={e => {
                       const normalized = normalizeHHMM(e.target.value);
-                      if (normalized) setQuickMedDripTime(normalized);
+                      if (normalized) {
+                        setQuickMedDripExactStopTs(null);
+                        setQuickMedDripTime(normalized);
+                      }
                     }}
                     placeholder="HH:mm"
                   />
@@ -9291,7 +9183,53 @@ export default function ClinicalChartView({
           )
         : null}
 
-      {ioPreparedModal && typeof document !== "undefined"
+      {ioPreparedModal && isModalMedicationBolus && typeof document !== "undefined"
+        ? createPortal(
+            <MedicationBolusEntryModal
+              patientContext={ioModalPatientContext}
+              medicationName={ioPreparedModal.itemName}
+              date={ioModalDate}
+              time={ioModalTime}
+              doseValue={ioModalValue}
+              doseUnit={ioModalUnit || ioPreparedModal.itemUnit || "mg"}
+              note={ioModalNote}
+              suggestion={preparedBolusSuggestion}
+              localAnesthetic={isModalLocalAnesthetic ? {
+                route: ioModalLocalRoute,
+                routes: ["Local", "PNB", "Spinal", "Epidural", "Caudal"],
+                concentration: ioModalLocalConcentration,
+                volumeMl: ioModalLocalVolumeMl,
+                onRouteChange: setIoModalLocalRoute,
+                onConcentrationChange: setIoModalLocalConcentration,
+                onVolumeChange: setIoModalLocalVolumeMl,
+              } : null}
+              saving={ioModalSaving}
+              clearDisabled={modalExistingEvents.length === 0}
+              error={ioModalError}
+              saveLabel={modalExistingEvents.length > 0 ? "Update bolus" : "Record bolus"}
+              onDateChange={value => setIoModalDate(formatDateInputDDMMYYYY(value))}
+              onDateBlur={value => {
+                const normalized = normalizeDDMMYYYY(value);
+                if (normalized) setIoModalDate(normalized);
+              }}
+              onTimeChange={value => setIoModalTime(formatTimeInputHHMM(value))}
+              onTimeBlur={value => {
+                const normalized = normalizeHHMM(value);
+                if (normalized) setIoModalTime(normalized);
+              }}
+              onDoseChange={setIoModalValue}
+              onDoseUnitChange={setIoModalUnit}
+              onNoteChange={setIoModalNote}
+              onClose={closeIoModal}
+              onClear={() => void clearPreparedValue()}
+              onSave={() => void savePreparedValue()}
+              onKeyDown={handleIoModalKeyDown}
+            />,
+            document.body,
+          )
+        : null}
+
+      {ioPreparedModal && !isModalMedicationBolus && typeof document !== "undefined"
         ? createPortal(
             <div
               className="app-theme-scope io-modal-backdrop"
@@ -9304,61 +9242,65 @@ export default function ClinicalChartView({
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={handleIoModalKeyDown}
               >
-                {ioModalPatientContext}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">
-                      {ioPreparedModal.kind === "output"
-                        ? "Output"
-                        : ioPreparedModal.kind === "fluid"
-                          ? "Fluid entry"
-                          : "Medication entry"}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-medium leading-none">
-                        {ioPreparedModal.itemName}
+                <header className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] pb-3">
+                  <div className="flex min-w-0 items-center gap-5">
+                    {isModalMedicationBolus ? (
+                      <span className="mr-2 grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--timegrid-focus-bg)]">
+                        <IoSpriteIcon name="medBolus" size={42} />
                       </span>
-                      {ioPreparedModal.entryMode === "bolus" && (
-                        <span className="rounded px-1.5 py-0.5 text-[10px] font-bold bg-blue-600/20 text-blue-400 leading-none">
-                          Bolus
-                        </span>
-                      )}
-                      {ioPreparedModal.entryMode === "drip" && (
-                        <span className="rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-600/20 text-purple-400 leading-none">
-                          Drip
-                        </span>
+                    ) : null}
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--app-muted)]">
+                        {isModalMedicationBolus
+                          ? "Record medication"
+                          : ioPreparedModal.kind === "output"
+                            ? "Record output"
+                            : ioPreparedModal.kind === "fluid"
+                              ? "Record fluid"
+                              : "Medication entry"}
+                      </div>
+                      {isModalMedicationBolus ? (
+                        <>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <h2 className="break-words text-2xl font-bold leading-tight text-[var(--app-text)]">
+                              {ioPreparedModal.itemName}
+                            </h2>
+                            <span className="rounded-md bg-[#5B8FF9]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#77A5FF]">
+                              Bolus
+                            </span>
+                          </div>
+                          <div className="mt-0.5 text-xs text-[var(--app-muted)]">One-time dose</div>
+                        </>
+                      ) : (
+                        <>
+                          <h2 className="truncate text-xl font-semibold leading-tight">{ioPreparedModal.itemName}</h2>
+                          <div className="mt-0.5 truncate text-xs text-[var(--app-muted)]">
+                            {ioPreparedModal.entryMode === "drip" ? "Drip" : "Entry"}
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 rounded-lg bg-black/5 dark:bg-white/5 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setIoEntryMode("basic")}
-                      className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                        ioEntryMode === "basic"
-                          ? "bg-white dark:bg-gray-800 shadow-sm text-blue-600 dark:text-blue-400"
-                          : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                      }`}
-                    >
-                      Basic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIoEntryMode("bulk")}
-                      disabled={isModalBloodProduct || isModalLocalAnesthetic}
-                      className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                        ioEntryMode === "bulk"
-                          ? "bg-white dark:bg-gray-800 shadow-sm text-blue-600 dark:text-blue-400"
-                          : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                      } ${isModalBloodProduct || isModalLocalAnesthetic ? "opacity-50 cursor-not-allowed" : ""}`}
-                    >
-                      Time Scale
-                    </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <ClinicalReferenceTooltip text="Close" compact className="flex shrink-0">
+                      <button
+                        type="button"
+                        aria-label="Close entry"
+                        onClick={closeIoModal}
+                        disabled={ioModalSaving}
+                        className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--app-border)] text-xl leading-none text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)] hover:text-[var(--app-text)] disabled:opacity-50"
+                      >
+                        ×
+                      </button>
+                    </ClinicalReferenceTooltip>
                   </div>
-                </div>
+                </header>
+                {ioModalPatientContext}
 
-                {ioEntryMode === "basic" ? (
-                  <div className="space-y-3 py-2">
+                <div className="space-y-3 py-2">
+                    {isModalMedicationBolus ? (
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Administration</div>
+                    ) : null}
                     <div className="grid grid-cols-[100px_1fr_120px] gap-2 items-center">
                       <label className="text-sm text-[var(--app-muted)] font-medium">Time</label>
                       <input
@@ -9531,17 +9473,41 @@ export default function ClinicalChartView({
                             min="0"
                             step="0.01"
                             autoFocus={!isModalBloodProduct}
-                            className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm flex-1"
+                            className={`flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 tabular-nums ${isModalMedicationBolus ? "text-lg font-semibold" : "text-sm"}`}
                             placeholder="0.00"
                             value={ioModalValue}
                             onChange={e => setIoModalValue(e.target.value)}
                           />
-                          <div className="px-2 py-1.5 text-sm bg-black/5 dark:bg-white/5 rounded min-w-[60px] text-center border border-[var(--app-border)]">
-                            {ioPreparedModal.kind === "med" ? ioPreparedModal.itemUnit || "mg" : "mL"}
+                          <div className="grid min-w-[72px] place-items-center self-stretch rounded border border-[var(--app-border)] bg-black/5 px-2 text-sm font-semibold dark:bg-white/5">
+                            {ioPreparedModal.kind === "med" ? ioModalUnit || ioPreparedModal.itemUnit || "mg" : "mL"}
                           </div>
                         </div>
                       </div>
                     )}
+                    {preparedBolusSuggestion && !isModalLocalAnesthetic ? (
+                      <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
+                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Suggestion</span>
+                        <div className="flex flex-wrap gap-2">
+                          {preparedBolusSuggestion.doses.map(dose => {
+                            const selected = Number(ioModalValue) === dose && ioModalUnit === preparedBolusSuggestion.unit;
+                            return (
+                              <button
+                                key={`${ioPreparedModal.itemId}-${dose}-${preparedBolusSuggestion.unit}`}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => {
+                                  setIoModalValue(String(dose));
+                                  setIoModalUnit(preparedBolusSuggestion.unit);
+                                }}
+                                className={`min-h-8 rounded-lg border px-3 py-1 text-xs font-bold tabular-nums ${selected ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"}`}
+                              >
+                                {dose} {preparedBolusSuggestion.unit}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
                       <label className="text-sm text-[var(--app-muted)] font-medium">Note</label>
                       <input
@@ -9552,38 +9518,7 @@ export default function ClinicalChartView({
                         onChange={e => setIoModalNote(e.target.value)}
                       />
                     </div>
-                  </div>
-                ) : (
-                  <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-3">
-                    <div className="grid grid-cols-[80px_1fr_1fr] gap-2 items-center px-2 py-1 bg-black/5 dark:bg-white/5 rounded text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)] sticky top-0 z-10">
-                      <div>Time</div>
-                      <div>{ioPreparedModal.kind === "med" ? `Dose (${ioPreparedModal.itemUnit || "mg"})` : "Volume (mL)"}</div>
-                      <div>Note</div>
-                    </div>
-                    
-                    {bucketMinutes.map(ts => (
-                      <div key={ts} className="grid grid-cols-[80px_1fr_1fr] gap-2 items-center">
-                        <div className="text-sm font-mono font-medium">{formatTimeInputHHMM(formatHHMM(ts))}</div>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
-                          placeholder="0.00"
-                          value={bucketValues[ts] || ""}
-                          onChange={e => setBucketValues(prev => ({ ...prev, [ts]: e.target.value }))}
-                        />
-                        <input
-                          type="text"
-                          className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
-                          placeholder="Note"
-                          value={bucketNotes[ts] || ""}
-                          onChange={e => setBucketNotes(prev => ({ ...prev, [ts]: e.target.value }))}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                </div>
 
                 {ioModalError ? (
                   <div className="text-xs text-red-600 dark:text-red-400 px-1">{ioModalError}</div>
@@ -9594,7 +9529,11 @@ export default function ClinicalChartView({
                   ))}
                 </datalist>
 
-                <div className="flex justify-end gap-2 pt-3 border-t border-[var(--app-border)]">
+                <div className="flex items-center justify-between gap-3 pt-3 border-t border-[var(--app-border)]">
+                  <div className="text-xs text-[var(--app-muted)]">
+                    {isModalMedicationBolus ? "Enter to record · Esc to close" : null}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
                   <button
                     type="button"
                     onClick={closeIoModal}
@@ -9632,13 +9571,18 @@ export default function ClinicalChartView({
                   <button
                     type="button"
                     onClick={() => void savePreparedValue()}
-                    className={`rounded px-4 py-2 text-sm font-medium text-white ${
-                      ioModalSaving ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+                      ioModalSaving ? "bg-gray-400 text-white" : "bg-[var(--app-accent)] text-[var(--app-accent-contrast)] hover:brightness-105"
                     }`}
                     disabled={ioModalSaving}
                   >
-                    {ioModalSaving ? "Saving..." : "Save"}
+                    {ioModalSaving
+                      ? "Saving..."
+                      : isModalMedicationBolus
+                        ? modalExistingEvents.length > 0 ? "Update bolus" : "Record bolus"
+                        : "Save"}
                   </button>
+                  </div>
                 </div>
               </div>
             </div>,

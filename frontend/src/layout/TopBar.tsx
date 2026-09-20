@@ -6,7 +6,7 @@ import ThemePicker from "../components/ThemePicker";
 import LanguagePicker from "../components/LanguagePicker";
 import { useLanguage } from "../context/LanguageContext";
 import { getSurfaceInfo } from "../edition/config";
-import floraLogo from "../assets/flora-app.png";
+import floraLogo from "../assets/floraicon.png";
 import ClinicalReferenceTooltip from "../components/common/ClinicalReferenceTooltip";
 
 type Props = {
@@ -47,7 +47,7 @@ export default function TopBar({ setActiveView, sessionUser, caseStatus, onLogou
 
   return <header className="app-topbar relative z-[1000] flex h-14 items-center gap-2 overflow-visible border-b px-2 transition-colors duration-300 md:px-4">
     <ClinicalReferenceTooltip text="Navigation" compact className="shrink-0"><button type="button" onClick={onToggleNavigation} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--app-nav-border)] bg-[var(--app-nav-bg)] text-xl text-[var(--app-text)]" aria-label="Toggle navigation">☰</button></ClinicalReferenceTooltip>
-    <img src={floraLogo} alt="Flora" className="h-10 w-10 shrink-0 object-contain" />
+    <img src={floraLogo} alt="Flora" className="h-10 w-10 shrink-0 object-contain [image-rendering:pixelated]" />
     {isIdleLeaf ? <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-500 sm:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />{t("topbar.readyNextCase")}</span> : null}
     {caseStatus.status !== "IDLE" && caseStatus.identity_status === "pending" ? <span className="hidden items-center gap-1.5 rounded-full border border-rose-400/35 bg-rose-500/10 px-2.5 py-1 text-[10px] font-bold text-rose-400 sm:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" />{t("topbar.identityPending")}</span> : null}
     <div className="ml-auto flex shrink-0 items-center gap-2">

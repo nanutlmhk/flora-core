@@ -17,8 +17,17 @@ import {
 import {
   applyChartPreferencesLocally,
   chartGroupToAccountParameter,
+  DEFAULT_DRIP_GROUP_COLORS,
+  DEFAULT_FUTURE_COLUMNS,
+  DRIP_GROUP_OPTIONS,
+  MAX_FUTURE_COLUMNS,
+  normalizeDripGroupColors,
+  normalizeFutureColumns,
   readLocalChartGroups,
+  readLocalDripGroupColors,
+  readLocalFutureColumns,
   readLocalSmartContrast,
+  type DripGroupColors,
 } from "../utils/chartPreferences";
 
 const PARAMETERS = [
@@ -39,8 +48,10 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
   const [patientNameLanguage, setPatientNameLanguage] = useState<PatientNameLanguage>("auto");
   const [scheme, setScheme] = useState("monochromatic");
   const [scale, setScale] = useState(5);
+  const [futureColumns, setFutureColumns] = useState(DEFAULT_FUTURE_COLUMNS);
   const [parameters, setParameters] = useState<string[]>(PARAMETERS.map(([key]) => key));
   const [smartContrast, setSmartContrast] = useState(true);
+  const [dripGroupColors, setDripGroupColors] = useState<DripGroupColors>(DEFAULT_DRIP_GROUP_COLORS);
   const [reports, setReports] = useState<Record<string, boolean>>(() => Object.fromEntries(REPORT_SECTIONS.map(([key]) => [key, true])));
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -64,6 +75,7 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
         ? Number.NaN
         : Number(window.localStorage.getItem(`flora.timelineScale.${user.username}`));
       setScale(Number.isFinite(localScale) && localScale > 0 ? localScale : Number(parameterPrefs.timeScaleMin) || 5);
+      setFutureColumns(readLocalFutureColumns(user.username) ?? normalizeFutureColumns(parameterPrefs.futureColumns));
       const localGroups = readLocalChartGroups(user.username);
       if (localGroups != null) {
         setParameters(localGroups.map(chartGroupToAccountParameter).filter((key): key is string => key != null));
@@ -71,6 +83,9 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
         setParameters(parameterPrefs.visibleParameters.map(String));
       }
       setSmartContrast(readLocalSmartContrast(user.username) ?? parameterPrefs.smartContrast !== false);
+      setDripGroupColors(
+        readLocalDripGroupColors(user.username) ?? normalizeDripGroupColors(parameterPrefs.dripGroupColors),
+      );
       setReports(current => ({ ...current, ...(user.reportPreferences as Record<string, boolean>) }));
     }).catch(err => setError(err instanceof Error ? err.message : "Unable to load account"));
   }, [sessionUser?.username]);
@@ -86,8 +101,10 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
         parameterPreferences: {
           ...(account?.parameterPreferences || {}),
           timeScaleMin: scale,
+          futureColumns,
           visibleParameters: parameters,
           smartContrast,
+          dripGroupColors,
           patientNameLanguage,
         },
         reportPreferences: reports,
@@ -96,8 +113,10 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
       applyChartPreferencesLocally({
         username: next.username,
         timeScaleMin: scale,
+        futureColumns,
         visibleParameters: parameters,
         smartContrast,
+        dripGroupColors,
       });
       window.dispatchEvent(new Event("flora:auth-changed"));
       setAccount(current => current ? { ...current, name: next.name, languageCode: next.languageCode, themeColor: next.themeColor,
@@ -145,9 +164,36 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
       </section>
       <section className="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-5">
         <h2 className="font-semibold">Chart preferences</h2>
-        <label className="block max-w-xs text-sm">Default time scale<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={scale} onChange={e => setScale(Number(e.target.value))}>{[1,5,10,15,30,60].map(value => <option key={value} value={value}>{value} min</option>)}</select></label>
+        <div className="grid max-w-xl gap-3 sm:grid-cols-2">
+          <label className="block text-sm">Default time scale<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={scale} onChange={e => setScale(Number(e.target.value))}>{[1,5,10,15,30,60].map(value => <option key={value} value={value}>{value} min</option>)}</select></label>
+          <label className="block text-sm">Future columns<input type="number" min={0} max={MAX_FUTURE_COLUMNS} step={1} className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={futureColumns} onChange={event => setFutureColumns(normalizeFutureColumns(event.target.value))} /></label>
+        </div>
         <div className="grid gap-2 sm:grid-cols-2">{PARAMETERS.map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-3 py-2 text-sm"><input type="checkbox" checked={parameters.includes(key)} onChange={() => toggleParameter(key)} />{label}</label>)}</div>
         <label className="flex items-start gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3 text-sm"><input type="checkbox" className="mt-0.5" checked={smartContrast} onChange={event => setSmartContrast(event.target.checked)} /><span><strong className="block">Smart invert color</strong><span className="text-xs text-[var(--app-muted)]">Adjust chart colors that blend into the active scheme.</span></span></label>
+        <div className="space-y-3 rounded-xl border border-[var(--app-border)] p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Drip line colors</h3>
+              <p className="text-xs text-[var(--app-muted)]">Defaults follow the medication group. Smart invert keeps them readable in the selected scheme.</p>
+            </div>
+            <button type="button" className="shrink-0 rounded-lg border border-[var(--app-border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--app-control-bg-hover)]" onClick={() => setDripGroupColors(DEFAULT_DRIP_GROUP_COLORS)}>Reset</button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {DRIP_GROUP_OPTIONS.map(option => (
+              <label key={option.key} className="flex items-center gap-3 rounded-lg bg-[var(--app-control-bg)] px-3 py-2 text-sm">
+                <input
+                  type="color"
+                  className="h-8 w-10 cursor-pointer rounded border border-[var(--app-border)] bg-transparent p-0.5"
+                  value={dripGroupColors[option.key]}
+                  onChange={event => setDripGroupColors(current => ({ ...current, [option.key]: event.target.value.toUpperCase() }))}
+                  aria-label={`${option.label} drip color`}
+                />
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                <span className="font-mono text-[10px] text-[var(--app-muted)]">{dripGroupColors[option.key]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       </section>
       <section className="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-5">
         <h2 className="font-semibold">Report preferences</h2>

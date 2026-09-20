@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { BootstrapStatus } from "../bootstrap/floraDesktop";
-import floraAppIcon from "../assets/flora-app.png";
+import floraAppIcon from "../assets/floraicon.png";
 import ThemePicker from "../components/ThemePicker";
 import LanguagePicker from "../components/LanguagePicker";
 import { useLanguage } from "../context/LanguageContext";
@@ -80,7 +80,7 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
           <header className="flex items-center justify-between border-b border-[var(--app-border)] px-[22px] py-[14px] sm:px-[26px]">
             <div className="flex items-center gap-[10px]">
                 <span className="inline-flex h-[40px] w-[40px] items-center justify-center rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)]">
-                  <img src={floraAppIcon} alt="" className="h-[34px] w-[34px] object-contain" />
+                  <img src={floraAppIcon} alt="" className="h-[34px] w-[34px] object-contain [image-rendering:pixelated]" />
                 </span>
                 <div>
                   <div className="text-[17px] font-bold leading-[21px] text-[var(--app-text)]">{productName}</div>

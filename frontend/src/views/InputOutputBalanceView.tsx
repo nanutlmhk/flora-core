@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useRef } from "react";
-import ioIconSetUrl from "../assets/ioiconset.png";
-import inputIconSetUrl from "../assets/inputset.png";
-import bloodLossIconUrl from "../assets/bloodloss.png";
-import urineIconUrl from "../assets/urine.png";
 import type { CaseStatus } from "../api/caseApi";
 import {
   getCasePatientInfo,
@@ -13,6 +9,13 @@ import {
 import { useAuth } from "../auth/useAuth";
 import ConfirmDialog from "../components/common/ConfirmDialog";
 import ClinicalReferenceTooltip from "../components/common/ClinicalReferenceTooltip";
+import IoSpriteIcon, { type IoIconName } from "../components/io/IoSpriteIcon";
+import MedicationBolusEntryModal from "../components/io/MedicationBolusEntryModal";
+import { getHistoricalBolusSuggestion } from "../utils/medicationBolus";
+import {
+  getHistoricalDripSuggestion,
+  POPULAR_DRIP_MEDICATIONS,
+} from "../utils/medicationDrip";
 import {
   createCaseIoEvent,
   createCaseIoSegment,
@@ -26,6 +29,7 @@ import {
   getCaseIoItems,
   getCaseIoRuns,
   getCaseIoSummary,
+  updateCaseIoEvent,
   updateCaseIoRun,
   updateCaseIoSegment,
   type CaseIoEvent,
@@ -87,17 +91,6 @@ function readFluidBalanceView(): MedicationSummaryView {
   }
 }
 
-type IoIconName =
-  | "input"
-  | "output"
-  | "balance"
-  | "activeDrips"
-  | "medBolus"
-  | "medDrip"
-  | "fluid"
-  | "bloodProduct"
-  | "bloodLoss"
-  | "urine";
 type NonIdleCaseStatus = Exclude<CaseStatus, { status: "IDLE" }>;
 type DetailedGroup = {
   id: string;
@@ -194,26 +187,6 @@ const BLOOD_GROUP_OPTIONS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] a
 const LOCAL_ANESTHETIC_GROUP_ID = "localAnesthetic";
 const DEFAULT_LOCAL_ANESTHETIC_ROUTE = "Local";
 
-type HistoricalBolusSuggestion = {
-  unit: string;
-  doses: number[];
-};
-
-// Common positive bolus records in the NIT Innovian archive, 2024–2026.
-// These are optional entry shortcuts, not prescribing defaults.
-const HISTORICAL_BOLUS_SUGGESTIONS: Record<string, HistoricalBolusSuggestion> = {
-  fentanyl: { unit: "mcg", doses: [25, 50, 100] },
-  propofol: { unit: "mg", doses: [20, 30, 50, 100] },
-  midazolam: { unit: "mg", doses: [1, 2] },
-  cisatracurium: { unit: "mg", doses: [2, 10] },
-  atracurium: { unit: "mg", doses: [10, 40, 50] },
-  rocuronium: { unit: "mg", doses: [10, 40, 50] },
-  ephedrine: { unit: "mg", doses: [3, 6] },
-  phenylephrine: { unit: "mcg", doses: [50, 100] },
-  atropine: { unit: "mg", doses: [0.3, 0.6, 1.2] },
-  cefazolin: { unit: "g", doses: [1, 2] },
-};
-
 const POPULAR_BOLUS_DRUGS = [
   "Fentanyl",
   "Propofol",
@@ -222,64 +195,6 @@ const POPULAR_BOLUS_DRUGS = [
   "Ephedrine",
   "Phenylephrine",
 ] as const;
-
-const IO_ICON_CROPS: Record<IoIconName, { x: number; y: number }> = {
-  input: { x: 111, y: 146 },
-  output: { x: 456, y: 146 },
-  balance: { x: 801, y: 146 },
-  activeDrips: { x: 1159, y: 146 },
-  medBolus: { x: 111, y: 532 },
-  medDrip: { x: 456, y: 532 },
-  fluid: { x: 801, y: 532 },
-  bloodProduct: { x: 1159, y: 532 },
-  bloodLoss: { x: 0, y: 0 },
-  urine: { x: 0, y: 0 },
-};
-
-const INPUT_ICON_CROPS: Partial<Record<IoIconName, { x: number; y: number }>> = {
-  medBolus: { x: 107, y: 124 },
-  medDrip: { x: 636, y: 124 },
-  fluid: { x: 1157, y: 124 },
-  bloodProduct: { x: 1688, y: 124 },
-};
-
-function IoSpriteIcon({
-  name,
-  size = 40,
-  className = "",
-}: {
-  name: IoIconName;
-  size?: number;
-  className?: string;
-}) {
-  const standaloneCrop =
-    name === "bloodLoss"
-      ? { x: 210, y: 70, size: 900, width: 1325, height: 1187, url: bloodLossIconUrl }
-      : name === "urine"
-        ? { x: 160, y: 115, size: 930, width: 1254, height: 1254, url: urineIconUrl }
-        : null;
-  const inputCrop = INPUT_ICON_CROPS[name];
-  const cropSize = standaloneCrop?.size ?? (inputCrop ? 380 : 260);
-  const scale = size / cropSize;
-  const crop = standaloneCrop || inputCrop || IO_ICON_CROPS[name];
-  const spriteWidth = standaloneCrop?.width ?? (inputCrop ? 2172 : 1536);
-  const spriteHeight = standaloneCrop?.height ?? (inputCrop ? 724 : 1024);
-  return (
-    <span
-      className={`inline-block shrink-0 ${className}`}
-      aria-hidden="true"
-      style={{
-        width: size,
-        height: size,
-        backgroundImage: `url(${standaloneCrop?.url ?? (inputCrop ? inputIconSetUrl : ioIconSetUrl)})`,
-        backgroundRepeat: "no-repeat",
-        backgroundSize: `${spriteWidth * scale}px ${spriteHeight * scale}px`,
-        backgroundPosition: `${-crop.x * scale}px ${-crop.y * scale}px`,
-        imageRendering: "pixelated",
-      }}
-    />
-  );
-}
 
 function fmt(ts?: number) {
   if (!Number.isFinite(ts) || !ts || ts <= 0) return "-";
@@ -313,6 +228,14 @@ function toTimeInput(ts: number) {
   const hh = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${min}`;
+}
+
+function toTimeInputWithSeconds(ts: number) {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const sec = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${min}:${sec}`;
 }
 
 function combineDateAndTime(
@@ -424,6 +347,17 @@ function amountToDripBase(value: number, unit: string): number | null {
   if (token === "g") return value * 1_000_000;
   if (token === "units") return value;
   if (token === "munits") return value * 1_000_000;
+  return null;
+}
+
+function amountFromDripBase(value: number, unit: string): number | null {
+  if (!Number.isFinite(value) || value < 0) return null;
+  const token = String(unit || "").trim().toLowerCase();
+  if (token === "mcg") return value;
+  if (token === "mg") return value / 1000;
+  if (token === "g") return value / 1_000_000;
+  if (token === "units") return value;
+  if (token === "munits") return value / 1_000_000;
   return null;
 }
 
@@ -815,6 +749,26 @@ function parseNoteTokens(note: string | null | undefined): Record<string, string
   return result;
 }
 
+function displayNoteOnly(note: string | null | undefined): string {
+  const metadataKeys = new Set([
+    "bloodProductType",
+    "bloodGroup",
+    "bloodBagNo",
+    "concentration",
+    "volumeMl",
+    "route",
+  ]);
+  return String(note || "")
+    .split("|")
+    .map(part => part.trim())
+    .filter(part => {
+      const separator = part.indexOf(":");
+      if (separator < 0) return Boolean(part);
+      return !metadataKeys.has(part.slice(0, separator).trim());
+    })
+    .join(" | ");
+}
+
 function currentDripSegment(run: CaseIoRun, nowTs: number): CaseIoRunSegment | null {
   if (!Array.isArray(run.segments) || run.segments.length === 0) return null;
   const usable = [...run.segments]
@@ -1103,6 +1057,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     itemName: string;
     date: string;
     time: string;
+    exactStopTs: number | null;
   } | null>(null);
   const [stopDripSaving, setStopDripSaving] = useState(false);
   const [stopDripError, setStopDripError] = useState("");
@@ -1122,6 +1077,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
   const [deletingEventId, setDeletingEventId] = useState<number | null>(null);
   const [currentError, setCurrentError] = useState("");
   const [entryRunId, setEntryRunId] = useState<number | null>(null);
+  const [editingEntryEventId, setEditingEntryEventId] = useState<number | null>(null);
   const [entryMode, setEntryMode] = useState<EntryMode>("bolus");
   const [entryDate, setEntryDate] = useState(() => toDateInput(Date.now()));
   const [entryTime, setEntryTime] = useState(() => toTimeInput(Date.now()));
@@ -1178,7 +1134,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
   const [medDripManualCategory, setMedDripManualCategory] = useState("");
   const [medDripSaving, setMedDripSaving] = useState(false);
   const [medDripError, setMedDripError] = useState("");
-  const [medDripEditRunId, setMedDripEditRunId] = useState<number | null>(null);
   const medDripOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const medDripAmountInputRef = useRef<HTMLInputElement | null>(null);
   const medicationSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1229,11 +1184,24 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
         .sort((a, b) => b.started_at - a.started_at || b.id - a.id),
     [currentRuns],
   );
+  const stopDripRun = useMemo(
+    () =>
+      stopDripTarget
+        ? activeRuns.find(candidate => candidate.id === stopDripTarget.runId) || null
+        : null,
+    [activeRuns, stopDripTarget],
+  );
+  const stopDripPreparedVolumeMl = useMemo(() => {
+    if (!stopDripRun) return null;
+    const runMeta = parseNoteTokens(String(stopDripRun.note || ""));
+    return parsePositiveNumber(String(runMeta.totalVolumeMl || ""));
+  }, [stopDripRun]);
   const stopDripCurrentIntakeMl = useMemo(() => {
     if (!stopDripTarget) return null;
-    const run = activeRuns.find(candidate => candidate.id === stopDripTarget.runId) || null;
+    const run = stopDripRun;
     if (!run || !Array.isArray(run.segments)) return null;
-    const stopTs = combineDateAndTime(stopDripTarget.date, stopDripTarget.time, Date.now());
+    const stopTs = stopDripTarget.exactStopTs ??
+      combineDateAndTime(stopDripTarget.date, stopDripTarget.time, Date.now());
     if (!Number.isFinite(stopTs)) return null;
     let infusedMl = 0;
     for (const segment of run.segments) {
@@ -1263,10 +1231,10 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       infusedMl += Math.max(0, rateMlHr) * hours + Math.max(0, carrierMlHr) * hours;
     }
     return round2(infusedMl);
-  }, [activeRuns, stopDripTarget]);
+  }, [stopDripRun, stopDripTarget]);
   const stopDripSuggestedStopTs = useMemo(() => {
     if (!stopDripTarget) return null;
-    const run = activeRuns.find(candidate => candidate.id === stopDripTarget.runId) || null;
+    const run = stopDripRun;
     if (!run || !Array.isArray(run.segments)) return null;
     const runMeta = parseNoteTokens(String(run.note || ""));
     const totalVolumeMl = parsePositiveNumber(String(runMeta.totalVolumeMl || ""));
@@ -1317,7 +1285,11 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       return observedTs + ((totalVolumeMl - cumulativeMl) / activeRateMlHr) * 3_600_000;
     }
     return null;
-  }, [activeRuns, stopDripTarget]);
+  }, [stopDripRun, stopDripTarget]);
+  const stopDripProgressPercent =
+    stopDripCurrentIntakeMl != null && stopDripPreparedVolumeMl != null
+      ? Math.max(0, Math.min(100, (stopDripCurrentIntakeMl / stopDripPreparedVolumeMl) * 100))
+      : null;
   const selectedEntryRun = useMemo(
     () => currentRuns.find(run => run.id === entryRunId && run.include_in_balance !== 0) || null,
     [currentRuns, entryRunId],
@@ -1571,11 +1543,44 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     return rows;
   }, [currentEvents, currentRuns]);
   const medicationItemGroups = useMemo(
-    () =>
-      itemGroups.filter(
-        group => group.kind === "med" && group.displayMode !== "drip",
-      ),
+    () => {
+      const byItemId = new Map<number, (typeof itemGroups)[number]>();
+      for (const group of itemGroups) {
+        if (group.kind !== "med") continue;
+        const existing = byItemId.get(group.itemId);
+        if (!existing) {
+          byItemId.set(group.itemId, {
+            ...group,
+            events: [...group.events],
+            segments: [],
+          });
+          continue;
+        }
+        const mergedEvents = [...existing.events, ...group.events]
+          .sort((a, b) => a.event_ts - b.event_ts || a.id - b.id);
+        if (existing.displayMode === "drip" && group.displayMode === "bolus") {
+          byItemId.set(group.itemId, {
+            ...group,
+            events: mergedEvents,
+            segments: [],
+          });
+        } else {
+          byItemId.set(group.itemId, {
+            ...existing,
+            events: mergedEvents,
+            segments: [],
+          });
+        }
+      }
+      return Array.from(byItemId.values()).sort((a, b) =>
+        a.itemName.localeCompare(b.itemName, undefined, { sensitivity: "base" }),
+      );
+    },
     [itemGroups],
+  );
+  const entryBolusSuggestion = useMemo(
+    () => getHistoricalBolusSuggestion(selectedEntryRun?.item_name || selectedEntryRun?.item_code),
+    [selectedEntryRun?.item_code, selectedEntryRun?.item_name],
   );
   const popularBolusItems = useMemo(
     () =>
@@ -1598,9 +1603,15 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       group.events.some(event => {
         const dose = Number(event.dose_value);
         return Number.isFinite(dose) && dose > 0;
-      }),
+      }) || currentRuns.some(run =>
+        run.kind === "med" &&
+        run.item_id === group.itemId &&
+        run.entry_mode === "drip" &&
+        Number(run.include_in_balance ?? 1) !== 0 &&
+        (run.segments || []).some(segment => Number(segment.rate_value) > 0),
+      ),
     ).length,
-    [medicationItemGroups],
+    [currentRuns, medicationItemGroups],
   );
   const preparedMedicationCount = medicationItemGroups.length - administeredMedicationCount;
   const fluidIntakeItemGroups = useMemo(
@@ -1656,6 +1667,103 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
         : fallback.unit;
     return `${formatQuantity(fallback.total)} ${fallbackUnit}`;
   };
+  const getMedicationSummaryText = (group: (typeof itemGroups)[number]): string | null => {
+    if (group.kind !== "med") return getGroupTotalText(group);
+
+    let family: "mass" | "units" | null = null;
+    let baseTotal = 0;
+    let preferredUnit = "";
+    const unmatchedTotals = new Map<string, number>();
+    const addAmount = (value: number, rawUnit: string) => {
+      if (!Number.isFinite(value) || value <= 0) return;
+      const unit = normalizeDisplayUnit("med", rawUnit || group.itemUnit || "mg");
+      const nextFamily = medDripUnitFamily(unit);
+      const baseValue = amountToDripBase(value, unit);
+      if (nextFamily && baseValue != null && (family == null || family === nextFamily)) {
+        family = nextFamily;
+        baseTotal += baseValue;
+        if (!preferredUnit) preferredUnit = unit;
+        return;
+      }
+      unmatchedTotals.set(unit, (unmatchedTotals.get(unit) || 0) + value);
+    };
+
+    for (const event of currentEvents) {
+      if (
+        event.kind !== "med" ||
+        event.item_id !== group.itemId ||
+        Number(event.include_in_balance ?? 1) === 0
+      ) continue;
+      addAmount(Number(event.dose_value), event.dose_unit || group.itemUnit);
+    }
+
+    const nowTs = Date.now();
+    for (const run of currentRuns) {
+      if (
+        run.kind !== "med" ||
+        run.item_id !== group.itemId ||
+        run.entry_mode !== "drip" ||
+        Number(run.include_in_balance ?? 1) === 0
+      ) continue;
+      const meta = parseNoteTokens(run.note);
+      const preparedAmount = parsePositiveNumber(meta.medAmount);
+      const preparedVolumeMl = parsePositiveNumber(meta.totalVolumeMl);
+      const amountUnit = normalizeDisplayUnit("med", meta.medUnit || run.item_unit || group.itemUnit);
+      const preparedBase = preparedAmount == null ? null : amountToDripBase(preparedAmount, amountUnit);
+      const runFamily = medDripUnitFamily(amountUnit);
+      if (
+        preparedBase == null ||
+        preparedVolumeMl == null ||
+        preparedVolumeMl <= 0 ||
+        runFamily == null ||
+        (family != null && family !== runFamily)
+      ) continue;
+
+      let infusedMl = 0;
+      for (const segment of run.segments || []) {
+        if (Number(segment.include_in_balance ?? 1) === 0) continue;
+        const startedAt = Number(segment.ts_from);
+        const endedAt = Math.min(
+          nowTs,
+          segment.ts_to != null
+            ? Number(segment.ts_to)
+            : run.stopped_at != null
+              ? Number(run.stopped_at)
+              : nowTs,
+        );
+        const rawRate = Number(segment.rate_value);
+        const rateUnit = String(segment.rate_unit || "mL/hr").trim().toLowerCase().replace(/\s+/g, "");
+        const rateMlHr = rateUnit === "l/hr" || rateUnit === "l/h" || rateUnit === "lhr"
+          ? rawRate * 1000
+          : rawRate;
+        if (
+          !Number.isFinite(startedAt) ||
+          !Number.isFinite(endedAt) ||
+          endedAt <= startedAt ||
+          !Number.isFinite(rateMlHr) ||
+          rateMlHr <= 0
+        ) continue;
+        infusedMl += rateMlHr * ((endedAt - startedAt) / 3_600_000);
+      }
+      if (infusedMl <= 0) continue;
+      family = runFamily;
+      baseTotal += (preparedBase / preparedVolumeMl) * infusedMl;
+      if (!preferredUnit) preferredUnit = amountUnit;
+    }
+
+    const parts: string[] = [];
+    if (family != null && baseTotal > 0) {
+      const displayUnit = preferredUnit || (family === "mass" ? "mg" : "units");
+      const displayValue = amountFromDripBase(baseTotal, displayUnit);
+      if (displayValue != null) {
+        parts.push(`${formatQuantity(displayValue)} ${displayUnit}`);
+      }
+    }
+    for (const [unit, total] of unmatchedTotals) {
+      if (total > 0) parts.push(`${formatQuantity(total)} ${unit}`);
+    }
+    return parts.length > 0 ? parts.join(" + ") : null;
+  };
   const filteredCurrentItems = useMemo(
     () => {
       if (!currentGroup) return [];
@@ -1671,12 +1779,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     [currentItems, prepareItemId],
   );
   const historicalBolusSuggestion = useMemo(() => {
-    const token = normalizeToken(selectedCurrentItem?.name || "");
-    if (!token) return null;
-    const match = Object.entries(HISTORICAL_BOLUS_SUGGESTIONS).find(
-      ([drug]) => token === drug || token.startsWith(drug),
-    );
-    return match?.[1] || null;
+    return getHistoricalBolusSuggestion(selectedCurrentItem?.name);
   }, [selectedCurrentItem?.name]);
   const patientWeightKg = useMemo(() => {
     const apiWeight = Number(casePatient?.weight_kg);
@@ -1685,6 +1788,10 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     const savedWeight = Number(readWeightFromSavedForm(caseId));
     return Number.isFinite(savedWeight) && savedWeight > 0 ? savedWeight : null;
   }, [caseId, casePatient?.weight_kg]);
+  useEffect(() => {
+    if (!medDripModalOpen || patientWeightKg == null) return;
+    setMedDripWeightKg(current => current.trim() || String(patientWeightKg));
+  }, [medDripModalOpen, patientWeightKg]);
   const patientAsaLabel = useMemo(() => {
     const raw = String(casePatient?.asa_status || "").trim();
     if (!raw) return "ASA —";
@@ -1836,6 +1943,32 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
   const selectedMedDripItem = useMemo(
     () => medDripItems.find(item => item.id === medDripItemId) || null,
     [medDripItems, medDripItemId],
+  );
+  const drippedMedicationItemIds = useMemo(
+    () =>
+      new Set(
+        currentRuns
+          .filter(
+            run =>
+              run.kind === "med" &&
+              run.entry_mode === "drip" &&
+              Number(run.include_in_balance ?? 1) !== 0,
+          )
+          .map(run => run.item_id),
+      ),
+    [currentRuns],
+  );
+  const popularMedDripItems = useMemo(
+    () =>
+      POPULAR_DRIP_MEDICATIONS.flatMap(name => {
+        const item = medDripItems.find(candidate => normalizeToken(candidate.name) === normalizeToken(name));
+        return item && !drippedMedicationItemIds.has(item.id) ? [item] : [];
+      }),
+    [drippedMedicationItemIds, medDripItems],
+  );
+  const medDripSuggestion = useMemo(
+    () => getHistoricalDripSuggestion(selectedMedDripItem?.name),
+    [selectedMedDripItem?.name],
   );
   const selectedBloodProductType = useMemo(
     () => resolveBloodProductItemType(selectedBloodProductItem),
@@ -2014,6 +2147,12 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     medDripTotalVolumeMl,
     medDripWeightKg,
   ]);
+  const medDripConcentrationText = useMemo(() => {
+    const amount = parsePositiveNumber(medDripAmountValue);
+    const volumeMl = parsePositiveNumber(medDripTotalVolumeMl);
+    if (amount == null || volumeMl == null) return "—";
+    return `${round4(amount / volumeMl)} ${normalizeDisplayUnit("med", medDripAmountUnit)}/mL`;
+  }, [medDripAmountUnit, medDripAmountValue, medDripTotalVolumeMl]);
 
   useEffect(() => {
     if (caseId == null) {
@@ -2361,6 +2500,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
   const openEntryModal = (runId: number, mode: EntryMode = "bolus") => {
     const now = Date.now();
     setEntryRunId(runId);
+    setEditingEntryEventId(null);
     setEntryMode(mode);
     setEntryDate(toDateInput(now));
     setEntryTime(toTimeInput(now));
@@ -2384,9 +2524,32 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setEntryError("");
   };
 
+  const openEventEditor = (runId: number, event: CaseIoEvent) => {
+    const run = currentRuns.find(candidate => candidate.id === runId);
+    if (!run) return;
+    const metadata = parseNoteTokens(event.note);
+    setEntryRunId(runId);
+    setEditingEntryEventId(event.id);
+    setEntryMode("bolus");
+    setEntryDate(toDateInput(event.event_ts));
+    setEntryTime(toTimeInput(event.event_ts));
+    setEntryBolusValue(
+      String(event.kind === "med" ? event.dose_value ?? "" : event.volume_ml ?? ""),
+    );
+    setEntryBolusUnit(event.dose_unit || run.item_unit || "mg");
+    setEntryLocalRoute(metadata.route || run.route?.trim() || DEFAULT_LOCAL_ANESTHETIC_ROUTE);
+    setEntryLocalConcentration(String(metadata.concentration || "").replace(/%$/, ""));
+    setEntryLocalVolumeMl(metadata.volumeMl || "");
+    setEntryBloodGroup(metadata.bloodGroup || "");
+    setEntryBloodBagNo(metadata.bloodBagNo || "");
+    setEntryNote(displayNoteOnly(event.note));
+    setEntryError("");
+  };
+
   const closeEntryModal = () => {
     if (entrySaving) return;
     setEntryRunId(null);
+    setEditingEntryEventId(null);
     setEntryError("");
   };
 
@@ -2418,6 +2581,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     }
     if (e.key !== "Enter" || e.shiftKey) return;
     if (target?.tagName === "TEXTAREA") return;
+    if (target?.tagName === "BUTTON") return;
     e.preventDefault();
     e.stopPropagation();
     void saveEntryValue();
@@ -2453,7 +2617,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setMedDripTotalVolumeMl("");
     setMedDripDoseValue("");
     setMedDripDoseUnit("mg/hr");
-    setMedDripWeightKg(caseId != null ? readWeightFromSavedForm(caseId) : "");
+    setMedDripWeightKg(patientWeightKg == null ? "" : String(patientWeightKg));
     setMedDripRateMlHr("");
     setMedDripLastEdited("dose");
     setMedDripNote("");
@@ -2476,46 +2640,27 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setMedDripManualMode(false);
     setMedDripManualCategory("");
     setMedDripError("");
-    setMedDripEditRunId(null);
   };
 
   const openEditDripModal = (run: CaseIoRun) => {
-    const meta = parseNoteTokens(run.note);
-    const firstSeg = Array.isArray(run.segments)
-      ? [...run.segments].sort((a, b) => Number(a.ts_from) - Number(b.ts_from))[0]
-      : null;
-
-    const startTs = Number(run.started_at);
-    setMedDripEditRunId(run.id);
-    setMedDripModalOpen(true);
-    setMedDripSearch(run.item_name || run.item_code || "");
-    setMedDripItemId(run.item_id);
-    setMedDripManualMode(false);
-    setMedDripManualCategory("");
-    setShowMedDripDropdown(false);
-    setMedDripDate(toDateInput(startTs));
-    setMedDripTime(toTimeInput(startTs));
-    setMedDripRoute(run.route || DEFAULT_ROUTE);
-    const amountVal = meta.medAmount ? String(meta.medAmount) : "";
-    const amountUnit = meta.medUnit || run.item_unit || "mg";
-    setMedDripAmountValue(amountVal);
-    setMedDripAmountUnit(amountUnit);
-    const carrierName = meta.carrier || "Undilute";
-    const carrierItem = carrierFluidOptions.find(
-      item => item.name.toLowerCase() === carrierName.toLowerCase(),
-    );
-    setMedDripCarrierFluidId(carrierItem?.id ?? null);
-    setMedDripTotalVolumeMl(meta.totalVolumeMl ? String(meta.totalVolumeMl) : "");
-    const doseVal = firstSeg?.dose_value != null ? String(firstSeg.dose_value) : "";
-    const doseUnit = (firstSeg?.dose_unit as typeof medDripDoseUnit) || "mg/hr";
-    setMedDripDoseValue(doseVal);
-    setMedDripDoseUnit(doseUnit);
-    setMedDripWeightKg(caseId != null ? readWeightFromSavedForm(caseId) : "");
-    const rateVal = firstSeg?.rate_value != null ? String(firstSeg.rate_value) : "";
-    setMedDripRateMlHr(rateVal);
-    setMedDripLastEdited("rate");
-    setMedDripNote("");
-    setMedDripError("");
+    const segment = activeDripSegment(run, Date.now());
+    if (!segment) {
+      setCurrentError("No running drip segment to change");
+      return;
+    }
+    const now = Date.now();
+    setChangeRateError("");
+    setChangeRateTarget({
+      runId: run.id,
+      segmentId: segment.id,
+      itemName: run.item_name || run.item_code || `Item ${run.item_id}`,
+      kind: "med",
+      date: toDateInput(now),
+      time: toTimeInput(now),
+      rateValue: segment.rate_value != null ? String(segment.rate_value) : "",
+      doseValue: segment.dose_value != null ? String(segment.dose_value) : "",
+      doseUnit: segment.dose_unit || run.item_unit || "mg/hr",
+    });
   };
 
   const openFluidModal = () => {
@@ -2813,6 +2958,8 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     }
     if (e.key !== "Enter" || e.shiftKey) return;
     if (target?.tagName === "TEXTAREA") return;
+    if (target?.tagName === "BUTTON") return;
+    if (showMedDripDropdown) return;
     e.preventDefault();
     e.stopPropagation();
     void saveMedDrip();
@@ -3004,50 +3151,28 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
         .filter(Boolean)
         .join(" | ");
 
-      if (medDripEditRunId != null) {
-        await replaceCaseIoDrip(caseId, medDripEditRunId, {
-          actor,
-          reason: "io-balance med drip edit",
-          run: {
-            item_id: effectiveItemId,
-            started_at: startTs,
-            route: medDripRoute.trim() || DEFAULT_ROUTE,
-            note: runNote,
-          },
-          segment: {
-            ts_from: startTs,
-            rate_value: round4(rateMlHr),
-            rate_unit: "ml/hr",
-            dose_value: round4(doseValue),
-            dose_unit: medDripDoseUnit,
-            include_in_balance: true,
-            note: segmentNote || undefined,
-          },
-        });
-      } else {
-        await createCaseIoDrip(caseId, {
-          actor,
-          reason: medDripManualMode ? "io-balance med drip manual start" : "io-balance med drip start",
-          run: {
-            item_id: effectiveItemId,
-            kind: "med",
-            started_at: startTs,
-            route: medDripRoute.trim() || DEFAULT_ROUTE,
-            entry_mode: "drip",
-            include_in_balance: true,
-            note: runNote,
-          },
-          segment: {
-            ts_from: startTs,
-            rate_value: round4(rateMlHr),
-            rate_unit: "ml/hr",
-            dose_value: round4(doseValue),
-            dose_unit: medDripDoseUnit,
-            include_in_balance: true,
-            note: segmentNote || undefined,
-          },
-        });
-      }
+      await createCaseIoDrip(caseId, {
+        actor,
+        reason: medDripManualMode ? "io-balance med drip manual start" : "io-balance med drip start",
+        run: {
+          item_id: effectiveItemId,
+          kind: "med",
+          started_at: startTs,
+          route: medDripRoute.trim() || DEFAULT_ROUTE,
+          entry_mode: "drip",
+          include_in_balance: true,
+          note: runNote,
+        },
+        segment: {
+          ts_from: startTs,
+          rate_value: round4(rateMlHr),
+          rate_unit: "ml/hr",
+          dose_value: round4(doseValue),
+          dose_unit: medDripDoseUnit,
+          include_in_balance: true,
+          note: segmentNote || undefined,
+        },
+      });
 
       await loadCurrentCase(caseId, caseStatus);
       notifyIoAndEventChanged(caseId);
@@ -3243,6 +3368,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       itemName: run.item_name || run.item_code || `Item ${run.item_id}`,
       date: toDateInput(now),
       time: toTimeInput(now),
+      exactStopTs: null,
     });
   };
 
@@ -3268,7 +3394,8 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       setStopDripError("Stop must be dd/mm/yyyy and HH:mm");
       return;
     }
-    const stopTs = combineDateAndTime(stopDripTarget.date, stopDripTarget.time, Date.now());
+    const stopTs = stopDripTarget.exactStopTs ??
+      combineDateAndTime(stopDripTarget.date, stopDripTarget.time, Date.now());
     if (!Number.isFinite(stopTs) || stopTs <= Number(segment.ts_from)) {
       setStopDripError("Stop time must be after drip start");
       return;
@@ -3572,7 +3699,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
             numericDose = numericValue;
           }
 
-          await createCaseIoEvent(caseId, {
+          const eventPayload = {
             item_id: selectedEntryRun.item_id,
             kind: selectedEntryRun.kind,
             event_ts: eventTs,
@@ -3582,13 +3709,26 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
             include_in_balance: true,
             reason: `${baseReason}: bolus`,
             actor,
-          });
+          };
+          if (editingEntryEventId != null) {
+            await updateCaseIoEvent(caseId, editingEntryEventId, {
+              event_ts: eventPayload.event_ts,
+              dose_value: eventPayload.dose_value,
+              dose_unit: eventPayload.dose_unit,
+              note: eventPayload.note || null,
+              include_in_balance: true,
+              reason: `${baseReason}: edit bolus`,
+              actor,
+            });
+          } else {
+            await createCaseIoEvent(caseId, eventPayload);
+          }
         } else {
           const numericValue = Number(entryBolusValue);
           if (!Number.isFinite(numericValue) || numericValue <= 0) {
             throw new Error("Volume must be > 0");
           }
-          await createCaseIoEvent(caseId, {
+          const eventPayload = {
             item_id: selectedEntryRun.item_id,
             kind: selectedEntryRun.kind,
             event_ts: eventTs,
@@ -3604,7 +3744,19 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
             include_in_balance: true,
             reason: `${baseReason}: bolus`,
             actor,
-          });
+          };
+          if (editingEntryEventId != null) {
+            await updateCaseIoEvent(caseId, editingEntryEventId, {
+              event_ts: eventPayload.event_ts,
+              volume_ml: eventPayload.volume_ml,
+              note: eventPayload.note || null,
+              include_in_balance: true,
+              reason: `${baseReason}: edit bolus`,
+              actor,
+            });
+          } else {
+            await createCaseIoEvent(caseId, eventPayload);
+          }
         }
       } else {
         const calc = calculateDripOneMissing();
@@ -3671,6 +3823,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       setEntryDate(toDateInput(now));
       setEntryTime(toTimeInput(now));
       setEntryRunId(null);
+      setEditingEntryEventId(null);
     } catch (err) {
       setEntryError(err instanceof Error ? err.message : "Failed to save entry");
     } finally {
@@ -3703,7 +3856,39 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
             group.entryMode === "drip" &&
             run.stopped_at == null &&
             activeDripSegment(run, Date.now()) != null;
-          const totalText = getGroupTotalText(group);
+          const isMedicationDoseSummary = prefix === "medication" && group.kind === "med";
+          const totalText = isMedicationDoseSummary
+            ? getMedicationSummaryText(group)
+            : getGroupTotalText(group);
+          if (isMedicationDoseSummary && group.events.length === 0) {
+            return (
+              <div
+                key={`${prefix}-${group.key}`}
+                className="flex min-h-16 items-center justify-between gap-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/55 px-3 py-2.5"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${visual.iconClass}`}>
+                    <ItemTypeIcon kind={group.kind} displayMode={group.displayMode} category={group.category} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[var(--app-muted)]">
+                      <span>{group.typeLabel}</span>
+                      {group.route ? <><span aria-hidden="true">•</span><span>{group.route}</span></> : null}
+                      <span aria-hidden="true">•</span>
+                      <span>Infusion</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Total</div>
+                  <div className="text-base font-semibold tabular-nums text-[var(--app-text)]">
+                    {totalText || "—"}
+                  </div>
+                </div>
+              </div>
+            );
+          }
           return (
             <div
               key={`${prefix}-${group.key}`}
@@ -3727,7 +3912,9 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Total</div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">
+                    Total
+                  </div>
                   <div className="text-lg font-semibold tabular-nums text-[var(--app-text)]">{totalText || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</div>
                   {group.runId != null ? (
                     <div className="mt-1 flex items-center justify-end gap-1">
@@ -3739,9 +3926,9 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                             if (group.kind === "fluid") openEditFluidDripModal(run);
                             else openEditDripModal(run);
                           }}
-                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"
+                          className="rounded px-1.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 dark:text-blue-300"
                         >
-                          Edit
+                          Rate
                         </button>
                       ) : (
                         <button
@@ -3750,16 +3937,16 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                             if (group.kind === "fluid" && run) openFluidEntryModal(run);
                             else openEntryModal(group.runId!, "bolus");
                           }}
-                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-500/10 dark:text-blue-300"
+                          className="rounded px-1.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 dark:text-blue-300"
                         >
-                          {group.kind === "med" ? "Dose" : "Entry"}
+                          Entry
                         </button>
                       )}
                       {canStopDrip ? (
                         <button
                           type="button"
                           onClick={() => openStopDripModal(run!)}
-                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-600 hover:bg-amber-500/10 dark:text-amber-300"
+                          className="rounded px-1.5 py-1 text-[11px] font-semibold text-amber-600 hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 dark:text-amber-300"
                         >
                           Stop
                         </button>
@@ -3768,9 +3955,9 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                         type="button"
                         onClick={() => void handleRemoveRun(group.runId!, group.itemName)}
                         disabled={removingRunId === group.runId}
-                        className="rounded px-1.5 py-0.5 text-[10px] font-medium text-red-600 hover:bg-red-500/10 disabled:text-gray-400 dark:text-red-300"
+                        className="rounded px-1.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:text-gray-400 dark:text-red-300"
                       >
-                        {removingRunId === group.runId ? "Removing..." : "Remove"}
+                        {removingRunId === group.runId ? "Removing…" : "Remove"}
                       </button>
                     </div>
                   ) : null}
@@ -3812,14 +3999,15 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                         </div>
                       );
                     }
+                    const isMedicationInfusion = group.kind === "med";
                     return (
                       <div className="mt-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/70 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                         <div className="flex items-center gap-3">
                           <div className="shrink-0">
                             {snapshot.isUndiluted ? (
-                              <div className="relative h-16 w-10 overflow-hidden rounded-md border border-cyan-400/45 bg-black/35 dark:bg-black/45">
+                              <div className={`relative h-16 w-10 overflow-hidden rounded-md border ${isMedicationInfusion ? "border-violet-400/45 bg-violet-50 dark:bg-violet-950/25" : "border-cyan-400/45 bg-cyan-50 dark:bg-cyan-950/25"}`}>
                                 <div
-                                  className="absolute bottom-1 left-1 right-1 overflow-hidden rounded-sm bg-cyan-400/80 transition-all duration-700"
+                                  className={`absolute bottom-1 left-1 right-1 overflow-hidden rounded-sm transition-all duration-700 ${isMedicationInfusion ? "bg-violet-400/80" : "bg-cyan-400/80"}`}
                                   style={{ height: `${Math.max(10, snapshot.progressPct * 0.52)}px` }}
                                 >
                                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0.02))]" />
@@ -3827,17 +4015,17 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                                     <div className="absolute inset-y-0 -left-6 w-4 rotate-12 bg-white/30 blur-[1px] animate-[flora-fluid-shift_1.8s_linear_infinite]" />
                                   ) : null}
                                 </div>
-                                <div className="absolute inset-x-2 top-1 h-1 rounded bg-cyan-100/70" />
-                                <div className="absolute -bottom-2 left-1/2 h-4 w-1 -translate-x-1/2 rounded bg-cyan-300/90" />
+                                <div className={`absolute inset-x-2 top-1 h-1 rounded ${isMedicationInfusion ? "bg-violet-200/80" : "bg-cyan-200/80"}`} />
+                                <div className={`absolute -bottom-2 left-1/2 h-4 w-1 -translate-x-1/2 rounded ${isMedicationInfusion ? "bg-violet-300/90" : "bg-cyan-300/90"}`} />
                                 {!snapshot.isStopped ? (
-                                  <div className="absolute left-1/2 top-full h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-cyan-200/90 animate-bounce" />
+                                  <div className={`absolute left-1/2 top-full h-1.5 w-1.5 -translate-x-1/2 rounded-full animate-bounce ${isMedicationInfusion ? "bg-violet-200/90" : "bg-cyan-200/90"}`} />
                                 ) : null}
                               </div>
                             ) : (
-                              <div className="relative h-16 w-12 overflow-hidden rounded-t-xl rounded-b-md border border-emerald-400/45 bg-black/35 dark:bg-black/45">
-                                <div className="absolute left-1/2 top-0 h-3 w-4 -translate-x-1/2 -translate-y-1/2 rounded-t-md border border-emerald-400/45 bg-black/45 dark:bg-black/60" />
+                              <div className={`relative h-16 w-12 overflow-hidden rounded-t-xl rounded-b-md border ${isMedicationInfusion ? "border-violet-400/45 bg-violet-50 dark:bg-violet-950/25" : "border-cyan-400/45 bg-cyan-50 dark:bg-cyan-950/25"}`}>
+                                <div className={`absolute left-1/2 top-0 h-3 w-4 -translate-x-1/2 -translate-y-1/2 rounded-t-md border ${isMedicationInfusion ? "border-violet-400/45 bg-violet-100 dark:bg-violet-950/50" : "border-cyan-400/45 bg-cyan-100 dark:bg-cyan-950/50"}`} />
                                 <div
-                                  className="absolute bottom-1 left-1 right-1 overflow-hidden rounded-b-md bg-emerald-400/75 transition-all duration-700"
+                                  className={`absolute bottom-1 left-1 right-1 overflow-hidden rounded-b-md transition-all duration-700 ${isMedicationInfusion ? "bg-violet-400/75" : "bg-cyan-400/75"}`}
                                   style={{ height: `${Math.max(10, snapshot.progressPct * 0.5)}px` }}
                                 >
                                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.26),rgba(255,255,255,0.02))]" />
@@ -3846,7 +4034,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                                   ) : null}
                                 </div>
                                 {!snapshot.isStopped ? (
-                                  <div className="absolute left-1/2 top-full h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-emerald-200/90 animate-bounce" />
+                                  <div className={`absolute left-1/2 top-full h-1.5 w-1.5 -translate-x-1/2 rounded-full animate-bounce ${isMedicationInfusion ? "bg-violet-200/90" : "bg-cyan-200/90"}`} />
                                 ) : null}
                               </div>
                             )}
@@ -3884,7 +4072,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                               </div>
                               <div className="h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
                                 <div
-                                  className={`h-full rounded-full ${snapshot.isUndiluted ? "bg-cyan-300" : "bg-emerald-300"} transition-all duration-700`}
+                                  className={`h-full rounded-full transition-all duration-700 ${isMedicationInfusion ? "bg-violet-300" : "bg-cyan-300"}`}
                                   style={{ width: `${Math.max(4, snapshot.progressPct)}%` }}
                                 />
                               </div>
@@ -3907,21 +4095,54 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   {group.events.map(event => (
                     <div
                       key={`${prefix}-event-${group.key}-${event.id}`}
-                      className="grid grid-cols-[62px_1fr_auto] items-center gap-2 py-2 text-xs"
+                      className="grid grid-cols-[1fr_auto] items-center gap-2 py-1.5 text-xs"
                     >
-                      <span className="rounded-md bg-[var(--app-panel-bg)] px-2 py-1 text-center font-medium tabular-nums text-[var(--app-muted)]">{fmtHHMM(event.event_ts)}</span>
-                      <span className="font-semibold tabular-nums text-[var(--app-text)]">{formatEventValue(event)}</span>
-                      <ClinicalReferenceTooltip text={`Delete ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`} compact disabled={deletingEventId === event.id} className="flex">
+                      <button
+                        type="button"
+                        onClick={() => group.runId != null && openEventEditor(group.runId, event)}
+                        disabled={group.runId == null}
+                        className="grid min-w-0 grid-cols-[62px_1fr] items-center gap-2 rounded-md p-0.5 text-left hover:bg-[var(--app-text)]/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 disabled:cursor-default"
+                        aria-label={`Edit ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`}
+                      >
+                        <span className="rounded-md bg-[var(--app-panel-bg)] px-2 py-1 text-center font-medium tabular-nums text-[var(--app-muted)]">{fmtHHMM(event.event_ts)}</span>
+                        <span className="truncate font-semibold tabular-nums text-[var(--app-text)]">{formatEventValue(event)}</span>
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <ClinicalReferenceTooltip text={`Edit ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`} compact className="flex">
+                          <button
+                            type="button"
+                            onClick={() => group.runId != null && openEventEditor(group.runId, event)}
+                            disabled={group.runId == null || deletingEventId === event.id}
+                            className="grid h-8 w-8 place-items-center rounded-md text-blue-500 hover:bg-blue-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 dark:text-blue-300 disabled:opacity-40"
+                            aria-label={`Edit ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`}
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                            </svg>
+                          </button>
+                        </ClinicalReferenceTooltip>
+                        <ClinicalReferenceTooltip text={`Delete ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`} compact disabled={deletingEventId === event.id} className="flex">
                         <button
                           type="button"
                           onClick={() => void handleDeleteEvent(event.id)}
                           disabled={deletingEventId === event.id}
-                          className="grid h-7 w-7 place-items-center rounded-md text-red-500 hover:bg-red-500/10 dark:text-red-400 disabled:opacity-40"
+                          className="grid h-8 w-8 place-items-center rounded-md text-red-500 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 dark:text-red-400 disabled:opacity-40"
                           aria-label={`Delete ${group.itemName} entry at ${fmtHHMM(event.event_ts)}`}
                         >
-                          {deletingEventId === event.id ? "…" : "×"}
+                          {deletingEventId === event.id ? (
+                            <svg viewBox="0 0 24 24" className="h-4 w-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                              <circle cx="12" cy="12" r="9" className="opacity-25" />
+                              <path d="M21 12a9 9 0 0 0-9-9" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+                            </svg>
+                          )}
                         </button>
-                      </ClinicalReferenceTooltip>
+                        </ClinicalReferenceTooltip>
+                      </div>
                     </div>
                   ))}
                   {group.segments.map((segmentText, idx) => (
@@ -4375,7 +4596,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   <div className="order-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3 space-y-2">
                     {medicationSummaryView === "detail" ? (
                       <>
-                        <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Administered medication & total dose</div>
+                        <div className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Medication dose summary</div>
                         {renderItemGroupCards(medicationItemGroups, "No medications added yet.", "medication")}
                       </>
                     ) : medicationItemGroups.length === 0 ? (
@@ -4385,7 +4606,9 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                         {medicationItemGroups.map(group => (
                           <div key={`medication-summary-${group.key}`} className="flex min-h-10 items-center justify-between gap-4 px-1 py-2">
                             <span className="min-w-0 truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</span>
-                            <strong className="shrink-0 text-sm tabular-nums text-[var(--app-text)]">{getGroupTotalText(group) || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</strong>
+                            <strong className="shrink-0 text-sm tabular-nums text-[var(--app-text)]">
+                              {getMedicationSummaryText(group) || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}
+                            </strong>
                           </div>
                         ))}
                       </div>
@@ -4646,7 +4869,49 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
         </section>
       )}
 
-      {entryRunId != null && selectedEntryRun != null ? (
+      {entryRunId != null && selectedEntryRun != null && selectedEntryRun.kind === "med" && entryMode === "bolus" ? (
+        <MedicationBolusEntryModal
+          patientContext={ioModalPatientContext}
+          medicationName={selectedEntryRun.item_name || selectedEntryRun.item_code || `Item ${selectedEntryRun.item_id}`}
+          date={entryDate}
+          time={entryTime}
+          doseValue={entryBolusValue}
+          doseUnit={entryBolusUnit || selectedEntryRun.item_unit || "mg"}
+          note={entryNote}
+          suggestion={entryBolusSuggestion}
+          localAnesthetic={entryIsLocalAnesthetic ? {
+            route: entryLocalRoute,
+            routes: ["Local", "PNB", "Spinal", "Epidural", "Caudal"],
+            concentration: entryLocalConcentration,
+            volumeMl: entryLocalVolumeMl,
+            onRouteChange: setEntryLocalRoute,
+            onConcentrationChange: setEntryLocalConcentration,
+            onVolumeChange: setEntryLocalVolumeMl,
+          } : null}
+          saving={entrySaving}
+          error={entryError}
+          saveLabel={editingEntryEventId == null ? "Record bolus" : "Update bolus"}
+          onDateChange={value => setEntryDate(formatDateInputDDMMYYYY(value))}
+          onDateBlur={value => {
+            const normalized = normalizeDateInputDDMMYYYY(value);
+            if (normalized) setEntryDate(normalized);
+          }}
+          onTimeChange={value => setEntryTime(formatTimeInputHHMM(value))}
+          onTimeBlur={value => {
+            const normalized = normalizeTimeInputHHMM(value);
+            if (normalized) setEntryTime(normalized);
+          }}
+          onDoseChange={setEntryBolusValue}
+          onDoseUnitChange={setEntryBolusUnit}
+          onNoteChange={setEntryNote}
+          onClose={closeEntryModal}
+          onClear={clearMedicationEntryModal}
+          onSave={() => void saveEntryValue()}
+          onKeyDown={handleEntryModalKeyDown}
+        />
+      ) : null}
+
+      {entryRunId != null && selectedEntryRun != null && !(selectedEntryRun.kind === "med" && entryMode === "bolus") ? (
         <div
           className="app-theme-scope io-modal-backdrop"
           onMouseDown={closeEntryModal}
@@ -5247,49 +5512,51 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
             onMouseDown={e => e.stopPropagation()}
             onKeyDown={handleMedDripModalKeyDown}
           >
+            <header className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] pb-3">
+              <div className="flex min-w-0 items-center gap-5">
+                <span className="mr-2 grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#9B6DFF]/15">
+                  <IoSpriteIcon name="medDrip" size={42} />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--app-muted)]">Medication infusion</div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h2 className="break-words text-2xl font-bold leading-tight text-[var(--app-text)]">
+                      {selectedMedDripItem?.name || medDripSearch.trim() || "Select medication"}
+                    </h2>
+                    <span className="rounded-md bg-[#9B6DFF]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#B69AFF]">Drip</span>
+                  </div>
+                  <div className="mt-0.5 text-xs text-[var(--app-muted)]">Continuous infusion</div>
+                </div>
+              </div>
+              <ClinicalReferenceTooltip text="Close" compact className="flex shrink-0">
+                <button
+                  type="button"
+                  aria-label="Close medication drip"
+                  onClick={closeMedDripModal}
+                  disabled={medDripSaving}
+                  className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--app-border)] text-xl leading-none text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)] hover:text-[var(--app-text)] disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </ClinicalReferenceTooltip>
+            </header>
+
             {ioModalPatientContext}
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold leading-none">Medication drip</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-medium leading-none">Medication</span>
-                  <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-violet-500/20 text-violet-300">
-                    Drip
-                  </span>
-                </div>
-                <div className="text-xs text-[var(--app-muted)]">
-                  {medDripEditRunId != null
-                    ? "Adjust the medication drip. Existing rate changes will be replaced with the new settings."
-                    : "Search medication, set start time, and begin the infusion now."}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={closeMedDripModal}
-                className={secondaryButton}
-                disabled={medDripSaving}
-              >
-                Close
-              </button>
-            </div>
 
-            <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Group</label>
-              <div className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5">
-                {selectedMedDripGroupLabel}
-              </div>
-              <div className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-center">
-                {medDripRoute}
-              </div>
-            </div>
-
-            {medDripEditRunId == null ? (
-              <div className="rounded border border-violet-400/30 bg-violet-500/10 px-3 py-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-violet-200">
-                  Quick Guide
-                </div>
-                <div className="mt-1 text-sm text-violet-50/95">
-                  Search medication first. If this looks like a typo, pick the suggested drug. If it is really not in the library, use a case-only manual drug. If it is actually a fluid such as Acetar, move to the Fluid flow instead.
+            {!selectedMedDripItem && !medDripManualMode && popularMedDripItems.length > 0 ? (
+              <div className="grid grid-cols-[110px_1fr] items-start gap-2">
+                <span className="pt-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Popular</span>
+                <div className="flex flex-wrap gap-2">
+                  {popularMedDripItems.map(item => (
+                    <button
+                      key={`popular-med-drip-${item.id}`}
+                      type="button"
+                      onClick={() => selectMedDripItem(item)}
+                      className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"
+                    >
+                      {item.name}
+                    </button>
+                  ))}
                 </div>
               </div>
             ) : null}
@@ -5305,9 +5572,13 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   setMedDripItemId(null);
                   setMedDripManualMode(false);
                   setMedDripManualCategory("");
-                  setShowMedDripDropdown(true);
+                  setShowMedDripDropdown(normalizeToken(e.target.value).length >= 2);
                 }}
-                onFocus={() => setShowMedDripDropdown(true)}
+                onFocus={() => {
+                  if (medDripItemId == null && normalizeToken(medDripSearch).length >= 2) {
+                    setShowMedDripDropdown(true);
+                  }
+                }}
                 onKeyDown={e => {
                   if (
                     showMedDripDropdown &&
@@ -5323,7 +5594,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   }
                 }}
               />
-              {showMedDripDropdown ? (
+              {showMedDripDropdown && normalizeToken(medDripSearch).length >= 2 ? (
                 <>
                   <div
                     className="fixed inset-0 z-0"
@@ -5433,24 +5704,14 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
               ) : null}
             </div>
 
-            {medDripEditRunId == null && medDripNeedsManualFallback ? (
-              <div className="space-y-3">
-                <div className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2">
-                  <div className="text-sm font-semibold">Can&apos;t find this drug in library</div>
-                  <div className="mt-1 text-sm text-[var(--app-muted)]">
-                    Use a temporary manual entry for this case only. It will not appear in the normal active library.
-                  </div>
-                </div>
-                <div className="rounded border border-cyan-400/40 bg-cyan-500/10 px-3 py-3 space-y-3">
+            {medDripNeedsManualFallback ? (
+              <div className="rounded border border-cyan-400/40 bg-cyan-500/10 px-3 py-3 space-y-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">Case-only manual drug</span>
+                    <span className="text-sm font-semibold">Not in library</span>
                     <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-cyan-500/20 text-cyan-300">
-                      Manual
+                      Case only
                     </span>
-                  </div>
-                  <div className="text-xs text-[var(--app-muted)]">
-                    We will save this medication for the current case only and keep it out of the active library.
                   </div>
                 </div>
                 <div className="grid grid-cols-[110px_1fr] gap-2 items-center text-sm">
@@ -5478,6 +5739,40 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   </select>
                 </div>
               </div>
+            ) : null}
+
+            {selectedMedDripItem || medDripManualMode ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+                <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2.5 py-1">{selectedMedDripGroupLabel}</span>
+                <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2.5 py-1">{medDripRoute}</span>
+              </div>
+            ) : null}
+
+            <div className="pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Preparation</div>
+
+            {medDripSuggestion ? (
+              <div className="grid grid-cols-[110px_1fr] items-start gap-2">
+                <span className="pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Suggestion</span>
+                <div className="flex flex-wrap gap-2">
+                  {medDripSuggestion.preparations.map(preparation => (
+                    <button
+                      key={`${preparation.amount}-${preparation.amountUnit}-${preparation.carrier || "undiluted"}-${preparation.totalVolumeMl}`}
+                      type="button"
+                      onClick={() => {
+                        setMedDripAmountValue(String(preparation.amount));
+                        setMedDripAmountUnit(preparation.amountUnit);
+                        setMedDripTotalVolumeMl(String(preparation.totalVolumeMl));
+                        const carrier = preparation.carrier
+                          ? carrierFluidOptions.find(item => normalizeToken(item.name) === normalizeToken(preparation.carrier))
+                          : null;
+                        setMedDripCarrierFluidId(carrier?.id ?? null);
+                      }}
+                      className="rounded-lg border border-violet-400/35 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:bg-violet-500/20"
+                    >
+                      {preparation.amount} {preparation.amountUnit} · {preparation.carrier || "Undiluted"} {preparation.totalVolumeMl} mL
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -5543,6 +5838,15 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
               </div>
             </div>
 
+            <div className="grid grid-cols-[110px_1fr] items-center gap-2 text-sm">
+              <span className="text-[var(--app-muted)]">Concentration</span>
+              <div className="rounded-lg border border-violet-400/30 bg-violet-500/10 px-3 py-2 font-semibold tabular-nums text-[var(--app-text)]">
+                {medDripConcentrationText}
+              </div>
+            </div>
+
+            <div className="pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Administration</div>
+
             <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
               <label className="text-[var(--app-muted)]">Dose</label>
               <input
@@ -5570,9 +5874,31 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
               </select>
             </div>
 
+            {medDripSuggestion ? (
+              <div className="grid grid-cols-[110px_1fr] items-start gap-2">
+                <span className="pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">Suggestion</span>
+                <div className="flex flex-wrap gap-2">
+                  {medDripSuggestion.doses.map(dose => (
+                    <button
+                      key={`${dose.value}-${dose.unit}`}
+                      type="button"
+                      onClick={() => {
+                        setMedDripLastEdited("dose");
+                        setMedDripDoseUnit(dose.unit as (typeof DOSE_RATE_UNITS)[number]);
+                        setMedDripDoseValue(String(dose.value));
+                      }}
+                      className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-xs font-bold tabular-nums text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"
+                    >
+                      {dose.value} {dose.unit}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {medDripIsWeightBased ? (
               <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-                <label className="text-[var(--app-muted)]">Weight</label>
+                <label className="text-[var(--app-muted)]">Patient weight</label>
                 <input
                   type="number"
                   min="0"
@@ -5646,24 +5972,21 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
               <div className="text-xs text-red-600 dark:text-red-400">{medDripError}</div>
             ) : null}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--app-border)]">
-              <button
-                type="button"
-                onClick={closeMedDripModal}
-                className={secondaryButton}
-                disabled={medDripSaving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveMedDrip()}
-                disabled={medDripSaving}
-                className={`${primaryButton} ${medDripSaving ? primaryDisabled : primaryEnabled}`}
-              >
-                {medDripSaving ? "Saving..." : medDripEditRunId != null ? "Save Changes" : "Start Drip"}
-              </button>
-            </div>
+            <footer className="flex items-center justify-between gap-3 border-t border-[var(--app-border)] pt-3">
+              <div className="text-xs text-[var(--app-muted)]">Enter to start · Esc to close</div>
+              <div className="flex shrink-0 gap-2">
+                <button type="button" onClick={closeMedDripModal} className={secondaryButton} disabled={medDripSaving}>Cancel</button>
+                <button type="button" onClick={openMedDripModal} className={secondaryButton} disabled={medDripSaving}>Clear</button>
+                <button
+                  type="button"
+                  onClick={() => void saveMedDrip()}
+                  disabled={medDripSaving}
+                  className={`${primaryButton} ${medDripSaving ? primaryDisabled : primaryEnabled}`}
+                >
+                  {medDripSaving ? "Saving..." : "Start Drip"}
+                </button>
+              </div>
+            </footer>
           </div>
         </div>
       ) : null}
@@ -6216,7 +6539,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
           onMouseDown={closeChangeRateModal}
         >
           <div
-            className="io-modal w-full max-w-lg p-4 space-y-3"
+            className="io-modal w-full max-w-xl p-4 space-y-3"
             role="dialog"
             aria-modal="true"
             onMouseDown={e => e.stopPropagation()}
@@ -6341,77 +6664,125 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
               }
             }}
           >
-            {ioModalPatientContext}
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold leading-none">Stop Drip</div>
-                <div className="mt-1 text-sm">{stopDripTarget.itemName}</div>
+            <header className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] pb-3">
+              <div className="flex min-w-0 items-center gap-4">
+                <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#9B6DFF]/15">
+                  <IoSpriteIcon name="medDrip" size={42} />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--app-muted)]">
+                    Medication infusion
+                  </div>
+                  <h2 className="break-words text-2xl font-bold leading-tight text-[var(--app-text)]">
+                    Stop {stopDripTarget.itemName}
+                  </h2>
+                  <div className="mt-0.5 text-xs text-[var(--app-muted)]">End the active infusion</div>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={closeStopDripModal}
-                className={secondaryButton}
-                disabled={stopDripSaving}
-              >
-                Close
-              </button>
-            </div>
+              <ClinicalReferenceTooltip text="Close" compact className="flex shrink-0">
+                <button
+                  type="button"
+                  aria-label="Close stop infusion dialog"
+                  onClick={closeStopDripModal}
+                  className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--app-border)] text-xl leading-none text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)] hover:text-[var(--app-text)] disabled:opacity-50"
+                  disabled={stopDripSaving}
+                >
+                  ×
+                </button>
+              </ClinicalReferenceTooltip>
+            </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-[100px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-gray-500 dark:text-gray-400">Stop Time</label>
-              <input
-                className="rounded border px-2 py-1.5"
-                value={stopDripTarget.date}
-                onChange={e =>
-                  setStopDripTarget(current =>
-                    current
-                      ? { ...current, date: formatDateInputDDMMYYYY(e.target.value) }
-                      : current,
-                  )
-                }
-                onBlur={e => {
-                  const normalized = normalizeDateInputDDMMYYYY(e.target.value);
-                  if (!normalized) return;
-                  setStopDripTarget(current =>
-                    current ? { ...current, date: normalized } : current,
-                  );
-                }}
-                placeholder="dd/mm/yyyy"
-                tabIndex={-1}
-              />
-              <input
-                className="rounded border px-2 py-1.5"
-                value={stopDripTarget.time}
-                onChange={e =>
-                  setStopDripTarget(current =>
-                    current
-                      ? { ...current, time: formatTimeInputHHMM(e.target.value) }
-                      : current,
-                  )
-                }
-                onBlur={e => {
-                  const normalized = normalizeTimeInputHHMM(e.target.value);
-                  if (!normalized) return;
-                  setStopDripTarget(current =>
-                    current ? { ...current, time: normalized } : current,
-                  );
-                }}
-                placeholder="HH:mm"
-              />
-            </div>
+            {ioModalPatientContext}
 
             {stopDripCurrentIntakeMl != null ? (
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                Current intake so far: <span className="font-semibold">{formatQuantity(stopDripCurrentIntakeMl)} mL</span>
-              </div>
+              <section className="rounded-xl border border-violet-400/30 bg-violet-500/10 p-3">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">
+                      Infused at stop time
+                    </div>
+                    <div className="mt-1 text-2xl font-bold tabular-nums text-[var(--app-text)]">
+                      {formatQuantity(stopDripCurrentIntakeMl)} mL
+                    </div>
+                  </div>
+                  {stopDripPreparedVolumeMl != null ? (
+                    <div className="text-right text-xs text-[var(--app-muted)]">
+                      Prepared<br />
+                      <strong className="text-sm tabular-nums text-[var(--app-text)]">
+                        {formatQuantity(stopDripPreparedVolumeMl)} mL
+                      </strong>
+                    </div>
+                  ) : null}
+                </div>
+                {stopDripProgressPercent != null ? (
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--app-control-bg)]">
+                    <div
+                      className="h-full rounded-full bg-[#9B6DFF] transition-[width]"
+                      style={{ width: `${stopDripProgressPercent}%` }}
+                    />
+                  </div>
+                ) : null}
+              </section>
             ) : null}
+
+            <section className="space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--app-muted)]">Stop time</div>
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="min-w-0 space-y-1 text-xs font-semibold text-[var(--app-muted)]">
+                  <span>Date</span>
+                  <input
+                    className="w-full min-w-0 rounded border px-3 py-2 text-sm"
+                    value={stopDripTarget.date}
+                    onChange={e =>
+                      setStopDripTarget(current =>
+                        current
+                          ? { ...current, date: formatDateInputDDMMYYYY(e.target.value), exactStopTs: null }
+                          : current,
+                      )
+                    }
+                    onBlur={e => {
+                      const normalized = normalizeDateInputDDMMYYYY(e.target.value);
+                      if (!normalized) return;
+                      setStopDripTarget(current =>
+                        current ? { ...current, date: normalized, exactStopTs: null } : current,
+                      );
+                    }}
+                    placeholder="dd/mm/yyyy"
+                    tabIndex={-1}
+                  />
+                </label>
+                <label className="min-w-0 space-y-1 text-xs font-semibold text-[var(--app-muted)]">
+                  <span>Time</span>
+                  <input
+                    className="w-full min-w-0 rounded border px-3 py-2 text-sm"
+                    value={stopDripTarget.time}
+                    onChange={e =>
+                      setStopDripTarget(current =>
+                        current
+                          ? { ...current, time: formatTimeInputHHMM(e.target.value), exactStopTs: null }
+                          : current,
+                      )
+                    }
+                    onBlur={e => {
+                      const normalized = normalizeTimeInputHHMM(e.target.value);
+                      if (!normalized) return;
+                      setStopDripTarget(current =>
+                        current ? { ...current, time: normalized, exactStopTs: null } : current,
+                      );
+                    }}
+                    placeholder="HH:mm"
+                  />
+                </label>
+              </div>
+            </section>
+
             {stopDripSuggestedStopTs != null ? (
-              <div className="flex items-center justify-between gap-2 text-sm text-gray-600 dark:text-gray-300">
-                <div>
-                  Suggested stop when prepared volume is reached:{" "}
-                  <span className="font-semibold">
-                    {toDateInput(stopDripSuggestedStopTs)} {toTimeInput(stopDripSuggestedStopTs)}
-                  </span>
+              <div className="flex flex-col gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-[var(--app-text)]">Full prepared volume</div>
+                  <div className="mt-0.5 text-xs tabular-nums text-[var(--app-muted)]">
+                    {toDateInput(stopDripSuggestedStopTs)} at {toTimeInputWithSeconds(stopDripSuggestedStopTs)}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -6422,14 +6793,19 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                             ...current,
                             date: toDateInput(stopDripSuggestedStopTs),
                             time: toTimeInput(stopDripSuggestedStopTs),
+                            exactStopTs: stopDripSuggestedStopTs,
                           }
                         : current,
                     )
                   }
-                  className="rounded border border-blue-400 px-2 py-1 text-xs text-blue-600 dark:text-blue-300"
+                  className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                    stopDripTarget.exactStopTs === stopDripSuggestedStopTs
+                      ? "border-violet-400 bg-violet-500/15 text-violet-500 dark:text-violet-300"
+                      : "border-[var(--app-border)] text-[var(--app-text)] hover:bg-[var(--app-hover-bg)]"
+                  }`}
                   disabled={stopDripSaving}
                 >
-                  Use Suggested Time
+                  {stopDripTarget.exactStopTs === stopDripSuggestedStopTs ? "Target time selected" : "Use target time"}
                 </button>
               </div>
             ) : null}
@@ -6438,24 +6814,27 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
               <div className="text-xs text-red-600 dark:text-red-400">{stopDripError}</div>
             ) : null}
 
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeStopDripModal}
-                className={secondaryButton}
-                disabled={stopDripSaving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmStopDrip()}
-                className={`${dangerButton} ${stopDripSaving ? "opacity-60 cursor-not-allowed" : ""}`}
-                disabled={stopDripSaving}
-              >
-                {stopDripSaving ? "Stopping..." : "Stop Drip"}
-              </button>
-            </div>
+            <footer className="flex flex-col gap-3 border-t border-[var(--app-border)] pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-[var(--app-muted)]">Enter to stop · Esc to close</div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeStopDripModal}
+                  className={secondaryButton}
+                  disabled={stopDripSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmStopDrip()}
+                  className={`${dangerButton} px-4 font-semibold ${stopDripSaving ? "cursor-not-allowed opacity-60" : "hover:bg-red-500/10"}`}
+                  disabled={stopDripSaving}
+                >
+                  {stopDripSaving ? "Stopping..." : "Stop infusion"}
+                </button>
+              </div>
+            </footer>
           </div>
         </div>
       ) : null}

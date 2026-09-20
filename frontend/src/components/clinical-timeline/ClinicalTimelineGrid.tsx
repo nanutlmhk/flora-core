@@ -12,6 +12,13 @@ import {
 } from "../../assets/icons";
 import { getEventIconByTitle } from "../../views/clinical-chart/constants";
 import ClinicalReferenceTooltip from "../common/ClinicalReferenceTooltip";
+import { useTheme } from "../../context/ThemeContext";
+import {
+  DEFAULT_DRIP_GROUP_COLORS,
+  type DripGroupColors,
+  type DripGroupTone,
+} from "../../utils/chartPreferences";
+import { mixRgb, parseHexColor, smartContrastColor, type Rgb } from "../../utils/smartContrast";
 
 export type ClinicalTimelineEventMarker = {
   id: number;
@@ -61,6 +68,8 @@ interface Props {
   onSectionCollapseToggle?: (section: "io" | "vital") => void;
   colWidth?: number;
   labelColWidth?: number;
+  dripGroupColors?: DripGroupColors;
+  smartContrast?: boolean;
 }
 
 const SYSTEM_ROWS: ClinicalTimelineRow[] = [
@@ -314,71 +323,18 @@ function clinicalCellTooltip(value: string, fallbackHint: string, preferences: D
   return lines.join("\n");
 }
 
-function dripToneStyle(tone?: string): CSSProperties | undefined {
-  switch (tone) {
-    case "iv-anesthetic":
-      return {
-        background: "#60a5fa",
-        boxShadow: "0 0 0 1px rgba(96, 165, 250, 0.35)",
-      };
-    case "nmbd":
-      return {
-        background: "#34d399",
-        boxShadow: "0 0 0 1px rgba(52, 211, 153, 0.35)",
-      };
-    case "opioid":
-      return {
-        background: "#c084fc",
-        boxShadow: "0 0 0 1px rgba(192, 132, 252, 0.35)",
-      };
-    case "cv-drug":
-      return {
-        background: "#fb7185",
-        boxShadow: "0 0 0 1px rgba(251, 113, 133, 0.35)",
-      };
-    case "antibiotic":
-      return {
-        background: "#fbbf24",
-        boxShadow: "0 0 0 1px rgba(251, 191, 36, 0.35)",
-      };
-    case "anti-emetic":
-      return {
-        background: "#22c55e",
-        boxShadow: "0 0 0 1px rgba(34, 197, 94, 0.35)",
-      };
-    case "analgesic":
-      return {
-        background: "#f97316",
-        boxShadow: "0 0 0 1px rgba(249, 115, 22, 0.35)",
-      };
-    case "anticholinergic":
-      return {
-        background: "#f59e0b",
-        boxShadow: "0 0 0 1px rgba(245, 158, 11, 0.35)",
-      };
-    case "reversal":
-      return {
-        background: "#a78bfa",
-        boxShadow: "0 0 0 1px rgba(167, 139, 250, 0.35)",
-      };
-    case "local-anesthetic":
-      return {
-        background: "#14b8a6",
-        boxShadow: "0 0 0 1px rgba(20, 184, 166, 0.35)",
-      };
-    case "fluid":
-      return {
-        background: "#22d3ee",
-        boxShadow: "0 0 0 1px rgba(34, 211, 238, 0.35)",
-      };
-    case "other":
-      return {
-        background: "#94a3b8",
-        boxShadow: "0 0 0 1px rgba(148, 163, 184, 0.35)",
-      };
-    default:
-      return undefined;
-  }
+function dripToneStyle(
+  tone: string | undefined,
+  colors: DripGroupColors,
+  background: Rgb,
+  smartContrast: boolean,
+): CSSProperties {
+  const configured = colors[tone as DripGroupTone] || colors.other;
+  const visibleColor = smartContrastColor(configured, background, smartContrast);
+  return {
+    "--io-drip-fill": visibleColor,
+    "--io-drip-glow": `${visibleColor}59`,
+  } as CSSProperties;
 }
 
 const isIoDisplayCellValue = (value: unknown): value is IoDisplayCellValue =>
@@ -414,8 +370,15 @@ export default function ClinicalTimelineGrid({
   onSectionCollapseToggle,
   colWidth = COL_WIDTH,
   labelColWidth = LABEL_COL_WIDTH,
+  dripGroupColors = DEFAULT_DRIP_GROUP_COLORS,
+  smartContrast = true,
 }: Props) {
   const workstation = useWorkstationSettings();
+  const { color: themeCode, schemes } = useTheme();
+  const activeTheme = schemes.find(theme => theme.code === themeCode);
+  const themeCanvas = parseHexColor(activeTheme?.colors[0] || "#121212") || { r: 18, g: 18, b: 18 };
+  const themeSurface = parseHexColor(activeTheme?.colors[1] || "#1C1C1C") || themeCanvas;
+  const timelineBackground = mixRgb(themeCanvas, themeSurface, 0.2);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [eventStack, setEventStack] = useState<{
     ts: number;
@@ -1062,7 +1025,7 @@ export default function ClinicalTimelineGrid({
                         : dripPart === "mid"
                           ? "io-drip-bar io-drip-mid"
                           : "";
-                const dripStyle = dripToneStyle(ioCell?.dripGroupTone);
+                const dripStyle = dripToneStyle(ioCell?.dripGroupTone, dripGroupColors, timelineBackground, smartContrast);
                 return (
                   <td
                     key={ts}

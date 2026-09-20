@@ -322,6 +322,50 @@ export async function createCaseIoEvent(
   } satisfies CaseIoEvent;
 }
 
+export async function updateCaseIoEvent(
+  caseId: number,
+  eventId: number,
+  payload: {
+    event_ts?: number;
+    volume_ml?: number | null;
+    dose_value?: number | null;
+    dose_unit?: string | null;
+    note?: string | null;
+    include_in_balance?: boolean;
+    reason?: string;
+    actor?: { username?: string; name?: string; role?: string } | null;
+  },
+): Promise<CaseIoEvent> {
+  const res = await fetch(`${BASE}/${caseId}/io/events/${eventId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await throwIfError(res, "io event update failed");
+
+  const json = (await res.json()) as { row?: Record<string, unknown> };
+  if (!json.row) throw new Error("io event update failed");
+  const rowKind = text(json.row.kind);
+  return {
+    id: toNumber(json.row.id),
+    case_id: toNumber(json.row.case_id),
+    item_id: toNumber(json.row.item_id),
+    kind:
+      rowKind === "fluid" || rowKind === "output" || rowKind === "med"
+        ? rowKind
+        : "med",
+    event_ts: toNumber(json.row.event_ts),
+    volume_ml: json.row.volume_ml == null ? null : Number(json.row.volume_ml),
+    dose_value: json.row.dose_value == null ? null : Number(json.row.dose_value),
+    dose_unit: text(json.row.dose_unit) || null,
+    note: text(json.row.note) || null,
+    include_in_balance: toNumber(json.row.include_in_balance),
+    item_code: text(json.row.item_code),
+    item_name: text(json.row.item_name),
+    item_category: text(json.row.item_category),
+  } satisfies CaseIoEvent;
+}
+
 export async function createCaseIoSegment(
   caseId: number,
   payload: {

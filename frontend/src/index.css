@@ -1284,6 +1284,14 @@ input {
     drop-shadow(0 1px 1px rgb(35 25 30 / .2));
 }
 
+.io-sprite-icon {
+  --io-icon-image: var(--io-icon-dark-image);
+}
+
+.light .io-sprite-icon {
+  --io-icon-image: var(--io-icon-light-image);
+}
+
 .app-tooltip[data-tooltip]:not([data-tooltip=""]):hover::after,
 .app-tooltip[data-tooltip]:not([data-tooltip=""]):focus-visible::after,
 .app-tooltip[data-tooltip]:not([data-tooltip=""]):active::after {

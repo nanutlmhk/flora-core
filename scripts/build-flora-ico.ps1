@@ -1,6 +1,6 @@
 param(
-  [string]$PngPath = "electron/assets/flora-app.png",
-  [string]$IcoPath = "electron/assets/flora-app.ico"
+  [string]$PngPath = "electron/assets/floraicon.png",
+  [string]$IcoPath = "electron/assets/floraicon.ico"
 )
 
 Set-StrictMode -Version Latest
