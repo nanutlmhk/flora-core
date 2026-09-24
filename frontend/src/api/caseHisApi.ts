@@ -83,45 +83,6 @@ export type CaseHisSyncResult = {
   his_errors?: Record<string, string>;
 };
 
-export type BloodProductVerificationResult = {
-  hn: string;
-  an?: string | null;
-  patient_name?: string | null;
-  reqno?: string | null;
-  bdtype?: string | null;
-  dnrno?: string | null;
-  bloodgrp?: string | null;
-  rh?: string | null;
-  unitstas?: string | null;
-  raw?: unknown;
-};
-
-export type BloodProductVerificationResponse = {
-  ok: boolean;
-  case_id: number;
-  hn: string;
-  requested: {
-    hn?: string | null;
-    qr?: string | null;
-    dnrno?: string | null;
-  };
-  result: BloodProductVerificationResult;
-  checks: {
-    hn_match: boolean;
-    dnrno_match: boolean;
-    unitstas_ok: boolean;
-  };
-  message?: string;
-};
-
-export type CaseBloodProductListResponse = {
-  ok: boolean;
-  case_id: number;
-  hn: string;
-  source: "HIS" | "MOCK";
-  rows: BloodProductVerificationResult[];
-};
-
 export type CaseHisLookupResult = {
   ok: boolean;
   hn: string;
@@ -411,6 +372,35 @@ export async function updateCasePatientInfo(
   caseId: number,
   patch: {
     hn: string;
+    an?: string;
+    idType?: string;
+    idCard?: string;
+    titleTh?: string;
+    titleEn?: string;
+    firstName?: string;
+    lastName?: string;
+    firstNameEn?: string;
+    lastNameEn?: string;
+    sex?: string;
+    dob?: string;
+    ageText?: string;
+    weightKg?: string;
+    heightCm?: string;
+    bloodGroupABO?: string;
+    bloodGroupRh?: string;
+    race?: string;
+    ethnicity?: string;
+    religion?: string;
+    maritalStatus?: string;
+    presentAddress?: string;
+    presentProvince?: string;
+    legalAddress?: string;
+    legalProvince?: string;
+    mobile?: string;
+    contactName?: string;
+    contactTel?: string;
+    contactRelation?: string;
+    nationality?: string;
   },
 ): Promise<{ ok: boolean; row?: unknown }> {
   const res = await fetch(`${BASE}/${caseId}/patient`, {
@@ -901,55 +891,6 @@ export async function syncCaseHisLab(
   };
 }
 
-export async function verifyCaseBloodProduct(
-  caseId: number,
-  params: {
-    hn: string;
-    an?: string;
-    qr?: string;
-    dnrno?: string;
-  },
-): Promise<BloodProductVerificationResponse> {
-  const res = await fetch(`${BASE}/${caseId}/his/blood-product/verify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) throw await buildApiError("Blood product verify failed", res);
-  const payload = (await res.json()) as Record<string, unknown>;
-  const resultRaw = asObject(payload.result);
-  const checksRaw = asObject(payload.checks);
-  const requestedRaw = asObject(payload.requested);
-  return {
-    ok: payload.ok !== false,
-    case_id: Number(payload.case_id || caseId),
-    hn: text(payload.hn || params.hn),
-    requested: {
-      hn: optionalText(requestedRaw.hn),
-      qr: optionalText(requestedRaw.qr),
-      dnrno: optionalText(requestedRaw.dnrno),
-    },
-    result: {
-      hn: text(resultRaw.hn),
-      an: optionalText(resultRaw.an),
-      patient_name: optionalText(resultRaw.patient_name || resultRaw.patientName),
-      reqno: optionalText(resultRaw.reqno),
-      bdtype: optionalText(resultRaw.bdtype),
-      dnrno: optionalText(resultRaw.dnrno),
-      bloodgrp: optionalText(resultRaw.bloodgrp),
-      rh: optionalText(resultRaw.rh),
-      unitstas: optionalText(resultRaw.unitstas),
-      raw: resultRaw.raw,
-    },
-    checks: {
-      hn_match: Boolean(checksRaw.hn_match),
-      dnrno_match: Boolean(checksRaw.dnrno_match),
-      unitstas_ok: Boolean(checksRaw.unitstas_ok),
-    },
-    message: optionalText(payload.message) || undefined,
-  };
-}
-
 export async function listDemoHisPatients(): Promise<DemoHisPatient[]> {
   const res = await fetch(`${BASE}/his/demo-patients`);
   if (!res.ok) throw await buildApiError("Demo HIS patient list failed", res);
@@ -975,46 +916,6 @@ export async function listDemoHisPatients(): Promise<DemoHisPatient[]> {
       synthetic: Boolean(row.synthetic),
     };
   }).filter(row => Boolean(row.hn));
-}
-
-export async function getCaseBloodProducts(
-  caseId: number,
-  params?: {
-    an?: string;
-    patient_name?: string;
-  },
-): Promise<CaseBloodProductListResponse> {
-  const res = await fetch(`${BASE}/${caseId}/his/blood-products`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params || {}),
-  });
-  if (!res.ok) throw await buildApiError("Blood product list failed", res);
-  const payload = (await res.json()) as Record<string, unknown>;
-  const rows = Array.isArray(payload.rows)
-    ? payload.rows.map(item => {
-        const row = asObject(item);
-        return {
-          hn: text(row.hn),
-          an: optionalText(row.an),
-          patient_name: optionalText(row.patient_name || row.patientName),
-          reqno: optionalText(row.reqno),
-          bdtype: optionalText(row.bdtype),
-          dnrno: optionalText(row.dnrno),
-          bloodgrp: optionalText(row.bloodgrp),
-          rh: optionalText(row.rh),
-          unitstas: optionalText(row.unitstas),
-          raw: row.raw,
-        };
-      }).filter(row => Boolean(row.dnrno))
-    : [];
-  return {
-    ok: payload.ok !== false,
-    case_id: Number(payload.case_id || caseId),
-    hn: text(payload.hn),
-    source: String(payload.source || "").toUpperCase() === "MOCK" ? "MOCK" : "HIS",
-    rows,
-  };
 }
 
 export async function createCaseAllergy(

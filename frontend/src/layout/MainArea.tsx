@@ -31,6 +31,8 @@ interface Props {
     | "history";
   sessionUser: AuthUser | null;
   onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
+  onCaseArchived?: (caseId: number) => void;
+  onStartNextCase?: () => void;
   onOpenCase?: (c: Exclude<CaseStatus, { status: "IDLE" }>) => void;
   onCaseStarted?: () => Promise<void> | void;
   onNavigate?: (view: "patient" | "diagnosis" | "io") => void;
@@ -80,6 +82,8 @@ export default function MainArea({
   activeView,
   sessionUser,
   onCaseDischargeTimeUpdated,
+  onCaseArchived,
+  onStartNextCase,
   onOpenCase,
   onCaseStarted,
   onNavigate,
@@ -127,7 +131,15 @@ export default function MainArea({
       ) : activeView === "history" ? (
         <HistoryView onOpenCase={onOpenCase ?? (() => {})} />
       ) : (
-        <ClinicalChartView key={caseScopedKey} caseStatus={caseStatus} sessionUser={sessionUser} onNavigate={onNavigate} />
+        <ClinicalChartView
+          key={caseScopedKey}
+          caseStatus={caseStatus}
+          sessionUser={sessionUser}
+          onNavigate={onNavigate}
+          onCaseDischargeTimeUpdated={onCaseDischargeTimeUpdated}
+          onCaseArchived={onCaseArchived}
+          onStartNextCase={onStartNextCase}
+        />
       )}
       </Suspense>
     </ViewErrorBoundary>

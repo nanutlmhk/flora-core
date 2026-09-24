@@ -125,6 +125,19 @@ export default function App() {
     return () => window.removeEventListener("flora:case-hn-updated", onCaseHnUpdated);
   }, []);
 
+  const applyCaseArchived = useCallback((caseId: number) => {
+    setCaseStatus(prev => {
+      if (prev.status === "IDLE" || prev.case_id !== caseId) return prev;
+      return { status: "IDLE" };
+    });
+    setActiveView("case");
+  }, []);
+
+  const startNextCase = useCallback(() => {
+    setCaseStatus({ status: "IDLE" });
+    setActiveView("case");
+  }, []);
+
   useEffect(() => {
     const onCaseStartTimeUpdated = (event: Event) => {
       const custom = event as CustomEvent<{ caseId?: unknown; startTime?: unknown }>;
@@ -366,6 +379,8 @@ export default function App() {
             activeView={activeView}
             sessionUser={user}
             onCaseDischargeTimeUpdated={applyDischargeTimeUpdate}
+            onCaseArchived={applyCaseArchived}
+            onStartNextCase={startNextCase}
             onOpenCase={openCaseFromHistory}
             onNavigate={view => setActiveView(view)}
             onCaseStarted={async () => {

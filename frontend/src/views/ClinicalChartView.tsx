@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { updateCaseStartTime, type CaseStatus } from "../api/caseApi";
+import {
+  archiveCase,
+  dischargeCase,
+  getSuggestedCaseEndTime,
+  updateCaseStartTime,
+  type CaseStatus,
+  type SuggestedCaseEnd,
+} from "../api/caseApi";
 import ClinicalTimelineAxis from "../components/clinical-timeline/ClinicalTimelineAxis";
 import ClinicalTimelineGrid, {
   type ClinicalTimelineEventMarker,
@@ -55,16 +62,12 @@ import { createIoCatalogEntry } from "../api/ioCatalogApi";
 import {
   createCaseAllergy,
   deleteCaseAllergy,
-  getCaseBloodProducts,
   getCaseAllergies,
   getCasePatientInfo,
   updateCaseAllergy,
-  verifyCaseBloodProduct,
   type CaseAllergyRow,
   type CasePatientInfo,
-  type BloodProductVerificationResult,
 } from "../api/caseHisApi";
-import { getCaseStaff, type StaffMember } from "../api/staffApi";
 import { getObservationParameters, type ObservationParameter } from "../api/terminologyApi";
 import {
   BASE_IVY_ROWS,
@@ -106,6 +109,8 @@ import {
 import HeaderCard from "../components/case/HeaderCard";
 import ClinicalReferenceTooltip from "../components/common/ClinicalReferenceTooltip";
 import IoSpriteIcon from "../components/io/IoSpriteIcon";
+import BloodProductEntryModal from "../components/io/BloodProductEntryModal";
+import FluidEntryModal from "../components/io/FluidEntryModal";
 import MedicationBolusEntryModal from "../components/io/MedicationBolusEntryModal";
 import {
   getHistoricalDripSuggestion,
@@ -151,14 +156,6 @@ type IoDripModalState = {
 
 type IoDripPart = "start" | "mid" | "end" | "single";
 
-type BloodBoardLocalStatus =
-  | "Available"
-  | "Received in OR"
-  | "Warming"
-  | "Giving recorded"
-  | "Completed"
-  | "Stopped / Reaction";
-
 function parameterReferenceTooltip(parameter: ObservationParameter) {
   const lines = [
     parameter.display_name || parameter.local_name || parameter.short_name,
@@ -184,12 +181,6 @@ function parameterChartTooltip(parameter: ObservationParameter) {
   if (codes.length > 0) lines.push(codes.join(" · "));
   return lines.join("\n");
 }
-
-type BloodGivingAuthorization = {
-  mode: "self" | "supervised";
-  name: string;
-  username?: string;
-};
 
 function formatHHMMSS(ts: number) {
   const date = new Date(ts);
@@ -234,31 +225,6 @@ function readCaseHeaderOrder(username: string): CaseHeaderCardId[] {
     return DEFAULT_CASE_HEADER_ORDER;
   }
 }
-
-type EforlBloodBoardCondition = "Frozen" | "Warmed";
-type EforlBloodBoardStage = "Pending" | "Received in OR" | "Warmed" | "Given";
-
-type EforlBloodBoardRow = BloodProductVerificationResult & {
-  hisStatus: string;
-  orStage: EforlBloodBoardStage;
-  receiveCondition: EforlBloodBoardCondition | "";
-  givenAmountMl: string;
-};
-
-const EFORL_BLOOD_BOARD_TEMPLATE: Array<{
-  reqno: string;
-  bdtype: string;
-  dnrno: string;
-  bloodgrp: string;
-  rh: string;
-  hisStatus: string;
-}> = [
-  { reqno: "REQ-260612-01", bdtype: "LPRC", dnrno: "BB-LPRC-470128", bloodgrp: "A", rh: "+", hisStatus: "Ready" },
-  { reqno: "REQ-260612-02", bdtype: "LPRC", dnrno: "BB-LPRC-470129", bloodgrp: "A", rh: "+", hisStatus: "Ready" },
-  { reqno: "REQ-260612-03", bdtype: "FFP", dnrno: "BB-FFP-882341", bloodgrp: "A", rh: "+", hisStatus: "Ready" },
-  { reqno: "REQ-260612-04", bdtype: "Platelet", dnrno: "BB-PLT-130774", bloodgrp: "A", rh: "+", hisStatus: "Dispensed" },
-  { reqno: "REQ-260612-05", bdtype: "Cryoprecipitate", dnrno: "BB-CRYO-510662", bloodgrp: "A", rh: "+", hisStatus: "Dispensed" },
-];
 
 type IoGridCellValue = {
   kind: "io_cell";
@@ -808,76 +774,19 @@ function buildIoEntryNote(
     bloodType: "PRC" | "FFP" | null;
     bloodGroup: string;
     bloodBagNo: string;
-    bloodVerification?: BloodProductVerificationResult | null;
-    verificationMode?: "api" | "manual" | "registered" | null;
   },
 ): string {
-  const {
-    includeBloodMeta,
-    bloodType,
-    bloodGroup,
-    bloodBagNo,
-    bloodVerification,
-    verificationMode,
-  } = options;
+  const { includeBloodMeta, bloodType, bloodGroup, bloodBagNo } = options;
   const parts = [String(baseNote || "").trim()];
   if (includeBloodMeta) {
-    const verifiedType = String(bloodVerification?.bdtype || "").trim();
-    const verifiedGroup = [
-      String(bloodVerification?.bloodgrp || "").trim().toUpperCase(),
-      String(bloodVerification?.rh || "").trim(),
-    ].filter(Boolean).join("");
-    const verifiedBagNo = String(bloodVerification?.dnrno || "").trim();
-    if (verifiedType || bloodType) parts.push(`bloodProductType:${verifiedType || bloodType}`);
-    if (verifiedGroup || bloodGroup) parts.push(`bloodGroup:${verifiedGroup || bloodGroup}`);
-    if (verifiedBagNo || bloodBagNo) parts.push(`bloodBagNo:${verifiedBagNo || bloodBagNo}`);
-    if (bloodVerification?.reqno) parts.push(`reqno:${bloodVerification.reqno}`);
-    if (bloodVerification?.an) parts.push(`an:${bloodVerification.an}`);
-    if (bloodVerification?.patient_name) parts.push(`patientName:${bloodVerification.patient_name}`);
-    if (bloodVerification?.unitstas) parts.push(`unitstas:${bloodVerification.unitstas}`);
-    if (verificationMode) parts.push(`verification:${verificationMode}`);
+    if (bloodType) parts.push(`bloodProductType:${bloodType}`);
+    if (bloodGroup) parts.push(`bloodGroup:${bloodGroup}`);
+    if (bloodBagNo) parts.push(`bloodBagNo:${bloodBagNo}`);
   }
   return parts.filter(Boolean).join(" | ");
 }
 
 const BLOOD_GROUP_OPTIONS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] as const;
-
-function formatVerifiedBloodGroup(verified: BloodProductVerificationResult | null): string {
-  if (!verified) return "";
-  return [
-    String(verified.bloodgrp || "").trim().toUpperCase(),
-    String(verified.rh || "").trim(),
-  ].filter(Boolean).join("");
-}
-
-function parseStoredBloodGroup(raw: unknown): { bloodgrp: string | null; rh: string | null } {
-  const text = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
-  if (!text) return { bloodgrp: null, rh: null };
-  const abo = text.match(/^(AB|A|B|O)/)?.[1] || null;
-  const rh = text.includes("-") ? "-" : text.includes("+") ? "+" : null;
-  return { bloodgrp: abo, rh };
-}
-
-function normalizeBloodProductCode(value: unknown): string {
-  const token = normalizeToken(value);
-  if (
-    token.includes("ffp") ||
-    token.includes("freshfrozenplasma") ||
-    token.includes("freshfrozen")
-  ) {
-    return "ffp";
-  }
-  if (
-    token.includes("prc") ||
-    token.includes("lprc") ||
-    token.includes("packedredcell") ||
-    token.includes("packedcell") ||
-    token.includes("redcell")
-  ) {
-    return "prc";
-  }
-  return token;
-}
 
 function normalizeBloodBagStatus(value: unknown): "refrigerated" | "warmed" | "" {
   const token = normalizeToken(value);
@@ -905,47 +814,6 @@ function formatIoRunDetail(run: CaseIoRun): string {
     }
   }
 
-  return parts.filter(Boolean).join(" | ");
-}
-
-function buildBloodWorkflowDetail(
-  baseNote: string,
-  options: {
-    workflow: "register_warming" | "give";
-    productName: string;
-    bloodType: "PRC" | "FFP" | null;
-    bloodGroup: string;
-    bloodBagNo: string;
-    bloodVerification: BloodProductVerificationResult | null;
-    verificationMode: "api" | "manual" | "registered";
-    volumeMl?: number | null;
-    status?: "refrigerated" | "warmed";
-    givingAuthorization?: BloodGivingAuthorization | null;
-  },
-): string {
-  const metaNote = buildIoEntryNote(baseNote, {
-    includeBloodMeta: true,
-    bloodType: options.bloodType,
-    bloodGroup: options.bloodGroup,
-    bloodBagNo: options.bloodBagNo,
-    bloodVerification: options.bloodVerification,
-    verificationMode: options.verificationMode,
-  });
-  const parts = [
-    `workflow:${options.workflow}`,
-    options.status ? `status:${options.status}` : "",
-    options.productName ? `product:${options.productName}` : "",
-    options.volumeMl != null && Number.isFinite(options.volumeMl) && options.volumeMl > 0
-      ? `volumeMl:${options.volumeMl}`
-      : "",
-    options.givingAuthorization ? `givingAuthorization:${options.givingAuthorization.mode}` : "",
-    options.givingAuthorization ? `givingAuthorizedBy:${options.givingAuthorization.name}` : "",
-    options.givingAuthorization ? "givingAuthorizedRole:anesthetist" : "",
-    options.givingAuthorization?.username
-      ? `givingAuthorizedUsername:${options.givingAuthorization.username}`
-      : "",
-    metaNote,
-  ];
   return parts.filter(Boolean).join(" | ");
 }
 
@@ -987,15 +855,20 @@ export default function ClinicalChartView({
   caseStatus,
   sessionUser,
   onNavigate,
+  onCaseDischargeTimeUpdated,
+  onCaseArchived,
+  onStartNextCase,
 }: {
   caseStatus: CaseStatus;
   sessionUser: AuthUser | null;
   onNavigate?: (view: "patient" | "diagnosis" | "io") => void;
+  onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
+  onCaseArchived?: (caseId: number) => void;
+  onStartNextCase?: () => void;
 }) {
   const workstation = useWorkstationSettings();
   const edition = getEditionInfo();
   const availableAxisSteps = edition.allowedTimelineScales;
-  const shouldUseBloodBoard = edition.code === "eforl";
   const caseId = caseStatus.status !== "IDLE" ? caseStatus.case_id : null;
   const notifyIoAndEventChanged = (targetCaseId: number) => {
     window.dispatchEvent(
@@ -1144,6 +1017,15 @@ export default function ClinicalChartView({
   const [startTimeDraft, setStartTimeDraft] = useState("");
   const [startTimeSaving, setStartTimeSaving] = useState(false);
   const [startTimeError, setStartTimeError] = useState("");
+  const [dischargeModalOpen, setDischargeModalOpen] = useState(false);
+  const [dischargeDateDraft, setDischargeDateDraft] = useState("");
+  const [dischargeTimeDraft, setDischargeTimeDraft] = useState("");
+  const [dischargeSaving, setDischargeSaving] = useState(false);
+  const [dischargeError, setDischargeError] = useState("");
+  const [suggestedCaseEnd, setSuggestedCaseEnd] = useState<SuggestedCaseEnd>(null);
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
+  const [archiveSaving, setArchiveSaving] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
   const [allergyModalOpen, setAllergyModalOpen] = useState(false);
   const [allergyEditingId, setAllergyEditingId] = useState<string | null>(null);
   const [allergyDeleteId, setAllergyDeleteId] = useState<string | null>(null);
@@ -1361,49 +1243,23 @@ export default function ClinicalChartView({
   const [quickBloodProductOpen, setQuickBloodProductOpen] = useState(false);
   const [quickBloodProductSearch, setQuickBloodProductSearch] = useState("");
   const [quickBloodProductItemId, setQuickBloodProductItemId] = useState<number | null>(null);
-  const [showQuickBloodProductDropdown, setShowQuickBloodProductDropdown] = useState(false);
+  const [, setShowQuickBloodProductDropdown] = useState(false);
   const [quickBloodProductDate, setQuickBloodProductDate] = useState(() => formatDDMMYYYY(Date.now()));
   const [quickBloodProductTime, setQuickBloodProductTime] = useState(() => formatHHMM(Date.now()));
   const [quickBloodProductVolumeMl, setQuickBloodProductVolumeMl] = useState("");
   const [quickBloodProductGroup, setQuickBloodProductGroup] = useState("");
   const [quickBloodProductBagNo, setQuickBloodProductBagNo] = useState("");
   const [quickBloodProductNote, setQuickBloodProductNote] = useState("");
-  const [quickBloodProductVerified, setQuickBloodProductVerified] =
-    useState<BloodProductVerificationResult | null>(null);
-  const [quickBloodProductVerificationMode, setQuickBloodProductVerificationMode] =
-    useState<"api" | "manual" | "registered" | null>(null);
-  const [quickBloodProductManualAvailable, setQuickBloodProductManualAvailable] = useState(false);
-  const [quickBloodProductChecking, setQuickBloodProductChecking] = useState(false);
   const [quickBloodProductSaving, setQuickBloodProductSaving] = useState(false);
   const [quickBloodProductError, setQuickBloodProductError] = useState("");
-  const [quickBloodProductTypeLockedFromHis, setQuickBloodProductTypeLockedFromHis] = useState(false);
-  const [bloodBoardOpen, setBloodBoardOpen] = useState(false);
-  const [bloodBoardRowsFromHis, setBloodBoardRowsFromHis] = useState<BloodProductVerificationResult[]>([]);
-  const [bloodBoardSource, setBloodBoardSource] = useState<"HIS" | "MOCK">("HIS");
-  const [bloodBoardLoading, setBloodBoardLoading] = useState(false);
-  const [bloodBoardSavingBagNo, setBloodBoardSavingBagNo] = useState<string | null>(null);
-  const [bloodBoardError, setBloodBoardError] = useState("");
-  const [bloodBoardOutcomeBag, setBloodBoardOutcomeBag] = useState<BloodProductVerificationResult | null>(null);
-  const [bloodBoardOutcomeMode, setBloodBoardOutcomeMode] = useState<"completed" | "stop_reaction">("completed");
-  const [bloodBoardOutcomeDetail, setBloodBoardOutcomeDetail] = useState("");
-  const [bloodBoardAnesthetists, setBloodBoardAnesthetists] = useState<StaffMember[]>([]);
-  const [bloodBoardAnesthetistsLoading, setBloodBoardAnesthetistsLoading] = useState(false);
-  const [bloodBoardSelectedAnesthetist, setBloodBoardSelectedAnesthetist] = useState("");
-  const [bloodBoardConfirmedAnesthetist, setBloodBoardConfirmedAnesthetist] = useState<StaffMember | null>(null);
-  const [eforlBloodBoardRows, setEforlBloodBoardRows] = useState<EforlBloodBoardRow[]>([]);
-  const [eforlReceiveBagNo, setEforlReceiveBagNo] = useState("");
-  const [eforlReceiveCondition, setEforlReceiveCondition] = useState<EforlBloodBoardCondition>("Frozen");
-  const [eforlGiveBagNo, setEforlGiveBagNo] = useState("");
-  const [eforlGiveAmountMl, setEforlGiveAmountMl] = useState("");
   const [quickFluidOpen, setQuickFluidOpen] = useState(false);
   const [quickFluidSearch, setQuickFluidSearch] = useState("");
   const [quickFluidItemId, setQuickFluidItemId] = useState<number | null>(null);
-  const [showQuickFluidDropdown, setShowQuickFluidDropdown] = useState(false);
+  const [, setShowQuickFluidDropdown] = useState(false);
   const [quickFluidDate, setQuickFluidDate] = useState(() => formatDDMMYYYY(Date.now()));
   const [quickFluidTime, setQuickFluidTime] = useState(() => formatHHMM(Date.now()));
-  const [quickFluidEntryMode, setQuickFluidEntryMode] = useState<"bolus" | "timed" | "running">("bolus");
+  const [quickFluidEntryMode, setQuickFluidEntryMode] = useState<"bolus" | "drip">("bolus");
   const [quickFluidVolumeMl, setQuickFluidVolumeMl] = useState("");
-  const [quickFluidOverMin, setQuickFluidOverMin] = useState("");
   const [quickFluidRateMlHr, setQuickFluidRateMlHr] = useState("");
   const [quickFluidNote, setQuickFluidNote] = useState("");
   const [quickFluidSaving, setQuickFluidSaving] = useState(false);
@@ -1432,12 +1288,6 @@ export default function ClinicalChartView({
   const [ioModalNote, setIoModalNote] = useState("");
   const [ioModalBloodGroup, setIoModalBloodGroup] = useState("");
   const [ioModalBloodBagNo, setIoModalBloodBagNo] = useState("");
-  const [ioModalBloodVerified, setIoModalBloodVerified] =
-    useState<BloodProductVerificationResult | null>(null);
-  const [ioModalBloodVerificationMode, setIoModalBloodVerificationMode] =
-    useState<"api" | "manual" | "registered" | null>(null);
-  const [ioModalBloodManualAvailable, setIoModalBloodManualAvailable] = useState(false);
-  const [ioModalBloodChecking, setIoModalBloodChecking] = useState(false);
   const [ioModalSaving, setIoModalSaving] = useState(false);
   const [ioModalError, setIoModalError] = useState("");
   const [ioDripStartDate, setIoDripStartDate] = useState("");
@@ -1479,11 +1329,6 @@ export default function ClinicalChartView({
   const quickMedDripAmountInputRef = useRef<HTMLInputElement>(null);
   const quickMedDripOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const quickMedDripSaveLockRef = useRef(false);
-  const quickBloodProductBagRef = useRef<HTMLInputElement | null>(null);
-  const quickBloodProductOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const quickBloodProductVolumeRef = useRef<HTMLInputElement | null>(null);
-  const quickFluidOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const quickFluidVolumeRef = useRef<HTMLInputElement | null>(null);
   const pendingChangesRef = useRef<Map<string, TimelineChange>>(new Map());
   const saveTimerRef = useRef<number | null>(null);
 
@@ -1688,14 +1533,6 @@ export default function ClinicalChartView({
     }
     return map;
   }, [caseEvents, caseEventsAll]);
-
-  const hasTimeOutBefore = (eventTs: number) =>
-    caseEventsAll.some(
-      row =>
-        row.event_type === "event" &&
-        normalizeLifecycleTitle(row.title) === "time out" &&
-        row.event_ts <= eventTs,
-    );
 
   useEffect(() => {
     if (caseId == null || caseStatus.status === "IDLE") {
@@ -2451,72 +2288,6 @@ export default function ClinicalChartView({
     name: sessionUser?.name,
     role: sessionUser?.role,
   };
-  const patientDocumentSummary = useMemo(
-    () =>
-      caseStatus.status === "IDLE"
-        ? { name: "", an: "" }
-        : readPatientDocumentSummary(caseStatus.case_id),
-    [caseStatus],
-  );
-  const renderBloodIdentityComparison = (
-    verified: BloodProductVerificationResult | null,
-    mode: "api" | "manual" | "registered" | null,
-  ) => {
-    if (!verified && mode !== "manual") return null;
-    const floraHn = caseStatus.status === "IDLE" ? "" : caseStatus.hn;
-    const floraAn = patientDocumentSummary.an;
-    const floraName = patientDocumentSummary.name;
-    const hisHn = String(verified?.hn || "").trim();
-    const hisAn = String(verified?.an || "").trim();
-    const hisName = String(verified?.patient_name || "").trim();
-    const hnOk = Boolean(floraHn && hisHn && floraHn === hisHn);
-    const hasAnCompare = Boolean(floraAn || hisAn);
-    const anOk = Boolean(floraAn && hisAn && floraAn === hisAn);
-    const borderClass =
-      mode === "manual"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-        : hnOk && (!hasAnCompare || anOk)
-          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-          : "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300";
-    return (
-      <div className={`rounded border px-3 py-2 text-xs ${borderClass}`}>
-        <div className="mb-1 font-semibold">
-          {mode === "registered"
-            ? "Registered bag check"
-            : mode === "manual"
-              ? "Manual bag check"
-              : "HIS bag check"}
-        </div>
-        <div className="grid grid-cols-[80px_1fr_1fr_70px] gap-x-2 gap-y-1">
-          <div />
-          <div className="font-semibold">FLORA</div>
-          <div className="font-semibold">HIS</div>
-          <div className="font-semibold">Match</div>
-          <div>HN</div>
-          <div>{floraHn || "-"}</div>
-          <div>{hisHn || "-"}</div>
-          <div>{mode === "manual" ? "-" : hnOk ? "OK" : "No"}</div>
-          <div>AN</div>
-          <div>{floraAn || "-"}</div>
-          <div>{hisAn || "-"}</div>
-          <div>{mode === "manual" ? "-" : hasAnCompare ? anOk ? "OK" : "No" : "-"}</div>
-          <div>Name</div>
-          <div>{floraName || "-"}</div>
-          <div>{hisName || "-"}</div>
-          <div>-</div>
-        </div>
-        {verified ? (
-          <div className="mt-1">
-            Bag {verified.dnrno || "-"} | Req {verified.reqno || "-"} | {verified.bdtype || "Blood"} {[
-              verified.bloodgrp,
-              verified.rh,
-            ].filter(Boolean).join("") || "-"} | Status {verified.unitstas || "-"}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
   const quickMedItems = useMemo(
     () => quickIoItems.filter(item => item.kind === "med"),
     [quickIoItems],
@@ -2730,10 +2501,6 @@ export default function ClinicalChartView({
           closeQuickBloodProduct();
           return;
         }
-        if (bloodBoardOpen) {
-          setBloodBoardOpen(false);
-          return;
-        }
         openBloodProductWorkflow();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
@@ -2751,7 +2518,7 @@ export default function ClinicalChartView({
     // The shortcut handler is intentionally rebound when its UI state changes;
     // action helpers below are render-local closures over that same state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickMedOpen, quickMedDripOpen, quickBloodProductOpen, bloodBoardOpen, quickFluidOpen, quickMedSaving, quickMedDripSaving, quickBloodProductSaving, quickFluidSaving, caseId, caseStatus.status, shouldUseBloodBoard]);
+  }, [quickMedOpen, quickMedDripOpen, quickBloodProductOpen, quickFluidOpen, quickMedSaving, quickMedDripSaving, quickBloodProductSaving, quickFluidSaving, caseId, caseStatus.status]);
 
   const quickMedCanSave =
     caseId != null &&
@@ -3056,15 +2823,6 @@ export default function ClinicalChartView({
     () => quickIoItems.filter(item => normalizeToken(item.category) === "bloodproduct"),
     [quickIoItems],
   );
-  const filteredQuickBloodProductItems = useMemo(() => {
-    const q = normalizeToken(quickBloodProductSearch);
-    if (!q || q.length < 2) return quickBloodProductItems;
-    return quickBloodProductItems.filter(
-      item =>
-        normalizeToken(item.name).includes(q) ||
-        normalizeToken(item.code || "").includes(q),
-    );
-  }, [quickBloodProductItems, quickBloodProductSearch]);
   const selectedQuickBloodProductItem = useMemo(
     () => quickBloodProductItems.find(item => item.id === quickBloodProductItemId) || null,
     [quickBloodProductItems, quickBloodProductItemId],
@@ -3077,24 +2835,6 @@ export default function ClinicalChartView({
     ),
     [selectedQuickBloodProductItem],
   );
-  const quickBloodProductEventTs = useMemo(
-    () => toTsFromDateAndTime(quickBloodProductDate, quickBloodProductTime),
-    [quickBloodProductDate, quickBloodProductTime],
-  );
-  const quickBloodProductHasVolume = (() => {
-    const value = Number(quickBloodProductVolumeMl);
-    return Number.isFinite(value) && value > 0;
-  })();
-  const signedInUserIsAnesthetist = normalizeToken(sessionUser?.role) === "anesthetist";
-  const signedInGivingAuthorization: BloodGivingAuthorization | null = signedInUserIsAnesthetist
-    ? {
-        mode: "self",
-        name: String(sessionUser?.name || sessionUser?.username || "Anesthetist").trim(),
-        username: sessionUser?.username || undefined,
-      }
-    : null;
-  const quickBloodProductHasTimeOut =
-    quickBloodProductEventTs != null && hasTimeOutBefore(quickBloodProductEventTs);
   const quickFluidItems = useMemo(
     () =>
       quickIoItems.filter(
@@ -3146,18 +2886,6 @@ export default function ClinicalChartView({
     quickMedDripMatches.length === 0 &&
     quickMedDripFuzzyMatches.length === 0 &&
     quickMedDripFluidMatches.length === 0;
-  const filteredQuickFluidItems = useMemo(() => {
-    const q = normalizeToken(quickFluidSearch);
-    const sorted = [...quickFluidItems].sort((a, b) => a.name.localeCompare(b.name));
-    if (!q || q.length < 2) return sorted.slice(0, 12);
-    return sorted
-      .filter(
-        item =>
-          normalizeToken(item.name).includes(q) ||
-          normalizeToken(item.code || "").includes(q),
-      )
-      .slice(0, 12);
-  }, [quickFluidItems, quickFluidSearch]);
   const selectedQuickFluidItem = useMemo(
     () => quickFluidItems.find(item => item.id === quickFluidItemId) || null,
     [quickFluidItems, quickFluidItemId],
@@ -3167,35 +2895,6 @@ export default function ClinicalChartView({
     if (quickBloodProductSaving) return;
     setQuickBloodProductOpen(false);
     setQuickBloodProductError("");
-  };
-
-  const resetQuickBloodProductVerification = () => {
-    setQuickBloodProductVerified(null);
-    setQuickBloodProductVerificationMode(null);
-    setQuickBloodProductManualAvailable(false);
-    setQuickBloodProductTypeLockedFromHis(false);
-    setBloodBoardConfirmedAnesthetist(null);
-  };
-
-  const applyQuickBloodProductHisResult = (result: BloodProductVerificationResult) => {
-    const verifiedGroup = formatVerifiedBloodGroup(result);
-    if (verifiedGroup) setQuickBloodProductGroup(verifiedGroup);
-
-    const dnrno = String(result.dnrno || "").trim();
-    if (dnrno) setQuickBloodProductBagNo(dnrno);
-
-    const targetType = normalizeBloodProductCode(result.bdtype);
-    if (!targetType) return;
-    const matched = quickBloodProductItems.find(item => {
-      const itemType = normalizeBloodProductCode(`${item.code || ""} ${item.name || ""}`);
-      return itemType === targetType || normalizeToken(item.code) === targetType || normalizeToken(item.name) === targetType;
-    });
-    if (matched) {
-      setQuickBloodProductItemId(matched.id);
-      setQuickBloodProductSearch(matched.name);
-      setShowQuickBloodProductDropdown(false);
-      setQuickBloodProductTypeLockedFromHis(true);
-    }
   };
 
   const quickMedEventTs = useMemo(
@@ -3213,133 +2912,9 @@ export default function ClinicalChartView({
     setQuickFluidTime(formatHHMM(Date.now()));
     setQuickFluidEntryMode("bolus");
     setQuickFluidVolumeMl("");
-    setQuickFluidOverMin("");
     setQuickFluidRateMlHr("");
     setQuickFluidNote("");
     setQuickFluidError("");
-    window.requestAnimationFrame(() => {
-      quickFluidVolumeRef.current?.focus();
-      quickFluidVolumeRef.current?.select();
-    });
-  };
-
-  const bloodBoardRows = useMemo(() => {
-    const byBagNo = new Map<string, BloodProductVerificationResult>();
-    for (const row of bloodBoardRowsFromHis) {
-      const bagNo = String(row.dnrno || "").trim();
-      if (bagNo) byBagNo.set(bagNo, row);
-    }
-    const localNotes = [
-      ...caseEventsAll.map(row => String(row.detail || "")),
-      ...ioRuns.map(row => String(row.note || "")),
-      ...ioEvents.map(row => String(row.note || "")),
-    ];
-    for (const note of localNotes) {
-      const meta = parseKeyValueFromNote(note);
-      const bagNo = String(meta.bloodBagNo || "").trim();
-      if (!bagNo || byBagNo.has(bagNo)) continue;
-      const groupParts = parseStoredBloodGroup(meta.bloodGroup);
-      byBagNo.set(bagNo, {
-        hn: caseStatus.status === "IDLE" ? "" : caseStatus.hn,
-        an: meta.an || null,
-        patient_name: meta.patientName || meta.patient_name || null,
-        reqno: meta.reqno || null,
-        bdtype: meta.bloodProductType || meta.product || null,
-        dnrno: bagNo,
-        bloodgrp: groupParts.bloodgrp,
-        rh: groupParts.rh,
-        unitstas: meta.unitstas || null,
-      });
-    }
-    return Array.from(byBagNo.values()).sort((a, b) =>
-      String(a.dnrno || "").localeCompare(String(b.dnrno || "")),
-    );
-  }, [bloodBoardRowsFromHis, caseEventsAll, ioEvents, ioRuns, caseStatus]);
-
-  const bloodBoardStatusForBag = (bagNoRaw: string): BloodBoardLocalStatus => {
-    const bagNo = String(bagNoRaw || "").trim();
-    let status: BloodBoardLocalStatus = "Available";
-    const priority: Record<BloodBoardLocalStatus, number> = {
-      Available: 0,
-      "Received in OR": 1,
-      Warming: 2,
-      "Giving recorded": 3,
-      Completed: 4,
-      "Stopped / Reaction": 4,
-    };
-    const notes = [
-      ...caseEventsAll.map(row => String(row.detail || "")),
-      ...ioRuns.map(row => String(row.note || "")),
-      ...ioEvents.map(row => String(row.note || "")),
-    ];
-    for (const note of notes) {
-      const meta = parseKeyValueFromNote(note);
-      if (String(meta.bloodBagNo || "").trim() !== bagNo) continue;
-      const candidate: BloodBoardLocalStatus | null =
-        meta.workflow === "completed"
-          ? "Completed"
-          : meta.workflow === "stop_reaction"
-            ? "Stopped / Reaction"
-            : meta.workflow === "give" || meta.status === "warmed"
-              ? "Giving recorded"
-              : meta.workflow === "register_warming"
-                ? "Warming"
-                : meta.workflow === "received"
-                  ? "Received in OR"
-                  : null;
-      if (candidate && priority[candidate] > priority[status]) status = candidate;
-    }
-    return status;
-  };
-
-  const loadBloodBoard = async () => {
-    if (caseId == null || caseStatus.status === "IDLE") return;
-    setBloodBoardLoading(true);
-    setBloodBoardError("");
-    try {
-      const response = await getCaseBloodProducts(caseId, {
-        an: patientDocumentSummary.an,
-        patient_name: patientDocumentSummary.name,
-      });
-      setBloodBoardRowsFromHis(response.rows);
-      setBloodBoardSource(response.source);
-    } catch (err) {
-      setBloodBoardError(err instanceof Error ? err.message : "Failed to load blood product list");
-    } finally {
-      setBloodBoardLoading(false);
-    }
-  };
-
-  const loadBloodBoardAnesthetists = async () => {
-    if (caseId == null || caseStatus.status === "IDLE") return;
-    setBloodBoardAnesthetistsLoading(true);
-    try {
-      const rows = await getCaseStaff(caseId);
-      setBloodBoardAnesthetists(
-        rows.filter(row => normalizeToken(row.role_id || row.role) === "anesthetist"),
-      );
-    } catch (err) {
-      setBloodBoardError(
-        err instanceof Error ? err.message : "Failed to load anesthetists for verification",
-      );
-    } finally {
-      setBloodBoardAnesthetistsLoading(false);
-    }
-  };
-
-  const openBloodBoard = () => {
-    setBloodBoardOpen(true);
-    setBloodBoardError("");
-    setBloodBoardSelectedAnesthetist("");
-    setBloodBoardConfirmedAnesthetist(null);
-    setBloodBoardOutcomeBag(null);
-    setBloodBoardOutcomeDetail("");
-    if (shouldUseBloodBoard) {
-      seedEforlBloodBoard();
-      return;
-    }
-    void loadBloodBoard();
-    void loadBloodBoardAnesthetists();
   };
 
   const openQuickBloodProduct = (entryTs?: number) => {
@@ -3355,369 +2930,10 @@ export default function ClinicalChartView({
     setQuickBloodProductGroup("");
     setQuickBloodProductBagNo("");
     setQuickBloodProductNote("");
-    setQuickBloodProductVerified(null);
-    setQuickBloodProductVerificationMode(null);
-    setQuickBloodProductManualAvailable(false);
-    setQuickBloodProductChecking(false);
-    setQuickBloodProductTypeLockedFromHis(false);
-    setBloodBoardSelectedAnesthetist("");
-    setBloodBoardConfirmedAnesthetist(null);
-    void loadBloodBoard();
-    void loadBloodBoardAnesthetists();
-    window.requestAnimationFrame(() => quickBloodProductBagRef.current?.focus());
   };
 
   const openBloodProductWorkflow = (entryTs?: number) => {
-    if (shouldUseBloodBoard) {
-      openBloodBoard();
-      return;
-    }
     openQuickBloodProduct(entryTs);
-  };
-
-  const registerEforlBloodBag = () => {
-    const bagNo = eforlReceiveBagNo.trim().toUpperCase();
-    if (!bagNo) {
-      setBloodBoardError("Enter or scan bag number to register in OR");
-      return;
-    }
-    const matched = eforlBloodBoardRows.find(
-      row => String(row.dnrno || "").trim().toUpperCase() === bagNo,
-    );
-    if (!matched) {
-      setBloodBoardError("Bag number not found in current HIS bag list");
-      return;
-    }
-    setEforlBloodBoardRows(previous =>
-      previous.map(row =>
-        String(row.dnrno || "").trim().toUpperCase() === bagNo
-          ? {
-              ...row,
-              receiveCondition: eforlReceiveCondition,
-              orStage: eforlReceiveCondition === "Warmed" ? "Warmed" : "Received in OR",
-            }
-          : row,
-      ),
-    );
-    setEforlReceiveBagNo("");
-    setEforlReceiveCondition("Frozen");
-    setBloodBoardError("");
-  };
-
-  const recordEforlBloodGiving = () => {
-    const bagNo = eforlGiveBagNo.trim().toUpperCase();
-    if (!bagNo) {
-      setBloodBoardError("Enter or scan bag number before recording giving");
-      return;
-    }
-    const matched = eforlBloodBoardRows.find(
-      row => String(row.dnrno || "").trim().toUpperCase() === bagNo,
-    );
-    if (!matched) {
-      setBloodBoardError("Bag number not found in current HIS bag list");
-      return;
-    }
-    if (matched.orStage === "Pending") {
-      setBloodBoardError("Register this bag into OR first before giving to patient");
-      return;
-    }
-    const amount = Number(eforlGiveAmountMl);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setBloodBoardError("Enter blood amount in mL before marking as given");
-      return;
-    }
-    setEforlBloodBoardRows(previous =>
-      previous.map(row =>
-        String(row.dnrno || "").trim().toUpperCase() === bagNo
-          ? {
-              ...row,
-              orStage: "Given",
-              givenAmountMl: String(amount),
-            }
-          : row,
-      ),
-    );
-    setEforlGiveBagNo("");
-    setEforlGiveAmountMl("");
-    setBloodBoardError("");
-  };
-
-  const recordBloodBagReceived = async (row: BloodProductVerificationResult) => {
-    if (caseId == null || caseStatus.status === "IDLE") return;
-    const bagNo = String(row.dnrno || "").trim();
-    if (!bagNo) return;
-    setBloodBoardSavingBagNo(bagNo);
-    setBloodBoardError("");
-    const group = formatVerifiedBloodGroup(row);
-    const detail = [
-      "workflow:received",
-      "status:received",
-      row.bdtype ? `product:${row.bdtype}` : "",
-      `bloodBagNo:${bagNo}`,
-      group ? `bloodGroup:${group}` : "",
-      row.reqno ? `reqno:${row.reqno}` : "",
-      row.an ? `an:${row.an}` : "",
-      row.unitstas ? `unitstas:${row.unitstas}` : "",
-    ].filter(Boolean).join(" | ");
-    try {
-      const created = await createCaseEvent(caseId, {
-        event_ts: Date.now(),
-        event_type: "event",
-        title: "Blood Product",
-        detail,
-        actor,
-        reason: "blood board received in OR",
-      });
-      setCaseEventsAll(previous => [created as CaseEvent, ...previous]);
-      notifyIoAndEventChanged(caseId);
-    } catch (err) {
-      setBloodBoardError(err instanceof Error ? err.message : "Failed to record received blood bag");
-    } finally {
-      setBloodBoardSavingBagNo(null);
-    }
-  };
-
-  const bloodBoardMatchedBag = useMemo(
-    () =>
-      bloodBoardRows.find(
-        row => String(row.dnrno || "").trim() === quickBloodProductBagNo.trim(),
-      ) || null,
-    [bloodBoardRows, quickBloodProductBagNo],
-  );
-
-  const seedEforlBloodBoard = () => {
-    if (caseStatus.status === "IDLE") return;
-    const patientAn = patientDocumentSummary.an || null;
-    const patientName = patientDocumentSummary.name || null;
-    setEforlBloodBoardRows(
-      EFORL_BLOOD_BOARD_TEMPLATE.map(row => ({
-        hn: caseStatus.hn,
-        an: patientAn,
-        patient_name: patientName,
-        reqno: row.reqno,
-        bdtype: row.bdtype,
-        dnrno: row.dnrno,
-        bloodgrp: row.bloodgrp,
-        rh: row.rh,
-        unitstas: row.hisStatus,
-        hisStatus: row.hisStatus,
-        orStage: "Pending",
-        receiveCondition: "",
-        givenAmountMl: "",
-      })),
-    );
-    setBloodBoardSource("MOCK");
-    setEforlReceiveBagNo("");
-    setEforlReceiveCondition("Frozen");
-    setEforlGiveBagNo("");
-    setEforlGiveAmountMl("");
-    setBloodBoardError("");
-  };
-
-  const eforlReceiveMatchedBag = useMemo(
-    () =>
-      eforlBloodBoardRows.find(
-        row => String(row.dnrno || "").trim().toUpperCase() === eforlReceiveBagNo.trim().toUpperCase(),
-      ) || null,
-    [eforlBloodBoardRows, eforlReceiveBagNo],
-  );
-
-  const eforlGiveMatchedBag = useMemo(
-    () =>
-      eforlBloodBoardRows.find(
-        row => String(row.dnrno || "").trim().toUpperCase() === eforlGiveBagNo.trim().toUpperCase(),
-      ) || null,
-    [eforlBloodBoardRows, eforlGiveBagNo],
-  );
-
-  const openBloodBoardOutcome = (
-    row: BloodProductVerificationResult,
-    mode: "completed" | "stop_reaction",
-  ) => {
-    setBloodBoardOutcomeBag(row);
-    setBloodBoardOutcomeMode(mode);
-    setBloodBoardOutcomeDetail("");
-    setBloodBoardError("");
-  };
-
-  const saveBloodBoardOutcome = async () => {
-    if (caseId == null || caseStatus.status === "IDLE" || !bloodBoardOutcomeBag) return;
-    const bagNo = String(bloodBoardOutcomeBag.dnrno || "").trim();
-    if (!bagNo) return;
-    setBloodBoardSavingBagNo(bagNo);
-    setBloodBoardError("");
-    const group = formatVerifiedBloodGroup(bloodBoardOutcomeBag);
-    const detail = [
-      `workflow:${bloodBoardOutcomeMode}`,
-      `status:${bloodBoardOutcomeMode === "completed" ? "completed" : "stopped_reaction"}`,
-      bloodBoardOutcomeBag.bdtype ? `product:${bloodBoardOutcomeBag.bdtype}` : "",
-      `bloodBagNo:${bagNo}`,
-      group ? `bloodGroup:${group}` : "",
-      bloodBoardOutcomeBag.reqno ? `reqno:${bloodBoardOutcomeBag.reqno}` : "",
-      bloodBoardOutcomeDetail.trim() ? `detail:${bloodBoardOutcomeDetail.trim()}` : "",
-    ].filter(Boolean).join(" | ");
-    try {
-      const created = await createCaseEvent(caseId, {
-        event_ts: Date.now(),
-        event_type: "event",
-        title: "Blood Product",
-        detail,
-        actor,
-        reason:
-          bloodBoardOutcomeMode === "completed"
-            ? "blood board completed transfusion"
-            : "blood board stopped or reaction",
-      });
-      setCaseEventsAll(previous => [created as CaseEvent, ...previous]);
-      setBloodBoardOutcomeBag(null);
-      setBloodBoardOutcomeDetail("");
-      notifyIoAndEventChanged(caseId);
-    } catch (err) {
-      setBloodBoardError(err instanceof Error ? err.message : "Failed to record blood product outcome");
-    } finally {
-      setBloodBoardSavingBagNo(null);
-    }
-  };
-
-  const findStoredBloodVerificationForBag = (bagNoRaw: string, options?: { includeWarming?: boolean; onlyWarming?: boolean }): {
-    mode: "api" | "manual" | "registered";
-    result: BloodProductVerificationResult | null;
-  } | null => {
-    const bagNo = String(bagNoRaw || "").trim();
-    if (!bagNo) return null;
-    const noteSources = [
-      ...(options?.onlyWarming ? [] : ioEvents.map(row => String(row.note || ""))),
-      ...(options?.includeWarming || options?.onlyWarming
-        ? ioRuns.map(row => String(row.note || ""))
-        : []),
-      ...(options?.includeWarming && !options?.onlyWarming
-        ? caseEventsAll.map(row => String(row.detail || ""))
-        : []),
-    ];
-    for (const note of noteSources) {
-      const meta = parseKeyValueFromNote(note);
-      if (options?.onlyWarming && meta.workflow !== "register_warming") continue;
-      const storedBagNo = String(meta.bloodBagNo || "").trim();
-      if (!storedBagNo || storedBagNo !== bagNo) continue;
-      const mode = meta.verification === "api" || meta.verification === "manual" || meta.verification === "registered"
-        ? meta.verification
-        : null;
-      if (!mode) continue;
-      const groupParts = parseStoredBloodGroup(meta.bloodGroup);
-      return {
-        mode: options?.onlyWarming ? "registered" : mode,
-        result: mode === "api" || options?.onlyWarming
-          ? {
-              hn: caseStatus.status === "IDLE" ? "" : caseStatus.hn,
-              an: meta.an || null,
-              patient_name: meta.patientName || meta.patient_name || null,
-              reqno: meta.reqno || null,
-              bdtype: meta.bloodProductType || null,
-              dnrno: storedBagNo,
-              bloodgrp: groupParts.bloodgrp,
-              rh: groupParts.rh,
-              unitstas: meta.unitstas || null,
-            }
-          : null,
-      };
-    }
-    return null;
-  };
-
-  useEffect(() => {
-    if (!quickBloodProductOpen || quickBloodProductVerificationMode) return;
-    const stored = findStoredBloodVerificationForBag(quickBloodProductBagNo, {
-      includeWarming: !quickBloodProductHasVolume,
-    });
-    if (!stored) return;
-    setQuickBloodProductVerificationMode(stored.mode);
-    setQuickBloodProductVerified(stored.result);
-    if (stored.result) {
-      applyQuickBloodProductHisResult(stored.result);
-    }
-    // These helpers are render-local and consume the state already listed here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickBloodProductBagNo, quickBloodProductHasVolume, quickBloodProductOpen, quickBloodProductVerificationMode, caseEventsAll, ioEvents, ioRuns]);
-
-  const checkQuickBloodProductBag = async () => {
-    if (caseId == null || caseStatus.status === "IDLE") return;
-    const scannedBagNo = quickBloodProductBagNo.trim();
-    if (!scannedBagNo) {
-      setQuickBloodProductError("Scan or enter blood bag QR first");
-      return;
-    }
-    const listedBag = bloodBoardRowsFromHis.find(
-      row => String(row.dnrno || "").trim() === scannedBagNo,
-    );
-    if (!listedBag) {
-      setQuickBloodProductError("Scanned bag is not in the HIS blood bag list for this patient. Refresh the list and check again.");
-      setQuickBloodProductVerified(null);
-      setQuickBloodProductVerificationMode(null);
-      return;
-    }
-    setQuickBloodProductChecking(true);
-    setQuickBloodProductError("");
-    setQuickBloodProductVerified(null);
-    setQuickBloodProductVerificationMode(null);
-    setQuickBloodProductManualAvailable(false);
-    try {
-      if (quickBloodProductHasVolume) {
-        const registered = findStoredBloodVerificationForBag(scannedBagNo, {
-          includeWarming: true,
-          onlyWarming: true,
-        });
-        if (registered) {
-          setQuickBloodProductVerified(registered.result);
-          setQuickBloodProductVerificationMode("registered");
-          if (registered.result) applyQuickBloodProductHisResult(registered.result);
-          return;
-        }
-      }
-      const verification = await verifyCaseBloodProduct(caseId, {
-        hn: caseStatus.hn,
-        an: patientDocumentSummary.an,
-        qr: scannedBagNo,
-      });
-      if (!verification.ok) {
-        setQuickBloodProductManualAvailable(verification.checks.hn_match !== false);
-        setQuickBloodProductError(
-          verification.checks.hn_match === false
-            ? `${verification.message || "HN mismatch"}. Blood product cannot be used for this patient.`
-            : `${verification.message || "Blood product verification failed"}. API is primary; use manual check only after bedside document check.`,
-        );
-        return;
-      }
-      setQuickBloodProductVerified(verification.result);
-      setQuickBloodProductVerificationMode("api");
-      applyQuickBloodProductHisResult({ ...listedBag, ...verification.result });
-    } catch (err) {
-      setQuickBloodProductManualAvailable(true);
-      setQuickBloodProductError(
-        `${err instanceof Error ? err.message : "Blood product verification failed"}. API is primary; use manual check only after bedside document check.`,
-      );
-    } finally {
-      setQuickBloodProductChecking(false);
-    }
-  };
-
-  const confirmQuickBloodProductManualCheck = () => {
-    const bagNo = quickBloodProductBagNo.trim();
-    if (!bagNo) {
-      setQuickBloodProductError("Select or enter a blood bag first");
-      return;
-    }
-    const listedBag = bloodBoardRowsFromHis.find(
-      row => String(row.dnrno || "").trim() === bagNo,
-    );
-    if (!listedBag) {
-      setQuickBloodProductError("Select a bag from the HIS patient list before manual bedside confirmation");
-      return;
-    }
-    setQuickBloodProductVerified(listedBag);
-    setQuickBloodProductVerificationMode("manual");
-    setQuickBloodProductManualAvailable(false);
-    applyQuickBloodProductHisResult(listedBag);
-    setQuickBloodProductError("");
   };
 
   const saveQuickBloodProduct = async () => {
@@ -3726,123 +2942,53 @@ export default function ClinicalChartView({
       setQuickBloodProductError("Select blood product first");
       return;
     }
-    if (!quickBloodProductBagNo.trim()) {
+    const bagNumber = quickBloodProductBagNo.trim();
+    if (!bagNumber) {
       setQuickBloodProductError("Blood bag no. is required");
       return;
     }
-    let activeVerificationMode = quickBloodProductVerificationMode;
-    let activeVerificationResult = quickBloodProductVerified;
-    const parsedVolumeMl = Number(quickBloodProductVolumeMl);
-    const volumeMl = Number.isFinite(parsedVolumeMl) ? parsedVolumeMl : null;
-    const isGiving = volumeMl != null && volumeMl > 0;
-    if (!activeVerificationMode) {
-      const stored = findStoredBloodVerificationForBag(quickBloodProductBagNo, {
-        includeWarming: !isGiving,
-      });
-      if (stored) {
-        activeVerificationMode = stored.mode;
-        activeVerificationResult = stored.result;
-        setQuickBloodProductVerificationMode(stored.mode);
-        setQuickBloodProductVerified(stored.result);
-        if (stored.result) applyQuickBloodProductHisResult(stored.result);
-      }
-    }
-    if (!activeVerificationMode) {
-      setQuickBloodProductError("Check blood bag before saving");
+    const volumeMl = Number(quickBloodProductVolumeMl);
+    if (!Number.isFinite(volumeMl) || volumeMl <= 0) {
+      setQuickBloodProductError("Volume must be > 0");
       return;
     }
-    const matchedBag = bloodBoardRowsFromHis.find(
-      row => String(row.dnrno || "").trim() === quickBloodProductBagNo.trim(),
-    );
-    if (!matchedBag) {
-      setQuickBloodProductError("Blood bag is not matched to the HIS list for this patient");
+    const bloodGroup = quickBloodProductGroup.trim().toUpperCase();
+    if (quickBloodProductType && !bloodGroup) {
+      setQuickBloodProductError("Blood group is required for PRC/FFP");
       return;
     }
-    if (bloodBoardStatusForBag(quickBloodProductBagNo) === "Available") {
-      setQuickBloodProductError("Record Received in OR before warming or giving this blood bag");
-      return;
-    }
-    const givingAuthorization: BloodGivingAuthorization | null = isGiving
-      ? signedInGivingAuthorization ||
-        (bloodBoardConfirmedAnesthetist
-          ? {
-              mode: "supervised",
-              name: bloodBoardConfirmedAnesthetist.name,
-              username: bloodBoardConfirmedAnesthetist.hospital_id || undefined,
-            }
-          : null)
-      : null;
-    if (isGiving && !givingAuthorization) {
-      setQuickBloodProductError("An anesthetist must verify actual giving before recording the amount");
-      return;
-    }
-    const normalizedGroup = quickBloodProductGroup.trim().toUpperCase();
     const eventTs = toTsFromDateAndTime(quickBloodProductDate, quickBloodProductTime);
     if (eventTs == null) {
       setQuickBloodProductError("Date/time invalid — use dd/mm/yyyy and HH:mm");
       return;
     }
-    if (!hasTimeOutBefore(eventTs)) {
-      setQuickBloodProductError("Time Out must be completed before blood product workflow");
-      return;
-    }
-    const workflowDetail = buildBloodWorkflowDetail(quickBloodProductNote, {
-      workflow: isGiving ? "give" : "register_warming",
-      productName: selectedQuickBloodProductItem.name,
+    const note = buildIoEntryNote(quickBloodProductNote, {
+      includeBloodMeta: true,
       bloodType: quickBloodProductType,
-      bloodGroup: formatVerifiedBloodGroup(activeVerificationResult) || normalizedGroup,
-      bloodBagNo: String(activeVerificationResult?.dnrno || quickBloodProductBagNo).trim(),
-      bloodVerification: activeVerificationResult,
-      verificationMode: activeVerificationMode,
-      volumeMl,
-      status: isGiving ? "warmed" : "refrigerated",
-      givingAuthorization,
+      bloodGroup,
+      bloodBagNo: bagNumber,
     }) || undefined;
 
     setQuickBloodProductSaving(true);
     setQuickBloodProductError("");
     try {
-      if (!isGiving) {
-        await createCaseIoRun(caseId, {
+      await createCaseIoBloodProduct(caseId, {
+        actor,
+        reason: "clinical-chart manual blood product entry",
+        run: {
           item_id: selectedQuickBloodProductItem.id,
-          kind: selectedQuickBloodProductItem.kind,
-          started_at: eventTs,
           route: "IV",
-          entry_mode: "bolus",
-          note: workflowDetail,
           include_in_balance: true,
-          actor,
-          reason:
-            activeVerificationMode === "manual"
-              ? "clinical-chart blood product manual register refrigerated"
-              : "clinical-chart blood product api verified register refrigerated",
-        });
-        await createCaseEvent(caseId, {
+        },
+        event: {
           event_ts: eventTs,
-          event_type: "event",
-          title: "Blood Product",
-          detail: workflowDetail
-            ? `Add blood product to case as refrigerated | ${workflowDetail}`
-            : "Add blood product to case as refrigerated",
-          actor,
-          reason: "clinical-chart blood product refrigerated status",
-        });
-        notifyIoAndEventChanged(caseId);
-      } else {
-        await createCaseIoBloodProduct(caseId, {
-          actor,
-          reason:
-            activeVerificationMode === "manual"
-              ? "clinical-chart blood product manual give"
-              : activeVerificationMode === "registered"
-                ? "clinical-chart blood product registered warmer give"
-              : "clinical-chart blood product api verified give",
-          run: { item_id: selectedQuickBloodProductItem.id, route: "IV", note: workflowDetail, include_in_balance: true },
-          event: { event_ts: eventTs, volume_ml: volumeMl || 0, note: workflowDetail, include_in_balance: true },
-        });
-        notifyIoAndEventChanged(caseId);
-      }
-      closeQuickBloodProduct();
+          volume_ml: volumeMl,
+          note,
+          include_in_balance: true,
+        },
+      });
+      notifyIoAndEventChanged(caseId);
+      setQuickBloodProductOpen(false);
     } catch (err) {
       setQuickBloodProductError(err instanceof Error ? err.message : "Failed to save blood product");
     } finally {
@@ -3860,7 +3006,6 @@ export default function ClinicalChartView({
     setQuickFluidTime(formatHHMM(targetTs));
     setQuickFluidEntryMode("bolus");
     setQuickFluidVolumeMl("");
-    setQuickFluidOverMin("");
     setQuickFluidRateMlHr("");
     setQuickFluidNote("");
     setQuickFluidError("");
@@ -3886,8 +3031,14 @@ export default function ClinicalChartView({
     setQuickFluidSaving(true);
     setQuickFluidError("");
     try {
-      if (quickFluidEntryMode === "running") {
+      if (quickFluidEntryMode === "drip") {
         const rate = Number(quickFluidRateMlHr);
+        const volumeMl = Number(quickFluidVolumeMl);
+        if (!Number.isFinite(volumeMl) || volumeMl <= 0) {
+          setQuickFluidError("Prepared volume must be > 0");
+          setQuickFluidSaving(false);
+          return;
+        }
         if (!Number.isFinite(rate) || rate <= 0) {
           setQuickFluidError("Rate must be > 0");
           setQuickFluidSaving(false);
@@ -3895,7 +3046,7 @@ export default function ClinicalChartView({
         }
         await createCaseIoDrip(caseId, {
           actor,
-          reason: "clinical-chart fluid running drip entry",
+          reason: "clinical-chart fluid drip entry",
           run: {
             item_id: selectedQuickFluidItem.id,
             kind: "fluid",
@@ -3903,45 +3054,11 @@ export default function ClinicalChartView({
             route: "IV",
             entry_mode: "drip",
             include_in_balance: true,
-            note: quickFluidNote.trim() || undefined,
+            note: [quickFluidNote.trim(), `totalVolumeMl:${round2(volumeMl)}`].filter(Boolean).join(" | "),
           },
           segment: {
             ts_from: eventTs,
             rate_value: Math.round(rate * 10) / 10,
-            rate_unit: "ml/hr",
-            include_in_balance: true,
-          },
-        });
-      } else if (quickFluidEntryMode === "timed") {
-        const volumeMl = Number(quickFluidVolumeMl);
-        if (!Number.isFinite(volumeMl) || volumeMl <= 0) {
-          setQuickFluidError("Volume must be > 0");
-          setQuickFluidSaving(false);
-          return;
-        }
-        const overMin = Number(quickFluidOverMin);
-        if (!Number.isFinite(overMin) || overMin <= 0) {
-          setQuickFluidError("Over min must be > 0");
-          setQuickFluidSaving(false);
-          return;
-        }
-        const endTs = eventTs + overMin * 60_000;
-        const rateMlHr = volumeMl / (overMin / 60);
-        await createCaseIoDrip(caseId, {
-          actor,
-          reason: "clinical-chart fluid over-time entry",
-          run: {
-            item_id: selectedQuickFluidItem.id,
-            kind: "fluid",
-            started_at: eventTs,
-            route: "IV",
-            entry_mode: "drip",
-            include_in_balance: true,
-          },
-          segment: {
-            ts_from: eventTs,
-            ts_to: endTs,
-            rate_value: Math.round(rateMlHr * 10) / 10,
             rate_unit: "ml/hr",
             include_in_balance: true,
           },
@@ -3960,7 +3077,7 @@ export default function ClinicalChartView({
           kind: "fluid",
           event_ts: eventTs,
           volume_ml: volumeMl,
-          note: quickFluidNote.trim() || undefined,
+            note: [quickFluidNote.trim(), `totalVolumeMl:${round2(volumeMl)}`].filter(Boolean).join(" | "),
           include_in_balance: true,
         });
       }
@@ -3993,6 +3110,12 @@ export default function ClinicalChartView({
     setQuickMedManualMode(false);
     setQuickMedManualCategory("");
     setQuickMedError("");
+  };
+
+  const selectQuickFluidItem = (item: CaseIoItem) => {
+    setQuickFluidItemId(item.id);
+    setQuickFluidSearch(item.name);
+    setShowQuickFluidDropdown(false);
   };
 
   const applyQuickMedDripSelection = (item: CaseIoItem, focusAmount = false) => {
@@ -5121,19 +4244,6 @@ export default function ClinicalChartView({
         .find(Boolean) ||
       (runIsBloodProduct ? String(run.note || "").trim() : "");
     const parsedExistingNote = parseKeyValueFromNote(existingNote);
-    const isRegisteredWarmingRun =
-      runIsBloodProduct &&
-      existing.length === 0 &&
-      parsedExistingNote.workflow === "register_warming";
-    const existingBloodVerificationMode =
-      runIsBloodProduct &&
-      !isRegisteredWarmingRun &&
-      (parsedExistingNote.verification === "api" ||
-        parsedExistingNote.verification === "manual" ||
-        parsedExistingNote.verification === "registered")
-        ? parsedExistingNote.verification
-        : null;
-    const existingBloodGroupParts = parseStoredBloodGroup(parsedExistingNote.bloodGroup);
 
     setIoPreparedModal({
       runId: run.id,
@@ -5162,35 +4272,15 @@ export default function ClinicalChartView({
           : existingNote,
     );
     setIoModalBloodGroup(
-      runIsBloodProduct &&
-        !isRegisteredWarmingRun &&
-        (resolvedBloodType === "PRC" || resolvedBloodType === "FFP")
+      runIsBloodProduct && (resolvedBloodType === "PRC" || resolvedBloodType === "FFP")
         ? String(parsedExistingNote.bloodGroup || "").toUpperCase()
         : "",
     );
     setIoModalBloodBagNo(
-      runIsBloodProduct && !isRegisteredWarmingRun
+      runIsBloodProduct
         ? String(parsedExistingNote.bloodBagNo || "").trim()
         : "",
     );
-    setIoModalBloodVerified(
-      runIsBloodProduct && existingBloodVerificationMode === "api"
-        ? {
-            hn: caseStatus.status === "IDLE" ? "" : caseStatus.hn,
-            an: parsedExistingNote.an || null,
-            patient_name: parsedExistingNote.patientName || parsedExistingNote.patient_name || null,
-            reqno: parsedExistingNote.reqno || null,
-            bdtype: parsedExistingNote.bloodProductType || null,
-            dnrno: parsedExistingNote.bloodBagNo || null,
-            bloodgrp: existingBloodGroupParts.bloodgrp,
-            rh: existingBloodGroupParts.rh,
-            unitstas: parsedExistingNote.unitstas || null,
-          }
-        : null,
-    );
-    setIoModalBloodVerificationMode(existingBloodVerificationMode);
-    setIoModalBloodManualAvailable(false);
-    setIoModalBloodChecking(false);
     setIoModalError("");
   };
 
@@ -5656,73 +4746,6 @@ export default function ClinicalChartView({
     }
   };
 
-  const resetIoModalBloodVerification = () => {
-    setIoModalBloodVerified(null);
-    setIoModalBloodVerificationMode(null);
-    setIoModalBloodManualAvailable(false);
-  };
-
-  const checkIoModalBloodProductBag = async () => {
-    if (!caseId || caseStatus.status === "IDLE") return;
-    const bloodBagNo = ioModalBloodBagNo.trim();
-    if (!bloodBagNo) {
-      setIoModalError("Blood bag no. is required for blood product");
-      return;
-    }
-    setIoModalBloodChecking(true);
-    setIoModalError("");
-    resetIoModalBloodVerification();
-    try {
-      const registered = findStoredBloodVerificationForBag(bloodBagNo, {
-        includeWarming: true,
-        onlyWarming: true,
-      });
-      if (registered) {
-        setIoModalBloodVerified(registered.result);
-        setIoModalBloodVerificationMode("registered");
-        const registeredGroup = formatVerifiedBloodGroup(registered.result);
-        if (registeredGroup) setIoModalBloodGroup(registeredGroup);
-        return;
-      }
-      const verification = await verifyCaseBloodProduct(caseId, {
-        hn: caseStatus.hn,
-        an: patientDocumentSummary.an,
-        qr: bloodBagNo,
-      });
-      if (!verification.ok) {
-        setIoModalBloodManualAvailable(verification.checks.hn_match !== false);
-        setIoModalError(
-          verification.checks.hn_match === false
-            ? `${verification.message || "HN mismatch"}. Blood product cannot be used for this patient.`
-            : `${verification.message || "Blood product verification failed"}. API is primary; use manual check only after bedside document check.`,
-        );
-        return;
-      }
-      setIoModalBloodVerified(verification.result);
-      setIoModalBloodVerificationMode("api");
-      const verifiedGroup = formatVerifiedBloodGroup(verification.result);
-      if (verifiedGroup) setIoModalBloodGroup(verifiedGroup);
-    } catch (err) {
-      setIoModalBloodManualAvailable(true);
-      setIoModalError(
-        `${err instanceof Error ? err.message : "Blood product verification failed"}. API is primary; use manual check only after bedside document check.`,
-      );
-    } finally {
-      setIoModalBloodChecking(false);
-    }
-  };
-
-  const confirmIoModalBloodManualCheck = () => {
-    if (!ioModalBloodBagNo.trim()) {
-      setIoModalError("Blood bag no. is required for blood product");
-      return;
-    }
-    setIoModalBloodVerified(null);
-    setIoModalBloodVerificationMode("manual");
-    setIoModalBloodManualAvailable(false);
-    setIoModalError("");
-  };
-
   const savePreparedValue = async () => {
     if (!caseId || !ioPreparedModal || !modalRun) return;
 
@@ -5756,36 +4779,15 @@ export default function ClinicalChartView({
 
         const newValue = parseFloat(ioModalValue);
         const newNote = ioModalNote.trim();
-        const bloodVerification = isModalBloodProduct ? ioModalBloodVerified : null;
-        if (isModalBloodProduct && !hasTimeOutBefore(editedTs)) {
-          throw new Error("Time Out must be completed before giving blood product");
-        }
-        const resolvedBloodGroup = bloodVerification
-          ? [
-              String(bloodVerification.bloodgrp || "").trim().toUpperCase(),
-              String(bloodVerification.rh || "").trim(),
-            ].filter(Boolean).join("") || bloodGroup
-          : bloodGroup;
-        const resolvedBloodBagNo = String(bloodVerification?.dnrno || bloodBagNo).trim();
+        const resolvedBloodGroup = bloodGroup;
+        const resolvedBloodBagNo = bloodBagNo;
         const baseNote = isModalBloodProduct
-          ? ioModalBloodVerificationMode
-            ? buildBloodWorkflowDetail(newNote, {
-                workflow: "give",
-                productName: modalRun.item_name || modalRun.item_code || "Blood product",
-                bloodType: modalBloodType,
-                bloodGroup: resolvedBloodGroup,
-                bloodBagNo: resolvedBloodBagNo,
-                bloodVerification,
-                verificationMode: ioModalBloodVerificationMode,
-                volumeMl: Number.isNaN(newValue) ? null : newValue,
-                status: "warmed",
-              })
-            : buildIoEntryNote(newNote, {
-                includeBloodMeta: true,
-                bloodType: modalBloodType,
-                bloodGroup: resolvedBloodGroup,
-                bloodBagNo: resolvedBloodBagNo,
-              })
+          ? buildIoEntryNote(newNote, {
+              includeBloodMeta: true,
+              bloodType: modalBloodType,
+              bloodGroup: resolvedBloodGroup,
+              bloodBagNo: resolvedBloodBagNo,
+            })
           : buildIoEntryNote(newNote, {
               includeBloodMeta: false,
               bloodType: modalBloodType,
@@ -5927,6 +4929,74 @@ export default function ClinicalChartView({
     setStartTimeModalOpen(true);
   };
 
+  const openDischargeModal = () => {
+    if (caseStatus.status !== "ACTIVE") return;
+    const current = Date.now();
+    setDischargeDateDraft(formatDDMMYYYY(current));
+    setDischargeTimeDraft(formatHHMM(current));
+    setDischargeError("");
+    setSuggestedCaseEnd(null);
+    setDischargeModalOpen(true);
+    void getSuggestedCaseEndTime(caseStatus.case_id)
+      .then(setSuggestedCaseEnd)
+      .catch(() => setSuggestedCaseEnd(null));
+  };
+
+  const saveDischarge = async () => {
+    if (caseStatus.status !== "ACTIVE") return;
+    const dischargeTime = toTsFromDateAndTime(dischargeDateDraft, dischargeTimeDraft);
+    if (dischargeTime == null) {
+      setDischargeError("Enter a valid discharge date and time.");
+      return;
+    }
+    if (dischargeTime < caseStatus.start_time) {
+      setDischargeError("Discharge time must be after the case start time.");
+      return;
+    }
+    if (dischargeTime > Date.now() + 60_000) {
+      setDischargeError("Discharge time cannot be in the future.");
+      return;
+    }
+    setDischargeSaving(true);
+    setDischargeError("");
+    try {
+      const result = await dischargeCase(caseStatus.case_id, dischargeTime) as {
+        discharge_time?: number;
+      };
+      const confirmedTime = Number(result.discharge_time);
+      const nextTime = Number.isFinite(confirmedTime) ? confirmedTime : dischargeTime;
+      window.dispatchEvent(new CustomEvent("flora:case-io-changed", { detail: { caseId: caseStatus.case_id } }));
+      window.dispatchEvent(new CustomEvent("flora:case-events-changed", { detail: { caseId: caseStatus.case_id } }));
+      onCaseDischargeTimeUpdated?.(caseStatus.case_id, nextTime);
+      setDischargeModalOpen(false);
+    } catch (error) {
+      setDischargeError(error instanceof Error ? error.message : "Failed to discharge case.");
+    } finally {
+      setDischargeSaving(false);
+    }
+  };
+
+  const openArchiveModal = () => {
+    if (caseStatus.status !== "DISCHARGED") return;
+    setArchiveError("");
+    setArchiveModalOpen(true);
+  };
+
+  const saveArchive = async () => {
+    if (caseStatus.status !== "DISCHARGED") return;
+    setArchiveSaving(true);
+    setArchiveError("");
+    try {
+      await archiveCase(caseStatus.case_id);
+      onCaseArchived?.(caseStatus.case_id);
+      setArchiveModalOpen(false);
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : "Failed to archive case.");
+    } finally {
+      setArchiveSaving(false);
+    }
+  };
+
   const saveStartTime = async () => {
     if (caseStatus.status === "IDLE") return;
     const nextTs = toTsFromDateAndTime(startDateDraft, startTimeDraft);
@@ -6055,6 +5125,12 @@ export default function ClinicalChartView({
     const savedWeight = Number(readWeightFromSavedForm(caseId));
     return Number.isFinite(savedWeight) && savedWeight > 0 ? savedWeight : null;
   })();
+  const dischargeDraftTs = toTsFromDateAndTime(dischargeDateDraft, dischargeTimeDraft);
+  const activeDripsAtDischarge = ioRuns.filter(run =>
+    run.entry_mode === "drip" &&
+    run.stopped_at == null &&
+    (dischargeDraftTs == null || run.started_at <= dischargeDraftTs),
+  );
   useEffect(() => {
     if (!quickMedDripOpen || patientWeightKg == null) return;
     setQuickMedDripWeightKg(current => current.trim() || String(patientWeightKg));
@@ -6325,7 +5401,53 @@ export default function ClinicalChartView({
             ))}
           </div>
 
-          <div className="case-kronos__parameters">
+          <div className="case-kronos__parameters flex items-center gap-2">
+          {caseStatus.status === "ACTIVE" ? (
+            <button
+              type="button"
+              onClick={openDischargeModal}
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-amber-500/60 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-200"
+              aria-label="Review and discharge this case"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <path d="M3.5 17V9.5m0 4h17V17h-17Zm3-3.5V8h5a3 3 0 0 1 3 3v2.5M3.5 17v2m17-2v2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="m15.5 7 1.7 1.7 3.3-3.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Discharge
+            </button>
+          ) : caseStatus.status === "DISCHARGED" ? (
+            <>
+              <span className="inline-flex min-h-9 items-center rounded-lg border border-emerald-500/45 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                Discharged
+              </span>
+              <button
+                type="button"
+                onClick={onStartNextCase}
+                className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-[var(--app-accent)] bg-[var(--app-accent)] px-3 py-1.5 text-xs font-bold text-[var(--app-accent-contrast)] hover:brightness-105"
+                aria-label="Release this workspace and start the next patient case"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                </svg>
+                Start next case
+              </button>
+              <button
+                type="button"
+                onClick={openArchiveModal}
+                className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:border-[var(--app-accent)] hover:bg-[var(--app-control-bg-hover)]"
+                aria-label="Review and archive this discharged case"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M4 7.5h16v12H4zM3 4.5h18v3H3zM9 12h6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Archive
+              </button>
+            </>
+          ) : (
+            <span className="inline-flex min-h-9 items-center rounded-lg border border-emerald-500/45 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+              Archived
+            </span>
+          )}
           <button
             type="button"
             onClick={openParameterConfig}
@@ -6508,7 +5630,7 @@ export default function ClinicalChartView({
                       { key: "med", title: "Med bolus", detail: "One-time medication dose", icon: "✚", action: openQuickMed },
                       { key: "drip", title: "Med drip", detail: "Start a medication infusion", icon: "↝", action: openQuickMedDrip },
                       { key: "fluid", title: "Fluid", detail: "Bolus or infusion", icon: "◇", action: openQuickFluid },
-                      { key: "blood", title: "Blood product", detail: "Verify and record a bag", icon: "◆", action: openBloodProductWorkflow },
+                      { key: "blood", title: "Blood product", detail: "Record a transfused blood product", icon: "◆", action: openBloodProductWorkflow },
                     ].map(option => (
                       <button
                         key={option.key}
@@ -6674,6 +5796,168 @@ export default function ClinicalChartView({
                   <button type="button" className="case-modal__button" onClick={() => setStartTimeModalOpen(false)}>Cancel</button>
                   <button type="submit" disabled={startTimeSaving} className="case-modal__button case-modal__button--primary">{startTimeSaving ? "Saving…" : "Save change"}</button>
                 </footer>
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {dischargeModalOpen && caseStatus.status === "ACTIVE" && typeof document !== "undefined"
+        ? createPortal(
+            <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => !dischargeSaving && setDischargeModalOpen(false)}>
+              <form
+                className="case-modal max-w-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="case-discharge-title"
+                onMouseDown={event => event.stopPropagation()}
+                onSubmit={event => { event.preventDefault(); void saveDischarge(); }}
+              >
+                <header className="case-modal__header">
+                  <div className="case-modal__identity">
+                    <span className="case-modal__icon case-modal__icon--danger" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M3.5 17V9.5m0 4h17V17h-17Zm3-3.5V8h5a3 3 0 0 1 3 3v2.5M3.5 17v2m17-2v2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="m15.5 7 1.7 1.7 3.3-3.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div className="case-modal__eyebrow">Case lifecycle</div>
+                      <h2 id="case-discharge-title" className="case-modal__title">Discharge patient</h2>
+                      <p className="case-modal__context">End live clinical recording for this case.</p>
+                    </div>
+                  </div>
+                  <button type="button" className="case-modal__close" onClick={() => setDischargeModalOpen(false)} disabled={dischargeSaving} aria-label="Close">×</button>
+                </header>
+
+                <div className="case-modal__body space-y-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2.5" aria-label="Patient being discharged">
+                    <strong className="mr-auto min-w-0 text-sm text-[var(--app-text)]">{patientName}</strong>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-[var(--app-muted)]">
+                      <span>HN {caseStatus.hn}</span>
+                      {patient?.an ? <span>AN {patient.an}</span> : null}
+                      <span>Started {formatCaseClock(caseStatus.start_time, workstation)}</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3">
+                    <div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--app-muted)]">Discharge time</div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3 max-[520px]:grid-cols-1">
+                      <label className="case-modal__field">Date
+                        <input autoFocus value={dischargeDateDraft} onChange={event => { setDischargeDateDraft(formatDateInputDDMMYYYY(event.target.value)); setDischargeError(""); }} placeholder="DD/MM/YYYY" maxLength={10} />
+                      </label>
+                      <label className="case-modal__field">Time
+                        <input value={dischargeTimeDraft} onChange={event => { setDischargeTimeDraft(formatTimeInputHHMM(event.target.value)); setDischargeError(""); }} placeholder="HH:mm" maxLength={5} />
+                      </label>
+                    </div>
+                    {suggestedCaseEnd ? (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--app-muted)]">
+                        <span>Last chart activity suggests {formatDDMMYYYY(suggestedCaseEnd.suggested_end_time)} at {formatHHMM(suggestedCaseEnd.suggested_end_time)}</span>
+                        <button
+                          type="button"
+                          className="case-modal__button min-h-8 px-2 py-1"
+                          disabled={dischargeSaving}
+                          onClick={() => {
+                            setDischargeDateDraft(formatDDMMYYYY(suggestedCaseEnd.suggested_end_time));
+                            setDischargeTimeDraft(formatHHMM(suggestedCaseEnd.suggested_end_time));
+                            setDischargeError("");
+                          }}
+                        >
+                          Use suggested
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className={`rounded-lg border p-3 ${activeDripsAtDischarge.length > 0 ? "border-amber-500/55 bg-amber-500/10" : "border-emerald-500/40 bg-emerald-500/10"}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-[var(--app-text)]">Active infusions</div>
+                        <div className="mt-0.5 text-xs text-[var(--app-muted)]">
+                          {activeDripsAtDischarge.length > 0
+                            ? "These infusions will be stopped at the discharge time."
+                            : "No active infusion needs to be stopped."}
+                        </div>
+                      </div>
+                      <span className="grid h-8 min-w-8 place-items-center rounded-full border border-current px-2 text-sm font-black">{activeDripsAtDischarge.length}</span>
+                    </div>
+                    {activeDripsAtDischarge.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {activeDripsAtDischarge.map(run => (
+                          <span key={run.id} className="rounded-full border border-amber-500/40 bg-[var(--app-panel-bg)] px-2 py-1 text-xs font-semibold text-[var(--app-text)]">
+                            {run.item_name || run.item_code || `Infusion ${run.id}`}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {dischargeError ? <p className="case-modal__error">{dischargeError}</p> : null}
+                  <footer className="case-modal__actions">
+                    <button type="button" className="case-modal__button" disabled={dischargeSaving} onClick={() => setDischargeModalOpen(false)}>Cancel</button>
+                    <button type="submit" disabled={dischargeSaving} className="case-modal__button border-red-600 bg-red-600 text-white hover:bg-red-700">
+                      {dischargeSaving ? "Discharging…" : "Confirm discharge"}
+                    </button>
+                  </footer>
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {archiveModalOpen && caseStatus.status === "DISCHARGED" && typeof document !== "undefined"
+        ? createPortal(
+            <div className="app-theme-scope case-modal-backdrop" onMouseDown={() => !archiveSaving && setArchiveModalOpen(false)}>
+              <form
+                className="case-modal max-w-lg"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="case-archive-title"
+                onMouseDown={event => event.stopPropagation()}
+                onSubmit={event => { event.preventDefault(); void saveArchive(); }}
+              >
+                <header className="case-modal__header">
+                  <div className="case-modal__identity">
+                    <span className="case-modal__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M4 7.5h16v12H4zM3 4.5h18v3H3zM9 12h6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div className="case-modal__eyebrow">Record finalization</div>
+                      <h2 id="case-archive-title" className="case-modal__title">Archive case</h2>
+                      <p className="case-modal__context">Finalize this discharged clinical record.</p>
+                    </div>
+                  </div>
+                  <button type="button" className="case-modal__close" onClick={() => setArchiveModalOpen(false)} disabled={archiveSaving} aria-label="Close">×</button>
+                </header>
+
+                <div className="case-modal__body space-y-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2.5" aria-label="Patient case being archived">
+                    <strong className="mr-auto min-w-0 text-sm text-[var(--app-text)]">{patientName}</strong>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-[var(--app-muted)]">
+                      <span>HN {caseStatus.hn}</span>
+                      {patient?.an ? <span>AN {patient.an}</span> : null}
+                      {caseStatus.discharge_time ? <span>Discharged {formatCaseClock(caseStatus.discharge_time, workstation)}</span> : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-amber-500/55 bg-amber-500/10 p-3">
+                    <div className="text-sm font-bold text-[var(--app-text)]">This makes the case read-only</div>
+                    <p className="mt-1 text-xs leading-relaxed text-[var(--app-muted)]">
+                      Clinical entries can no longer be changed after archiving. The case remains available in History for review and reporting.
+                    </p>
+                  </div>
+
+                  {archiveError ? <p className="case-modal__error">{archiveError}</p> : null}
+                  <footer className="case-modal__actions">
+                    <button type="button" className="case-modal__button" disabled={archiveSaving} onClick={() => setArchiveModalOpen(false)}>Cancel</button>
+                    <button type="submit" disabled={archiveSaving} className="case-modal__button border-red-600 bg-red-600 text-white hover:bg-red-700">
+                      {archiveSaving ? "Archiving…" : "Confirm archive"}
+                    </button>
+                  </footer>
                 </div>
               </form>
             </div>,
@@ -7836,1019 +7120,88 @@ export default function ClinicalChartView({
           )
         : null}
 
-      {bloodBoardOpen && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="app-theme-scope io-modal-backdrop"
-              onMouseDown={() => setBloodBoardOpen(false)}
-            >
-              <div
-                className="io-modal flex h-[min(90vh,820px)] w-[min(96vw,1440px)] flex-col p-5"
-                role="dialog"
-                aria-modal="true"
-                onMouseDown={event => event.stopPropagation()}
-              >
-                {ioModalPatientContext}
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-base font-semibold">Blood Board</div>
-                    <div className="text-xs text-[var(--app-muted)]">
-                      Available bags from {bloodBoardSource === "MOCK" ? "mock HIS data" : "HIS / Blood Bank"} with FLORA case status
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void loadBloodBoard()}
-                      disabled={bloodBoardLoading}
-                      className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm hover:bg-[var(--app-hover-bg)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {bloodBoardLoading ? "Refreshing..." : "Refresh HIS List"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBloodBoardOpen(false)}
-                      className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-
-                {bloodBoardError ? (
-                  <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
-                    {bloodBoardError}
-                  </div>
-                ) : null}
-
-                {shouldUseBloodBoard ? (
-                  <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(480px,1.45fr)_minmax(220px,0.72fr)_minmax(220px,0.72fr)]">
-                    <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--app-border)]">
-                      <div className="border-b border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">1. HIS / Blood Bank Bag List</div>
-                        <div className="mt-1 text-xs text-[var(--app-muted)]">
-                          HN <b className="text-[var(--app-text)]">{caseStatus.hn}</b>
-                          {" | "}Static mock list for EforL showcase
-                        </div>
-                      </div>
-                      <div className="min-h-0 flex-1 overflow-auto">
-                        <table className="w-full text-xs">
-                          <thead className="bg-[var(--app-control-bg)] text-left uppercase tracking-wide text-[var(--app-muted)]">
-                            <tr>
-                              <th className="px-3 py-2">Bag No.</th>
-                              <th className="px-3 py-2">Product</th>
-                              <th className="px-3 py-2">Group</th>
-                              <th className="px-3 py-2">HIS Status</th>
-                              <th className="px-3 py-2">OR Status</th>
-                              <th className="px-3 py-2">Given</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {eforlBloodBoardRows.map(row => (
-                              <tr key={String(row.dnrno || "")} className="border-t border-[var(--app-border)]">
-                                <td className="px-3 py-3 font-semibold">{row.dnrno || "-"}</td>
-                                <td className="px-3 py-3">{row.bdtype || "-"}</td>
-                                <td className="px-3 py-3">{[row.bloodgrp, row.rh].filter(Boolean).join("") || "-"}</td>
-                                <td className="px-3 py-3">
-                                  <span className="rounded-full bg-sky-500/15 px-2 py-1 font-semibold text-sky-700 dark:text-sky-300">
-                                    {row.hisStatus}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-3">
-                                  <span className={`rounded-full px-2 py-1 font-semibold ${
-                                    row.orStage === "Pending"
-                                      ? "bg-gray-500/10 text-[var(--app-muted)]"
-                                      : row.orStage === "Given"
-                                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                                        : row.orStage === "Warmed"
-                                          ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                                          : "bg-blue-500/15 text-blue-700 dark:text-blue-300"
-                                  }`}>
-                                    {row.orStage}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-3">{row.givenAmountMl ? `${row.givenAmountMl} mL` : "-"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </section>
-
-                    <section className="rounded-lg border border-[var(--app-border)] p-4">
-                      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">
-                        2. Register Bag into OR
-                      </div>
-                      <div className="space-y-3">
-                        <input
-                          className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                          placeholder="Scan or enter bag number"
-                          value={eforlReceiveBagNo}
-                          onChange={event => {
-                            setEforlReceiveBagNo(event.target.value);
-                            setBloodBoardError("");
-                          }}
-                        />
-                        <select
-                          className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                          value={eforlReceiveCondition}
-                          onChange={event => setEforlReceiveCondition(event.target.value as EforlBloodBoardCondition)}
-                        >
-                          <option value="Frozen">Frozen</option>
-                          <option value="Warmed">Warmed</option>
-                        </select>
-                        {eforlReceiveMatchedBag ? (
-                          <div className="rounded border border-blue-500/35 bg-blue-500/10 p-3 text-xs">
-                            <div className="mb-1 font-semibold text-blue-700 dark:text-blue-300">Matched bag</div>
-                            <div>Bag: <b>{eforlReceiveMatchedBag.dnrno}</b></div>
-                            <div>Product: <b>{eforlReceiveMatchedBag.bdtype || "-"}</b></div>
-                            <div>Current OR status: <b>{eforlReceiveMatchedBag.orStage}</b></div>
-                          </div>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={registerEforlBloodBag}
-                          className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                        >
-                          Register in OR
-                        </button>
-                      </div>
-                    </section>
-
-                    <section className="rounded-lg border border-[var(--app-border)] p-4">
-                      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">
-                        3. Record Giving to Patient
-                      </div>
-                      <div className="space-y-3">
-                        <input
-                          className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                          placeholder="Scan or enter bag number again"
-                          value={eforlGiveBagNo}
-                          onChange={event => {
-                            setEforlGiveBagNo(event.target.value);
-                            setBloodBoardError("");
-                          }}
-                        />
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                          placeholder="Amount (mL)"
-                          value={eforlGiveAmountMl}
-                          onChange={event => {
-                            setEforlGiveAmountMl(event.target.value);
-                            setBloodBoardError("");
-                          }}
-                        />
-                        {eforlGiveMatchedBag ? (
-                          <div className="rounded border border-emerald-500/35 bg-emerald-500/10 p-3 text-xs">
-                            <div className="mb-1 font-semibold text-emerald-700 dark:text-emerald-300">Giving target</div>
-                            <div>Bag: <b>{eforlGiveMatchedBag.dnrno}</b></div>
-                            <div>Product: <b>{eforlGiveMatchedBag.bdtype || "-"}</b></div>
-                            <div>Current OR status: <b>{eforlGiveMatchedBag.orStage}</b></div>
-                          </div>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={recordEforlBloodGiving}
-                          className="w-full rounded bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700"
-                        >
-                          Mark as Given
-                        </button>
-                      </div>
-                    </section>
-                  </div>
-                ) : (
-                <div className="mt-4 grid min-h-0 flex-1 grid-cols-[minmax(570px,1.18fr)_minmax(400px,0.82fr)] gap-4">
-                  <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--app-border)]">
-                    <div className="border-b border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">
-                      1. Bags matched to current patient
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-[var(--app-control-bg)] text-left text-xs uppercase tracking-wide text-[var(--app-muted)]">
-                      <tr>
-                        <th className="px-3 py-2">Bag No.</th>
-                        <th className="px-3 py-2">HN</th>
-                        <th className="px-3 py-2">AN</th>
-                        <th className="px-3 py-2">Product</th>
-                        <th className="px-3 py-2">Group</th>
-                        <th className="px-3 py-2">Rh</th>
-                        <th className="px-3 py-2">FLORA Status</th>
-                        <th className="px-3 py-2"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bloodBoardRows.map(row => {
-                        const bagNo = String(row.dnrno || "").trim();
-                        const localStatus = bloodBoardStatusForBag(bagNo);
-                        return (
-                          <tr
-                            key={bagNo}
-                            className={`border-t border-[var(--app-border)] ${
-                              quickBloodProductBagNo.trim() === bagNo ? "bg-rose-500/10" : ""
-                            }`}
-                          >
-                            <td className="px-3 py-3 font-semibold">{bagNo}</td>
-                            <td className="px-3 py-3">{row.hn || "-"}</td>
-                            <td className="px-3 py-3">{row.an || "-"}</td>
-                            <td className="px-3 py-3">{row.bdtype || "-"}</td>
-                            <td className="px-3 py-3">{row.bloodgrp || "-"}</td>
-                            <td className="px-3 py-3">{row.rh || "-"}</td>
-                            <td className="px-3 py-3">
-                              <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                                localStatus === "Available"
-                                  ? "bg-gray-500/10 text-[var(--app-muted)]"
-                                  : localStatus === "Received in OR"
-                                    ? "bg-blue-500/15 text-blue-700 dark:text-blue-300"
-                                    : localStatus === "Warming"
-                                      ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                                      : localStatus === "Stopped / Reaction"
-                                        ? "bg-red-500/15 text-red-700 dark:text-red-300"
-                                        : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                              }`}>
-                                {localStatus}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setQuickBloodProductBagNo(bagNo);
-                                  resetQuickBloodProductVerification();
-                                  setQuickBloodProductManualAvailable(true);
-                                  setQuickBloodProductError("");
-                                }}
-                                className="rounded border border-[var(--app-border)] px-2 py-1 text-xs font-semibold hover:bg-[var(--app-hover-bg)]"
-                              >
-                                Select
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {!bloodBoardLoading && bloodBoardRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="px-3 py-8 text-center text-sm text-[var(--app-muted)]">
-                            No blood bags returned for this patient. Refresh the HIS list.
-                          </td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                    </div>
-                  </section>
-                  <section className="min-h-0 overflow-y-auto rounded-lg border border-[var(--app-border)] p-4">
-                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">
-                      2. Scan bag QR and verify bag in use
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex gap-2">
-                        <input
-                          ref={quickBloodProductBagRef}
-                          className="min-w-0 flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                          placeholder="Scan blood bag QR / bag number"
-                          value={quickBloodProductBagNo}
-                          onChange={event => {
-                            setQuickBloodProductBagNo(event.target.value);
-                            resetQuickBloodProductVerification();
-                            setQuickBloodProductError("");
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void checkQuickBloodProductBag()}
-                          disabled={quickBloodProductChecking || quickBloodProductSaving}
-                          className="rounded bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"
-                        >
-                          {quickBloodProductChecking ? "Checking..." : "Match Bag"}
-                        </button>
-                      </div>
-                      {bloodBoardMatchedBag ? (
-                        <div className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
-                          <div className="mb-2 font-semibold text-emerald-700 dark:text-emerald-300">Matched in HIS bag list</div>
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                            <div>HN: <b>{bloodBoardMatchedBag.hn || "-"}</b></div>
-                            <div>AN: <b>{bloodBoardMatchedBag.an || "-"}</b></div>
-                            <div>Type: <b>{bloodBoardMatchedBag.bdtype || "-"}</b></div>
-                            <div>Bag: <b>{bloodBoardMatchedBag.dnrno || "-"}</b></div>
-                            <div>Group: <b>{bloodBoardMatchedBag.bloodgrp || "-"}</b></div>
-                            <div>Rh: <b>{bloodBoardMatchedBag.rh || "-"}</b></div>
-                          </div>
-                        </div>
-                      ) : quickBloodProductBagNo.trim() ? (
-                        <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
-                          This scan has not matched a bag in the HIS list.
-                        </div>
-                      ) : null}
-                      {renderBloodIdentityComparison(
-                        quickBloodProductVerified,
-                        quickBloodProductVerificationMode,
-                      )}
-                      {bloodBoardMatchedBag && !quickBloodProductVerificationMode ? (
-                        <button
-                          type="button"
-                          onClick={confirmQuickBloodProductManualCheck}
-                          className="w-full rounded border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-700 dark:text-amber-300"
-                        >
-                          Confirm Manual Bedside Check
-                        </button>
-                      ) : null}
-                      {quickBloodProductError ? (
-                        <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
-                          {quickBloodProductError}
-                        </div>
-                      ) : null}
-                      {bloodBoardMatchedBag && quickBloodProductVerificationMode ? (
-                        <>
-                          <div className="flex items-center justify-between rounded border border-[var(--app-border)] px-3 py-2 text-sm">
-                            <span>Status: <b>{bloodBoardStatusForBag(String(bloodBoardMatchedBag.dnrno || ""))}</b></span>
-                            {bloodBoardStatusForBag(String(bloodBoardMatchedBag.dnrno || "")) === "Available" ? (
-                              <button
-                                type="button"
-                                onClick={() => void recordBloodBagReceived(bloodBoardMatchedBag)}
-                                disabled={bloodBoardSavingBagNo === String(bloodBoardMatchedBag.dnrno || "").trim()}
-                                className="rounded border border-blue-500/50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
-                              >
-                                Receive in OR
-                              </button>
-                            ) : null}
-                          </div>
-                          <div className="grid grid-cols-[80px_1fr_92px] items-center gap-2 text-sm">
-                            <label className="text-[var(--app-muted)]">Time</label>
-                            <input className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5"
-                              value={quickBloodProductDate}
-                              onChange={event => setQuickBloodProductDate(formatDateInputDDMMYYYY(event.target.value))} />
-                            <input className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5"
-                              value={quickBloodProductTime}
-                              onChange={event => setQuickBloodProductTime(formatTimeInputHHMM(event.target.value))} />
-                          </div>
-                          {quickBloodProductEventTs != null ? (
-                            <div className={`rounded border px-3 py-2 text-xs ${
-                              quickBloodProductHasTimeOut
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                            }`}>
-                              Time Out: {quickBloodProductHasTimeOut ? "completed before selected time" : "required before blood product workflow"}
-                            </div>
-                          ) : null}
-                          <div className="grid grid-cols-[80px_1fr] items-center gap-2 text-sm">
-                            <label className="text-[var(--app-muted)]">Volume</label>
-                            <input
-                              ref={quickBloodProductVolumeRef}
-                              type="number"
-                              min="0"
-                              step="any"
-                              className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5"
-                              placeholder="Empty = register warming; enter mL = giving"
-                              value={quickBloodProductVolumeMl}
-                              onChange={event => {
-                                setQuickBloodProductVolumeMl(event.target.value);
-                                setBloodBoardConfirmedAnesthetist(null);
-                              }}
-                            />
-                          </div>
-                          {quickBloodProductHasVolume ? (
-                            <div className="space-y-2 rounded border border-rose-500/35 bg-rose-500/5 p-3 text-xs">
-                              <div className="font-semibold text-rose-700 dark:text-rose-300">
-                                Anesthetist verification required for actual giving
-                              </div>
-                              {signedInGivingAuthorization ? (
-                                <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-700 dark:text-emerald-300">
-                                  Self-verified by anesthetist: <b>{signedInGivingAuthorization.name}</b>
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="text-[var(--app-muted)]">
-                                    Current user cannot self-verify. An anesthetist must confirm this giving action.
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <select
-                                      className="min-w-0 flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5"
-                                      value={bloodBoardSelectedAnesthetist}
-                                      onChange={event => {
-                                        setBloodBoardSelectedAnesthetist(event.target.value);
-                                        setBloodBoardConfirmedAnesthetist(null);
-                                      }}
-                                      disabled={bloodBoardAnesthetistsLoading}
-                                    >
-                                      <option value="">
-                                        {bloodBoardAnesthetistsLoading ? "Loading anesthetists..." : "Select anesthetist"}
-                                      </option>
-                                      {bloodBoardAnesthetists.map((member, index) => (
-                                        <option key={`${member.hospital_id || member.name}-${index}`} value={String(index)}>
-                                          {member.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const member = bloodBoardSelectedAnesthetist === ""
-                                          ? undefined
-                                          : bloodBoardAnesthetists[Number(bloodBoardSelectedAnesthetist)];
-                                        if (!member) {
-                                          setQuickBloodProductError("Select the anesthetist who verifies giving");
-                                          return;
-                                        }
-                                        setBloodBoardConfirmedAnesthetist(member);
-                                        setQuickBloodProductError("");
-                                      }}
-                                      className="rounded border border-rose-500/50 px-3 py-1.5 font-semibold text-rose-700 dark:text-rose-300"
-                                    >
-                                      Confirm
-                                    </button>
-                                  </div>
-                                  {bloodBoardConfirmedAnesthetist ? (
-                                    <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-700 dark:text-emerald-300">
-                                      Verified by anesthetist: <b>{bloodBoardConfirmedAnesthetist.name}</b>
-                                    </div>
-                                  ) : bloodBoardAnesthetists.length === 0 && !bloodBoardAnesthetistsLoading ? (
-                                    <div className="text-amber-700 dark:text-amber-300">
-                                      No anesthetist is assigned in case staff. Add the responsible anesthetist before recording giving.
-                                    </div>
-                                  ) : null}
-                                </>
-                              )}
-                            </div>
-                          ) : null}
-                          <div className="grid grid-cols-[80px_1fr] items-center gap-2 text-sm">
-                            <label className="text-[var(--app-muted)]">Note</label>
-                            <input className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5"
-                              value={quickBloodProductNote}
-                              onChange={event => setQuickBloodProductNote(event.target.value)}
-                              placeholder="Optional" />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void saveQuickBloodProduct()}
-                            disabled={quickBloodProductSaving}
-                            className="w-full rounded bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-gray-400"
-                          >
-                            {quickBloodProductSaving
-                              ? "Saving..."
-                              : quickBloodProductHasVolume
-                                ? "Record Start Giving"
-                                : "Record Warming"}
-                          </button>
-                          {bloodBoardStatusForBag(String(bloodBoardMatchedBag.dnrno || "")) === "Giving recorded" ? (
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => openBloodBoardOutcome(bloodBoardMatchedBag, "completed")}
-                                className="flex-1 rounded border border-emerald-500/50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                                Complete
-                              </button>
-                              <button type="button" onClick={() => openBloodBoardOutcome(bloodBoardMatchedBag, "stop_reaction")}
-                                className="flex-1 rounded border border-red-500/50 px-3 py-2 text-sm font-semibold text-red-700 dark:text-red-300">
-                                Stop / Reaction
-                              </button>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </div>
-                  </section>
-                </div>
-                )}
-                {bloodBoardOutcomeBag ? (
-                  <div className={`rounded-lg border p-3 space-y-3 ${
-                    bloodBoardOutcomeMode === "completed"
-                      ? "border-emerald-500/40 bg-emerald-500/10"
-                      : "border-red-500/40 bg-red-500/10"
-                  }`}>
-                    <div className="text-sm font-semibold">
-                      {bloodBoardOutcomeMode === "completed" ? "Complete transfusion" : "Stop transfusion / Record reaction"}
-                      {" - "}Bag {bloodBoardOutcomeBag.dnrno}
-                    </div>
-                    <div className="grid grid-cols-[90px_1fr] items-center gap-2 text-sm">
-                      <label className="text-[var(--app-muted)]">Detail</label>
-                      <input
-                        className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                        placeholder={bloodBoardOutcomeMode === "completed" ? "Optional note" : "Reason or reaction detail"}
-                        value={bloodBoardOutcomeDetail}
-                        onChange={event => setBloodBoardOutcomeDetail(event.target.value)}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setBloodBoardOutcomeBag(null)}
-                        className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-muted)]"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void saveBloodBoardOutcome()}
-                        disabled={bloodBoardSavingBagNo === String(bloodBoardOutcomeBag.dnrno || "").trim()}
-                        className={`rounded px-3 py-1.5 text-sm font-semibold text-white ${
-                          bloodBoardOutcomeMode === "completed" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-                        } disabled:bg-gray-400`}
-                      >
-                        {bloodBoardSavingBagNo === String(bloodBoardOutcomeBag.dnrno || "").trim() ? "Saving..." : "Record Outcome"}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="text-xs text-[var(--app-muted)]">
-                  {shouldUseBloodBoard
-                    ? "EforL showcase mode uses static mock blood-bank data to demonstrate the bag workflow."
-                    : "Refresh adds new HIS bags while retaining locally recorded case status. Bedside checking is still required before giving blood."}
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
-
       {quickBloodProductOpen && typeof document !== "undefined"
         ? createPortal(
-            <div
-              className="app-theme-scope io-modal-backdrop"
-              onMouseDown={closeQuickBloodProduct}
-            >
-              <div
-                className="io-modal w-full max-w-xl p-4 space-y-3"
-                role="dialog"
-                aria-modal="true"
-                onMouseDown={e => e.stopPropagation()}
-                onKeyDown={e => {
-                  if (quickBloodProductSaving) return;
-                  if (e.key === "Escape") { e.preventDefault(); closeQuickBloodProduct(); return; }
-                  if (e.key === "Enter" && !e.shiftKey && !showQuickBloodProductDropdown) { e.preventDefault(); void saveQuickBloodProduct(); }
-                }}
-              >
-                {ioModalPatientContext}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Blood product</div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-medium leading-none">Blood Product</span>
-                      <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-rose-500/20 text-rose-300">
-                        Blood
-                      </span>
-                    </div>
-                    <div className="text-xs text-[var(--app-muted)]">Verify bag before register or giving</div>
-                  </div>
-                  <button type="button" onClick={closeQuickBloodProduct} disabled={quickBloodProductSaving}
-                    className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]">
-                    Close
-                  </button>
-                </div>
-
-                {/* Bag No */}
-                <div className="grid grid-cols-[80px_1fr_auto] gap-2 items-center text-sm">
-                  <label className="text-[var(--app-muted)]">Bag No.</label>
-                  <input ref={quickBloodProductBagRef} className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
-                    placeholder="Scan QR or enter blood bag number"
-                    value={quickBloodProductBagNo}
-                    onChange={e => {
-                      setQuickBloodProductBagNo(e.target.value);
-                      resetQuickBloodProductVerification();
-                    }} />
-                  <button
-                    type="button"
-                    onClick={() => void checkQuickBloodProductBag()}
-                    disabled={quickBloodProductChecking || quickBloodProductSaving}
-                    className={`rounded px-3 py-1.5 text-sm text-white ${
-                      quickBloodProductChecking || quickBloodProductSaving
-                        ? "bg-gray-400 cursor-not-allowed"
-                        : "bg-blue-600 hover:bg-blue-700"
-                    }`}
-                  >
-                    {quickBloodProductChecking ? "Checking..." : "Check Bag"}
-                  </button>
-                </div>
-
-                {renderBloodIdentityComparison(
-                  quickBloodProductVerified,
-                  quickBloodProductVerificationMode,
-                )}
-
-                {quickBloodProductVerificationMode === "manual" ? (
-                  <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                    Manual check confirmed. This record will be marked verification:manual.
-                  </div>
-                ) : null}
-                {quickBloodProductVerificationMode === "registered" ? (
-                  <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                    Bag matched the registered warmer bag. This record will be marked verification:registered.
-                  </div>
-                ) : null}
-
-                {/* Product search */}
-                <div className="relative">
-                  <input
-                    className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                    placeholder="Search blood product..."
-                    value={quickBloodProductSearch}
-                    onChange={e => { setQuickBloodProductSearch(e.target.value); setQuickBloodProductItemId(null); setShowQuickBloodProductDropdown(true); setQuickBloodProductTypeLockedFromHis(false); }}
-                    onFocus={() => {
-                      if (!quickBloodProductTypeLockedFromHis) setShowQuickBloodProductDropdown(true);
-                    }}
-                    readOnly={quickBloodProductTypeLockedFromHis}
-                    onKeyDown={e => {
-                      if (quickBloodProductTypeLockedFromHis) return;
-                      const matches = filteredQuickBloodProductItems;
-                      if (!matches.length || !showQuickBloodProductDropdown) return;
-                      if ((e.key === "Tab" && !e.shiftKey) || e.key === "Enter") {
-                        e.preventDefault();
-                        if (e.key === "Enter" || matches.length === 1) {
-                          setQuickBloodProductItemId(matches[0].id);
-                          setQuickBloodProductSearch(matches[0].name);
-                          resetQuickBloodProductVerification();
-                          setShowQuickBloodProductDropdown(false);
-                          window.requestAnimationFrame(() => quickBloodProductVolumeRef.current?.focus());
-                        } else {
-                          quickBloodProductOptionRefs.current[0]?.focus();
-                        }
-                      }
-                    }}
-                  />
-                  {showQuickBloodProductDropdown && (
-                    <>
-                      <div className="fixed inset-0 z-0" onMouseDown={() => setShowQuickBloodProductDropdown(false)} />
-                      <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg">
-                        {filteredQuickBloodProductItems.length > 0
-                          ? filteredQuickBloodProductItems.map((item, index) => (
-                              <button key={`qbp-${item.id}`} type="button"
-                                ref={el => { quickBloodProductOptionRefs.current[index] = el; }}
-                                className="w-full border-b border-[var(--app-border)] px-3 py-2 text-left text-sm hover:bg-[var(--app-hover-bg)] last:border-0"
-                                onClick={() => { setQuickBloodProductItemId(item.id); setQuickBloodProductSearch(item.name); resetQuickBloodProductVerification(); setShowQuickBloodProductDropdown(false); window.requestAnimationFrame(() => quickBloodProductVolumeRef.current?.focus()); }}
-                                onKeyDown={e => {
-                                  if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); quickBloodProductOptionRefs.current[Math.min(index + 1, filteredQuickBloodProductItems.length - 1)]?.focus(); return; }
-                                  if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); if (index === 0) { (e.currentTarget.closest(".relative")?.querySelector("input") as HTMLInputElement | null)?.focus(); } else { quickBloodProductOptionRefs.current[index - 1]?.focus(); } return; }
-                                  if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) { e.preventDefault(); e.stopPropagation(); setQuickBloodProductItemId(item.id); setQuickBloodProductSearch(item.name); resetQuickBloodProductVerification(); setShowQuickBloodProductDropdown(false); window.requestAnimationFrame(() => quickBloodProductVolumeRef.current?.focus()); }
-                                }}>
-                                <div className="font-medium">{item.name}</div>
-                                <div className="text-xs text-[var(--app-muted)]">{item.default_unit || "mL"}</div>
-                              </button>
-                            ))
-                          : quickBloodProductSearch.length >= 2
-                            ? <div className="p-3 text-sm text-[var(--app-muted)] italic">No matches</div>
-                            : <div className="p-3 text-sm text-[var(--app-muted)] italic">Type to search...</div>
-                        }
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Date / Time */}
-                <div className="grid grid-cols-[80px_1fr_100px] gap-2 items-center text-sm">
-                  <label className="text-[var(--app-muted)]">Time</label>
-                  <input className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
-                    value={quickBloodProductDate}
-                    onChange={e => setQuickBloodProductDate(formatDateInputDDMMYYYY(e.target.value))}
-                    onBlur={e => { const n = normalizeDateInputDDMMYYYY(e.target.value); if (n) setQuickBloodProductDate(n); }}
-                    placeholder="dd/mm/yyyy" />
-                  <input className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
-                    value={quickBloodProductTime}
-                    onChange={e => setQuickBloodProductTime(formatTimeInputHHMM(e.target.value))}
-                    onBlur={e => { const n = normalizeTimeInputHHMM(e.target.value); if (n) setQuickBloodProductTime(n); }}
-                    placeholder="HH:mm" />
-                </div>
-
-                {quickBloodProductEventTs != null ? (
-                  <div className={`rounded border px-3 py-2 text-xs ${
-                    quickBloodProductHasTimeOut
-                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                      : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                  }`}>
-                    Time Out: {quickBloodProductHasTimeOut ? "completed before selected time" : "required before blood product workflow"}
-                  </div>
-                ) : null}
-
-                {/* Volume */}
-                <div className="grid grid-cols-[80px_1fr] gap-2 items-center text-sm">
-                  <label className="text-[var(--app-muted)]">Volume (mL)</label>
-                  <input ref={quickBloodProductVolumeRef}
-                    className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
-                    type="number" min="0" step="any" placeholder="empty = register to warmer"
-                    value={quickBloodProductVolumeMl}
-                    onChange={e => setQuickBloodProductVolumeMl(e.target.value)} />
-                </div>
-
-                {/* Blood group (only for PRC/FFP) */}
-                {quickBloodProductType ? (
-                  <div className="grid grid-cols-[80px_1fr] gap-2 items-center text-sm">
-                    <label className="text-[var(--app-muted)]">Blood Group</label>
-                    <select className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
-                      value={quickBloodProductGroup}
-                      onChange={e => {
-                        setQuickBloodProductGroup(e.target.value);
-                        if (quickBloodProductVerificationMode === "api") {
-                          resetQuickBloodProductVerification();
-                        }
-                      }}>
-                      <option value="">Select group...</option>
-                      {BLOOD_GROUP_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                    </select>
-                  </div>
-                ) : null}
-
-                {/* Note */}
-                <div className="grid grid-cols-[80px_1fr] gap-2 items-center text-sm">
-                  <label className="text-[var(--app-muted)]">Note</label>
-                  <input className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
-                    placeholder="Optional"
-                    value={quickBloodProductNote}
-                    onChange={e => setQuickBloodProductNote(e.target.value)} />
-                </div>
-
-                {quickBloodProductError ? (
-                  <div className="text-xs text-red-500 dark:text-red-400">{quickBloodProductError}</div>
-                ) : null}
-
-                <div className="flex justify-end gap-2">
-                  <button type="button" onClick={closeQuickBloodProduct} disabled={quickBloodProductSaving}
-                    className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]">
-                    Cancel
-                  </button>
-                  {quickBloodProductManualAvailable ? (
-                    <button type="button" onClick={confirmQuickBloodProductManualCheck} disabled={quickBloodProductSaving}
-                      className={`rounded border border-amber-500/50 px-3 py-1.5 text-sm ${quickBloodProductSaving ? "text-gray-400 cursor-not-allowed" : "text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"}`}>
-                      Confirm Manual Check
-                    </button>
-                  ) : null}
-                  <button type="button" onClick={() => void saveQuickBloodProduct()} disabled={quickBloodProductSaving}
-                    className={`rounded px-3 py-1.5 text-sm text-white ${quickBloodProductSaving ? "bg-gray-400 cursor-not-allowed" : "bg-rose-600 hover:bg-rose-700"}`}>
-                    {quickBloodProductSaving
-                      ? "Saving..."
-                      : quickBloodProductHasVolume
-                        ? "Save Giving"
-                        : "Register Bag"}
-                  </button>
-                </div>
-              </div>
-            </div>,
+            <BloodProductEntryModal
+              patientContext={ioModalPatientContext}
+              items={quickBloodProductItems}
+              selectedItemId={quickBloodProductItemId}
+              search={quickBloodProductSearch}
+              date={quickBloodProductDate}
+              time={quickBloodProductTime}
+              volumeMl={quickBloodProductVolumeMl}
+              bloodGroup={quickBloodProductGroup}
+              bagNumber={quickBloodProductBagNo}
+              note={quickBloodProductNote}
+              saving={quickBloodProductSaving}
+              error={quickBloodProductError}
+              bloodGroupRequired={quickBloodProductType != null}
+              onClose={closeQuickBloodProduct}
+              onSave={() => void saveQuickBloodProduct()}
+              onSelectItem={item => {
+                setQuickBloodProductItemId(item.id);
+                setQuickBloodProductSearch(item.name);
+              }}
+              onSearchChange={value => {
+                setQuickBloodProductSearch(value);
+                setQuickBloodProductItemId(null);
+              }}
+              onDateChange={value => setQuickBloodProductDate(formatDateInputDDMMYYYY(value))}
+              onDateBlur={value => {
+                const normalized = normalizeDateInputDDMMYYYY(value);
+                if (normalized) setQuickBloodProductDate(normalized);
+              }}
+              onTimeChange={value => setQuickBloodProductTime(formatTimeInputHHMM(value))}
+              onTimeBlur={value => {
+                const normalized = normalizeTimeInputHHMM(value);
+                if (normalized) setQuickBloodProductTime(normalized);
+              }}
+              onVolumeChange={setQuickBloodProductVolumeMl}
+              onBloodGroupChange={setQuickBloodProductGroup}
+              onBagNumberChange={setQuickBloodProductBagNo}
+              onNoteChange={setQuickBloodProductNote}
+            />,
             document.body,
           )
         : null}
 
       {quickFluidOpen && typeof document !== "undefined"
         ? createPortal(
-            <div
-              className="app-theme-scope io-modal-backdrop"
-              onMouseDown={closeQuickFluid}
-            >
-              <div
-                className="io-modal w-full max-w-xl p-5 space-y-4"
-                role="dialog"
-                aria-modal="true"
-                data-qfluid-modal
-                onMouseDown={e => e.stopPropagation()}
-                onKeyDown={e => {
-                  if (quickFluidSaving) return;
-                  if (e.key === "Escape") { e.preventDefault(); closeQuickFluid(); return; }
-                  if (e.key === "Enter" && !e.shiftKey && !showQuickFluidDropdown) { e.preventDefault(); void saveQuickFluid(); }
-                }}
-              >
-                {ioModalPatientContext}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold leading-none">Fluid</div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-medium leading-none">Fluid</span>
-                      <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-cyan-500/20 text-cyan-300">
-                        {quickFluidEntryMode === "running"
-                          ? "Running Drip"
-                          : quickFluidEntryMode === "timed"
-                            ? "Timed Drip"
-                            : "Bolus"}
-                      </span>
-                    </div>
-                  </div>
-                  <button type="button" onClick={closeQuickFluid} disabled={quickFluidSaving}
-                    className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]">
-                    Close
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-3 items-start text-sm">
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Fluid</label>
-                  <div className="relative">
-                  <input
-                    autoFocus
-                    className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                    placeholder="Search fluid..."
-                    value={quickFluidSearch}
-                    onChange={e => {
-                      setQuickFluidSearch(e.target.value);
-                      setQuickFluidItemId(null);
-                      setShowQuickFluidDropdown(true);
-                    }}
-                    onFocus={() => setShowQuickFluidDropdown(true)}
-                    onKeyDown={e => {
-                      if (
-                        showQuickFluidDropdown &&
-                        filteredQuickFluidItems.length > 0 &&
-                        (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey))
-                      ) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const item =
-                          filteredQuickFluidItems.length === 1 || e.key === "Enter"
-                            ? filteredQuickFluidItems[0]
-                            : null;
-                        if (item) {
-                          setQuickFluidItemId(item.id);
-                          setQuickFluidSearch(item.name);
-                          setShowQuickFluidDropdown(false);
-                          window.requestAnimationFrame(() => {
-                            quickFluidVolumeRef.current?.focus();
-                            quickFluidVolumeRef.current?.select();
-                          });
-                        } else {
-                          quickFluidOptionRefs.current[0]?.focus();
-                        }
-                      }
-                    }}
-                  />
-                  {showQuickFluidDropdown && filteredQuickFluidItems.length > 0 ? (
-                    <>
-                      <div
-                        className="fixed inset-0 z-0"
-                        onMouseDown={() => setShowQuickFluidDropdown(false)}
-                      />
-                      <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg">
-                        {filteredQuickFluidItems.map((item, index) => (
-                          <button
-                            key={`qfluid-${item.id}`}
-                            type="button"
-                            ref={el => { quickFluidOptionRefs.current[index] = el; }}
-                            className="w-full border-b border-[var(--app-border)] px-3 py-2 text-left text-sm hover:bg-[var(--app-hover-bg)] last:border-0"
-                            onClick={() => {
-                              setQuickFluidItemId(item.id);
-                              setQuickFluidSearch(item.name);
-                              setShowQuickFluidDropdown(false);
-                              window.requestAnimationFrame(() => {
-                                quickFluidVolumeRef.current?.focus();
-                                quickFluidVolumeRef.current?.select();
-                              });
-                            }}
-                            onKeyDown={e => {
-                              if (e.key === "ArrowDown") {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                quickFluidOptionRefs.current[Math.min(index + 1, filteredQuickFluidItems.length - 1)]?.focus();
-                                return;
-                              }
-                              if (e.key === "ArrowUp") {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (index === 0) {
-                                  const input = e.currentTarget.closest(".relative")?.querySelector("input");
-                                  if (input instanceof HTMLInputElement) input.focus();
-                                } else {
-                                  quickFluidOptionRefs.current[index - 1]?.focus();
-                                }
-                                return;
-                              }
-                              if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setQuickFluidItemId(item.id);
-                                setQuickFluidSearch(item.name);
-                                setShowQuickFluidDropdown(false);
-                                window.requestAnimationFrame(() => {
-                                  quickFluidVolumeRef.current?.focus();
-                                  quickFluidVolumeRef.current?.select();
-                                });
-                              }
-                            }}
-                          >
-                            {item.name}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
-                  </div>
-
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Mode</label>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { id: "bolus", label: "Bolus" },
-                      { id: "timed", label: "Timed Drip" },
-                      { id: "running", label: "Running Drip" },
-                    ].map(mode => {
-                      const active = quickFluidEntryMode === mode.id;
-                      return (
-                        <button
-                          key={`qfluid-mode-${mode.id}`}
-                          type="button"
-                          className={`rounded border px-3 py-1.5 text-sm ${
-                            active
-                              ? "border-cyan-400 bg-cyan-500/20 text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.25)]"
-                              : "border-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]"
-                          }`}
-                          onClick={() => setQuickFluidEntryMode(mode.id as "bolus" | "timed" | "running")}
-                          disabled={quickFluidSaving}
-                        >
-                          {mode.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {quickFluidEntryMode === "running" ? (
-                    <>
-                      <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Rate</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={quickFluidVolumeRef}
-                          type="number"
-                          min="0"
-                          step="1"
-                          className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                          placeholder="0"
-                          value={quickFluidRateMlHr}
-                          onChange={e => setQuickFluidRateMlHr(e.target.value)}
-                        />
-                        <span className="text-[var(--app-muted)]">mL/hr</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">
-                        {quickFluidEntryMode === "timed" ? "Volume / Time" : "Volume"}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={quickFluidVolumeRef}
-                          type="number"
-                          min="0"
-                          step="1"
-                          className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                          placeholder="0"
-                          value={quickFluidVolumeMl}
-                          onChange={e => setQuickFluidVolumeMl(e.target.value)}
-                        />
-                        <span className="text-[var(--app-muted)]">mL</span>
-                        {quickFluidEntryMode === "timed" ? (
-                          <>
-                            <input
-                              type="number"
-                              min="0"
-                              step="5"
-                              className="w-24 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                              placeholder="over"
-                              value={quickFluidOverMin}
-                              onChange={e => setQuickFluidOverMin(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === "Tab" && !e.shiftKey) {
-                                  e.preventDefault();
-                                  const modal = e.currentTarget.closest("[data-qfluid-modal]");
-                                  const timeInput = modal?.querySelector<HTMLInputElement>("[data-qfluid-time]");
-                                  timeInput?.focus();
-                                  timeInput?.select();
-                                }
-                              }}
-                            />
-                            <span className="text-[var(--app-muted)]">min</span>
-                          </>
-                        ) : null}
-                      </div>
-                    </>
-                  )}
-
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Start</label>
-                  <div className="flex gap-2">
-                    <input
-                      className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                      value={quickFluidDate}
-                      onChange={e => setQuickFluidDate(formatDateInputDDMMYYYY(e.target.value))}
-                      onBlur={e => { const n = normalizeDateInputDDMMYYYY(e.target.value); if (n) setQuickFluidDate(n); }}
-                      placeholder="dd/mm/yyyy"
-                      tabIndex={-1}
-                    />
-                    <input
-                      data-qfluid-time
-                      className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                      value={quickFluidTime}
-                      onChange={e => setQuickFluidTime(formatTimeInputHHMM(e.target.value))}
-                      onBlur={e => { const n = normalizeTimeInputHHMM(e.target.value); if (n) setQuickFluidTime(n); }}
-                      placeholder="HH:mm"
-                    />
-                  </div>
-                </div>
-
-                {quickFluidError ? (
-                  <div className="text-xs text-red-500 dark:text-red-400">{quickFluidError}</div>
-                ) : null}
-
-                <div className="flex justify-end gap-2 pt-1 border-t border-[var(--app-border)]">
-                  <button type="button" onClick={closeQuickFluid} disabled={quickFluidSaving}
-                    className="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]">
-                    Cancel
-                  </button>
-                  <button type="button" onClick={() => void saveQuickFluid()} disabled={quickFluidSaving}
-                    className={`rounded px-3 py-1.5 text-sm text-white ${quickFluidSaving ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 hover:bg-teal-700"}`}>
-                    {quickFluidSaving ? "Saving..." : quickFluidEntryMode === "running" ? "Start Drip" : "Save"}
-                  </button>
-                </div>
-              </div>
-            </div>,
+            <FluidEntryModal
+              patientContext={ioModalPatientContext}
+              items={quickFluidItems}
+              selectedItemId={quickFluidItemId}
+              search={quickFluidSearch}
+              mode={quickFluidEntryMode}
+              volumeMl={quickFluidVolumeMl}
+              rateMlHr={quickFluidRateMlHr}
+              date={quickFluidDate}
+              time={quickFluidTime}
+              note={quickFluidNote}
+              saving={quickFluidSaving}
+              error={quickFluidError}
+              onClose={closeQuickFluid}
+              onSave={() => void saveQuickFluid()}
+              onSelectItem={selectQuickFluidItem}
+              onSearchChange={value => {
+                setQuickFluidSearch(value);
+                setQuickFluidItemId(null);
+              }}
+              onModeChange={setQuickFluidEntryMode}
+              onVolumeChange={setQuickFluidVolumeMl}
+              onRateChange={setQuickFluidRateMlHr}
+              onDateChange={value => setQuickFluidDate(formatDateInputDDMMYYYY(value))}
+              onDateBlur={value => {
+                const normalized = normalizeDateInputDDMMYYYY(value);
+                if (normalized) setQuickFluidDate(normalized);
+              }}
+              onTimeChange={value => setQuickFluidTime(formatTimeInputHHMM(value))}
+              onTimeBlur={value => {
+                const normalized = normalizeTimeInputHHMM(value);
+                if (normalized) setQuickFluidTime(normalized);
+              }}
+              onNoteChange={setQuickFluidNote}
+            />,
             document.body,
           )
         : null}
@@ -9327,75 +7680,15 @@ export default function ClinicalChartView({
                     </div>
                     {isModalBloodProduct ? (
                       <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                        <div />
-                        {(() => {
-                          const selectedTs = toTsFromDateAndTime(ioModalDate, ioModalTime);
-                          const ok = selectedTs != null && hasTimeOutBefore(selectedTs);
-                          return (
-                            <div className={`rounded border px-3 py-2 text-xs ${
-                              ok
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                            }`}>
-                              Time Out: {ok ? "completed before giving time" : "required before giving"}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    ) : null}
-                    {isModalBloodProduct ? (
-                      <div className="grid grid-cols-[100px_1fr_auto] gap-2 items-center">
-                        <label className="text-sm text-[var(--app-muted)] font-medium">
-                          Bag No.
-                        </label>
+                        <label className="text-sm font-medium text-[var(--app-muted)]">Bag No.</label>
                         <input
                           type="text"
-                          className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm w-full"
+                          className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-sm"
                           placeholder="Blood bag number"
                           autoFocus
                           value={ioModalBloodBagNo}
-                          onChange={e => {
-                            setIoModalBloodBagNo(e.target.value);
-                            resetIoModalBloodVerification();
-                          }}
+                          onChange={event => setIoModalBloodBagNo(event.target.value)}
                         />
-                        <button
-                          type="button"
-                          onClick={() => void checkIoModalBloodProductBag()}
-                          disabled={ioModalBloodChecking || ioModalSaving}
-                          className={`rounded px-3 py-1.5 text-sm text-white ${
-                            ioModalBloodChecking || ioModalSaving
-                              ? "bg-gray-400 cursor-not-allowed"
-                              : "bg-blue-600 hover:bg-blue-700"
-                          }`}
-                        >
-                          {ioModalBloodChecking ? "Checking..." : "Check Bag"}
-                        </button>
-                      </div>
-                    ) : null}
-                    {ioModalBloodVerified || ioModalBloodVerificationMode === "manual" ? (
-                      <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                        <div />
-                        {renderBloodIdentityComparison(
-                          ioModalBloodVerified,
-                          ioModalBloodVerificationMode,
-                        )}
-                      </div>
-                    ) : null}
-                    {ioModalBloodVerificationMode === "manual" ? (
-                      <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                        <div />
-                        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                          Manual check confirmed. This record will be marked verification:manual.
-                        </div>
-                      </div>
-                    ) : null}
-                    {ioModalBloodVerificationMode === "registered" ? (
-                      <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                        <div />
-                        <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                          Bag matched the registered warmer bag. This record will be marked verification:registered.
-                        </div>
                       </div>
                     ) : null}
                     {modalRequiresBloodGroup ? (
@@ -9554,20 +7847,6 @@ export default function ClinicalChartView({
                   >
                     Clear
                   </button>
-                  {isModalBloodProduct && ioModalBloodManualAvailable ? (
-                    <button
-                      type="button"
-                      onClick={confirmIoModalBloodManualCheck}
-                      className={`rounded border border-amber-500/50 px-4 py-2 text-sm font-medium ${
-                        ioModalSaving
-                          ? "text-gray-400"
-                          : "text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
-                      }`}
-                      disabled={ioModalSaving}
-                    >
-                      Confirm Manual Check
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     onClick={() => void savePreparedValue()}

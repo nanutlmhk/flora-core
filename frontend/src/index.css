@@ -2603,4 +2603,29 @@ input {
   .report-timeline-readonly input[type="checkbox"] {
     transform: scale(0.86);
   }
+
+  .report-browser-preview {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .report-browser-preview-shell,
+  .report-browser-preview-scroll {
+    height: auto !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+
+  .report-browser-preview-actions {
+    display: none !important;
+  }
 }

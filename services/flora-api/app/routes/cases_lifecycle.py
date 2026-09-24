@@ -193,9 +193,6 @@ def start_case(payload: StartCase, actor: dict = Depends(require_permission("cas
 def validate_end(database: Connection, case: dict, end: int) -> None:
     if end < case["start_time"]:
         raise HTTPException(400,"discharge_time must be >= start_time")
-    last = database.execute("SELECT max(ts_minute) AS last FROM vital_minutes WHERE case_id=%s", (case["id"],)).fetchone()["last"]
-    if last is not None and end <= last:
-        raise HTTPException(400,"discharge_time must be later than last minute-writer data")
 
 
 def stop_drips(database: Connection, case_id: int, end: int, actor: dict) -> list[dict]:

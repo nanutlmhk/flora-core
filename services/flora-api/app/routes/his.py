@@ -250,12 +250,6 @@ def lab_fetch(payload:dict=Body(...),_:dict=Depends(require_permission("case.cre
     return {"ok":True,"hn":hn,"source":source,"offline":offline,"rows":result,"his_errors":errors}
 
 
-def case_row(database,case_id):
-    row=database.execute("SELECT * FROM cases WHERE id=%s",(case_id,)).fetchone()
-    if not row: raise HTTPException(404,"not found")
-    return row
-
-
 def copy_snapshot_to_case(database,case_id,snap):
     now=int(time.time()*1000); patient={key:snap["row"].get(key) for key in PATIENT_COLUMNS}
     patient.update(case_id=case_id,source=snap["row"].get("source"),raw_payload=snap["row"].get("raw_payload"),his_updated_at=snap["row"].get("his_updated_at"),created_at=now,updated_at=now)
@@ -289,7 +283,6 @@ def sync_allergy(case_id:int,payload:dict=Body(default={}),_:dict=Depends(requir
         for item in result: insert_dict(database,"case_his_allergy",{"case_id":case_id,**{k:item.get(k) for k in ("allergen","reaction","severity","status","source","raw_payload","his_updated_at","created_at","updated_at")}})
     return {"ok":True,"case_id":case_id,"hn":case["hn"],"source":source,"offline":offline,"rows":result,"his_errors":errors}
 
-
 @router.post("/{case_id}/his/lab/sync")
 def sync_lab(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     case=editable_case(database,case_id); source,offline,result,errors=buffered_or_online_rows(database,case["hn"],"lab",payload)
@@ -297,24 +290,3 @@ def sync_lab(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_pe
         database.execute("DELETE FROM case_his_lab WHERE case_id=%s",(case_id,))
         for item in result: insert_dict(database,"case_his_lab",{"case_id":case_id,**{k:item.get(k) for k in ("test_name","test_group","value_text","unit","ref_range","flag","collected_at","source","raw_payload","his_updated_at","created_at","updated_at")}})
     return {"ok":True,"case_id":case_id,"hn":case["hn"],"source":source,"offline":offline,"rows":result,"his_errors":errors}
-
-
-@router.post("/{case_id}/his/blood-products")
-def blood_products(case_id:int,payload:dict=Body(default={}),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
-    case=case_row(database,case_id)
-    try: response=gateway(os.getenv("HIS_BLOOD_PRODUCT_LIST_PATH","/api/blood-product-list"),{"hn":case["hn"],"an":payload.get("an")})
-    except RuntimeError as error: raise HTTPException(502,f"HIS gateway request failed: {error}")
-    return {"ok":True,"case_id":case_id,"hn":case["hn"],"source":"HIS","rows":rows(response)}
-
-
-@router.post("/{case_id}/his/blood-product/verify")
-def verify_blood(case_id:int,payload:dict=Body(...),_:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
-    case=case_row(database,case_id); hn=text(payload.get("hn")) or case["hn"]; bag=text(payload.get("dnrno")) or text(payload.get("qr"))
-    if not bag: raise HTTPException(400,"qr or dnrno is required")
-    try: response=gateway(os.getenv("HIS_BLOOD_PRODUCT_VERIFY_PATH","/api/blood-product-verify"),{"hn":hn,"qr":payload.get("qr"),"dnrno":payload.get("dnrno")})
-    except RuntimeError as error: raise HTTPException(502,f"HIS gateway request failed: {error}")
-    result=(rows(response) or ([response] if isinstance(response,dict) else [])); result=result[0] if result else {}
-    returned_hn=text(pick(result,"hn")); returned_bag=text(pick(result,"dnrno")); status=text(pick(result,"unitstas"))
-    checks={"hn_match":returned_hn==case["hn"]==hn,"dnrno_match":not returned_bag or returned_bag==bag,"unitstas_ok":status in {"1","2"}}
-    ok=all(checks.values())
-    return {"ok":ok,"case_id":case_id,"hn":case["hn"],"requested":{"hn":hn,"qr":payload.get("qr"),"dnrno":payload.get("dnrno")},"result":result,"checks":checks,"message":"blood product verified" if ok else "blood product verification failed"}

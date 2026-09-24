@@ -6,6 +6,7 @@ dist-electron/
 deploy-artifacts/
 tmp_docx_extract/
 tmp*/
+.tmp/
 output/
 data/
 emr/

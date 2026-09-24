@@ -10,6 +10,8 @@ import { useAuth } from "../auth/useAuth";
 import ConfirmDialog from "../components/common/ConfirmDialog";
 import ClinicalReferenceTooltip from "../components/common/ClinicalReferenceTooltip";
 import IoSpriteIcon, { type IoIconName } from "../components/io/IoSpriteIcon";
+import BloodProductEntryModal from "../components/io/BloodProductEntryModal";
+import FluidEntryModal from "../components/io/FluidEntryModal";
 import MedicationBolusEntryModal from "../components/io/MedicationBolusEntryModal";
 import { getHistoricalBolusSuggestion } from "../utils/medicationBolus";
 import {
@@ -831,10 +833,18 @@ function dripSnapshot(run: CaseIoRun, nowTs: number) {
       : endedAt;
   const elapsedUntil =
     stoppedAt != null && Number.isFinite(stoppedAt) ? Math.min(nowTs, stoppedAt) : nowTs;
-  const infusedMl =
-    Number.isFinite(rateValue) && rateValue > 0 && Number.isFinite(startedAt)
-      ? Math.max(0, (elapsedUntil - startedAt) / 3_600_000) * rateValue
-      : 0;
+  const infusedMl = (run.segments || []).reduce((total, candidate) => {
+    if ((candidate.include_in_balance ?? 1) === 0) return total;
+    const candidateStart = Number(candidate.ts_from);
+    const candidateRate = Number(candidate.rate_value);
+    if (!Number.isFinite(candidateStart) || !Number.isFinite(candidateRate) || candidateRate <= 0) return total;
+    const candidateEnd = Math.min(
+      elapsedUntil,
+      candidate.ts_to == null ? elapsedUntil : Number(candidate.ts_to),
+    );
+    if (!Number.isFinite(candidateEnd) || candidateEnd <= candidateStart) return total;
+    return total + ((candidateEnd - candidateStart) / 3_600_000) * candidateRate;
+  }, 0);
   const exceedsPreparedVolume =
     preparedVolumeMl != null && preparedVolumeMl > 0 && infusedMl > preparedVolumeMl;
   const progressPct =
@@ -919,13 +929,6 @@ function getItemVisual(kind: IoKind, displayMode: DisplayMode, category = ""): {
       badgeClass: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30",
     };
   }
-  if (displayMode === "drip") {
-    return {
-      iconLabel: "Drip",
-      iconClass: "bg-[#9B6DFF]/15 text-[#9B6DFF] border border-[#9B6DFF]/35",
-      badgeClass: "bg-[#9B6DFF]/15 text-[#9B6DFF] border border-[#9B6DFF]/35",
-    };
-  }
   if (kind === "fluid" && normalizeToken(category) === "bloodproduct") {
     return {
       iconLabel: "BP",
@@ -938,6 +941,13 @@ function getItemVisual(kind: IoKind, displayMode: DisplayMode, category = ""): {
       iconLabel: "F",
       iconClass: "bg-[#39C6C8]/15 text-[#39C6C8] border border-[#39C6C8]/35",
       badgeClass: "bg-[#39C6C8]/15 text-[#39C6C8] border border-[#39C6C8]/35",
+    };
+  }
+  if (displayMode === "drip") {
+    return {
+      iconLabel: "Drip",
+      iconClass: "bg-[#9B6DFF]/15 text-[#9B6DFF] border border-[#9B6DFF]/35",
+      badgeClass: "bg-[#9B6DFF]/15 text-[#9B6DFF] border border-[#9B6DFF]/35",
     };
   }
   return {
@@ -965,14 +975,14 @@ function ItemTypeIcon({
     }
     return <IoSpriteIcon name="output" size={34} />;
   }
-  if (displayMode === "drip") {
-    return <IoSpriteIcon name="medDrip" size={34} />;
-  }
   if (kind === "fluid" && normalizeToken(category) === "bloodproduct") {
     return <IoSpriteIcon name="bloodProduct" size={34} />;
   }
   if (kind === "fluid") {
     return <IoSpriteIcon name="fluid" size={34} />;
+  }
+  if (displayMode === "drip") {
+    return <IoSpriteIcon name="medDrip" size={34} />;
   }
   return <IoSpriteIcon name="medBolus" size={34} />;
 }
@@ -1104,7 +1114,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
   const [bloodProductModalOpen, setBloodProductModalOpen] = useState(false);
   const [bloodProductSearch, setBloodProductSearch] = useState("");
   const [bloodProductItemId, setBloodProductItemId] = useState<number | null>(null);
-  const [showBloodProductDropdown, setShowBloodProductDropdown] = useState(false);
+  const [, setShowBloodProductDropdown] = useState(false);
   const [bloodProductDate, setBloodProductDate] = useState(() => toDateInput(Date.now()));
   const [bloodProductTime, setBloodProductTime] = useState(() => toTimeInput(Date.now()));
   const [bloodProductVolumeMl, setBloodProductVolumeMl] = useState("");
@@ -1139,24 +1149,19 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
   const medicationSearchInputRef = useRef<HTMLInputElement | null>(null);
   const medicationBolusAmountInputRef = useRef<HTMLInputElement | null>(null);
   const medicationBolusOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const bloodProductOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const bloodProductVolumeRef = useRef<HTMLInputElement | null>(null);
   const [fluidModalOpen, setFluidModalOpen] = useState(false);
   const [fluidSearch, setFluidSearch] = useState("");
   const [fluidItemId, setFluidItemId] = useState<number | null>(null);
-  const [showFluidDropdown, setShowFluidDropdown] = useState(false);
+  const [, setShowFluidDropdown] = useState(false);
   const [fluidDate, setFluidDate] = useState(() => toDateInput(Date.now()));
   const [fluidTime, setFluidTime] = useState(() => toTimeInput(Date.now()));
-  const [fluidEntryMode, setFluidEntryMode] = useState<"bolus" | "timed" | "running">("bolus");
+  const [fluidEntryMode, setFluidEntryMode] = useState<"bolus" | "drip">("bolus");
   const [fluidVolumeMl, setFluidVolumeMl] = useState("");
-  const [fluidOverMin, setFluidOverMin] = useState("");
   const [fluidRateMlHr, setFluidRateMlHr] = useState("");
   const [fluidNote, setFluidNote] = useState("");
   const [fluidSaving, setFluidSaving] = useState(false);
   const [fluidError, setFluidError] = useState("");
   const [fluidEditRunId, setFluidEditRunId] = useState<number | null>(null);
-  const fluidOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const fluidFirstFieldRef = useRef<HTMLInputElement | null>(null);
 
   const detailedGroups = useMemo(() => groupRows.length ? groupRows.map(row => ({ id: row.code, label: row.display_name, kind: row.kind, category: row.code, isActive: row.is_active !== 0 })) : DETAILED_GROUPS, [groupRows]);
   const detailedGroupById = useMemo(() => new Map(detailedGroups.map(group => [group.id, group])), [detailedGroups]);
@@ -1879,18 +1884,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       ),
     [currentItems],
   );
-  const filteredBloodProductItems = useMemo(() => {
-    const q = normalizeToken(bloodProductSearch);
-    if (!q) return bloodProductItems.slice(0, 12);
-    if (q.length < 2) return [];
-    return bloodProductItems
-      .filter(item => {
-        const name = normalizeToken(item.name);
-        const code = normalizeToken(item.code);
-        return name.includes(q) || code.includes(q);
-      })
-      .slice(0, 12);
-  }, [bloodProductItems, bloodProductSearch]);
   const filteredMedDripItems = useMemo(() => {
     const keyword = normalizeToken(medDripSearch);
     const rankedBase = [...medDripItems].sort(
@@ -1982,19 +1975,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       ),
     [currentItems],
   );
-  const filteredFluidItems = useMemo(() => {
-    const q = normalizeToken(fluidSearch);
-    const sorted = [...fluidItems].sort((a, b) => a.name.localeCompare(b.name));
-    if (!q) return sorted.slice(0, 12);
-    if (q.length < 2) return [];
-    return sorted
-      .filter(
-        item =>
-          normalizeToken(item.name).includes(q) ||
-          normalizeToken(item.code || "").includes(q),
-      )
-      .slice(0, 12);
-  }, [fluidItems, fluidSearch]);
   const medSearchFluidMatches = useMemo(() => {
     const keyword = normalizeToken(itemSearch);
     if (!keyword || keyword.length < 2 || filteredSearchItems.length > 0) return [];
@@ -2672,7 +2652,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setFluidTime(toTimeInput(Date.now()));
     setFluidEntryMode("bolus");
     setFluidVolumeMl("");
-    setFluidOverMin("");
     setFluidRateMlHr("");
     setFluidNote("");
     setFluidError("");
@@ -2690,7 +2669,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setFluidTime(toTimeInput(now));
     setFluidEntryMode("bolus");
     setFluidVolumeMl("");
-    setFluidOverMin("");
     setFluidRateMlHr("");
     setFluidNote("");
     setFluidError("");
@@ -2706,7 +2684,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setFluidTime(toTimeInput(Date.now()));
     setFluidEntryMode("bolus");
     setFluidVolumeMl("");
-    setFluidOverMin("");
     setFluidRateMlHr("");
     setFluidNote("");
     setFluidError("");
@@ -2746,26 +2723,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setFluidItemId(item.id);
     setFluidSearch(item.name);
     setShowFluidDropdown(false);
-    window.setTimeout(() => {
-      fluidFirstFieldRef.current?.focus();
-      fluidFirstFieldRef.current?.select();
-    }, 0);
-  };
-
-  const handleFluidModalKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (fluidSaving) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      closeFluidModal();
-      return;
-    }
-    if (e.key !== "Enter" || e.shiftKey) return;
-    if ((e.target as HTMLElement)?.tagName === "TEXTAREA") return;
-    if (showFluidDropdown) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void saveFluid();
   };
 
   const saveFluid = async () => {
@@ -2818,8 +2775,14 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
     setFluidSaving(true);
     setFluidError("");
     try {
-      if (fluidEntryMode === "running") {
+      if (fluidEntryMode === "drip") {
         const rate = Number(fluidRateMlHr);
+        const volumeMl = Number(fluidVolumeMl);
+        if (!Number.isFinite(volumeMl) || volumeMl <= 0) {
+          setFluidError("Prepared volume must be > 0");
+          setFluidSaving(false);
+          return;
+        }
         if (!Number.isFinite(rate) || rate <= 0) {
           setFluidError("Rate must be > 0");
           setFluidSaving(false);
@@ -2827,7 +2790,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
         }
         await createCaseIoDrip(caseId, {
           actor,
-          reason: "io-balance fluid running drip entry",
+          reason: "io-balance fluid drip entry",
           run: {
             item_id: selectedFluidItem.id,
             kind: "fluid",
@@ -2835,46 +2798,11 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
             route: "IV",
             entry_mode: "drip",
             include_in_balance: true,
-            note: fluidNote.trim() || undefined,
+            note: [fluidNote.trim(), `totalVolumeMl:${round2(volumeMl)}`].filter(Boolean).join(" | "),
           },
           segment: {
             ts_from: ts,
             rate_value: Math.round(rate * 10) / 10,
-            rate_unit: "ml/hr",
-            include_in_balance: true,
-          },
-        });
-      } else if (fluidEntryMode === "timed") {
-        const vol = Number(fluidVolumeMl);
-        if (!Number.isFinite(vol) || vol <= 0) {
-          setFluidError("Volume must be > 0");
-          setFluidSaving(false);
-          return;
-        }
-        const overMin = Number(fluidOverMin);
-        if (!Number.isFinite(overMin) || overMin <= 0) {
-          setFluidError("Over min must be > 0");
-          setFluidSaving(false);
-          return;
-        }
-        const endTs = ts + overMin * 60_000;
-        const rateMlHr = vol / (overMin / 60);
-        await createCaseIoDrip(caseId, {
-          actor,
-          reason: "io-balance fluid over-time entry",
-          run: {
-            item_id: selectedFluidItem.id,
-            kind: "fluid",
-            started_at: ts,
-            route: "IV",
-            entry_mode: "drip",
-            include_in_balance: true,
-            note: fluidNote.trim() || undefined,
-          },
-          segment: {
-            ts_from: ts,
-            ts_to: endTs,
-            rate_value: Math.round(rateMlHr * 10) / 10,
             rate_unit: "ml/hr",
             include_in_balance: true,
           },
@@ -2928,23 +2856,6 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       medDripAmountInputRef.current?.focus();
       medDripAmountInputRef.current?.select();
     }, 0);
-  };
-
-  const handleBloodProductModalKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (bloodProductSaving) return;
-    const target = e.target as HTMLElement | null;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      closeBloodProductModal();
-      return;
-    }
-    if (e.key !== "Enter" || e.shiftKey) return;
-    if (target?.tagName === "TEXTAREA") return;
-    if (showBloodProductDropdown) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void saveBloodProduct();
   };
 
   const handleMedDripModalKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -3873,7 +3784,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-[var(--app-text)]">{group.itemName}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[var(--app-muted)]">
-                      <span>{group.typeLabel}</span>
+                      <span>{group.kind === "fluid" ? "Fluid" : group.typeLabel}</span>
                       {group.route ? <><span aria-hidden="true">•</span><span>{group.route}</span></> : null}
                       <span aria-hidden="true">•</span>
                       <span>Infusion</span>
@@ -3907,13 +3818,13 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                       <span>{group.typeLabel}</span>
                       {group.route ? <><span aria-hidden="true">•</span><span>{group.route}</span></> : null}
                       <span aria-hidden="true">•</span>
-                      <span>{group.displayMode === "drip" ? "Infusion" : group.displayMode === "output" ? "Output" : "Bolus"}</span>
+                      <span>{group.displayMode === "drip" ? "Drip" : group.displayMode === "output" ? "Output" : "Bolus"}</span>
                     </div>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]">
-                    Total
+                    {group.displayMode === "drip" ? "Infused" : "Total"}
                   </div>
                   <div className="text-lg font-semibold tabular-nums text-[var(--app-text)]">{totalText || `0 ${normalizeDisplayUnit(group.kind, group.itemUnit)}`}</div>
                   {group.runId != null ? (
@@ -3970,7 +3881,7 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                   </div>
                 ) : (
                   (() => {
-                    if (!(group.kind === "med" && group.displayMode === "drip" && group.runId != null)) {
+                    if (!(group.displayMode === "drip" && group.runId != null)) {
                       return (
                         <div className="mt-0.5 space-y-0.5">
                           {group.segments.map((segmentText, idx) => (
@@ -4001,10 +3912,10 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                     }
                     const isMedicationInfusion = group.kind === "med";
                     return (
-                      <div className="mt-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)]/70 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                      <div className={`${isMedicationInfusion ? "mt-2 rounded-xl border" : "border-t"} border-[var(--app-border)] bg-[var(--app-control-bg)]/70 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]`}>
                         <div className="flex items-center gap-3">
                           <div className="shrink-0">
-                            {snapshot.isUndiluted ? (
+                            {isMedicationInfusion && snapshot.isUndiluted ? (
                               <div className={`relative h-16 w-10 overflow-hidden rounded-md border ${isMedicationInfusion ? "border-violet-400/45 bg-violet-50 dark:bg-violet-950/25" : "border-cyan-400/45 bg-cyan-50 dark:bg-cyan-950/25"}`}>
                                 <div
                                   className={`absolute bottom-1 left-1 right-1 overflow-hidden rounded-sm transition-all duration-700 ${isMedicationInfusion ? "bg-violet-400/80" : "bg-cyan-400/80"}`}
@@ -4046,8 +3957,13 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                                 <span className="rounded-full border border-rose-400/40 bg-rose-500/12 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:text-rose-200">
                                   Stopped {snapshot.stoppedText}
                                 </span>
-                              ) : null}
-                              <span className="text-[var(--app-text)]/85">{snapshot.carrier}</span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/12 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-200">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                                  Running
+                                </span>
+                              )}
+                              {isMedicationInfusion ? <span className="text-[var(--app-text)]/85">{snapshot.carrier}</span> : null}
                               {snapshot.preparedText ? <span className="text-[var(--app-text)]/85">{snapshot.preparedText}</span> : null}
                               {snapshot.exceedsPreparedVolume ? (
                                 <span className="rounded-full border border-amber-400/40 bg-amber-500/12 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-200">
@@ -4055,15 +3971,17 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
                                 </span>
                               ) : null}
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className={`grid gap-2 ${isMedicationInfusion ? "grid-cols-2" : "grid-cols-1"}`}>
                               <div className="rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-3 py-2">
                                 <div className="text-[10px] uppercase tracking-wide text-cyan-700 dark:text-cyan-200">Rate</div>
                                 <div className="text-xl font-semibold text-[var(--app-text)]">{snapshot.rateText}</div>
                               </div>
-                              <div className="rounded-lg border border-violet-400/35 bg-violet-500/10 px-3 py-2">
-                                <div className="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-200">Dose</div>
-                                <div className="text-xl font-semibold text-[var(--app-text)]">{snapshot.doseText}</div>
-                              </div>
+                              {isMedicationInfusion ? (
+                                <div className="rounded-lg border border-violet-400/35 bg-violet-500/10 px-3 py-2">
+                                  <div className="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-200">Dose</div>
+                                  <div className="text-xl font-semibold text-[var(--app-text)]">{snapshot.doseText}</div>
+                                </div>
+                              ) : null}
                             </div>
                             <div className="space-y-1">
                               <div className="flex items-center justify-between text-[11px] text-[var(--app-muted)]">
@@ -5992,545 +5910,84 @@ export default function InputOutputBalanceView({ caseStatus, mode = "current" }:
       ) : null}
 
       {bloodProductModalOpen ? (
-        <div
-          className="app-theme-scope io-modal-backdrop"
-          onMouseDown={closeBloodProductModal}
-        >
-          <div
-            className="io-modal w-full max-w-3xl p-4 space-y-3"
-            role="dialog"
-            aria-modal="true"
-            onMouseDown={e => e.stopPropagation()}
-            onKeyDown={handleBloodProductModalKeyDown}
-          >
-            {ioModalPatientContext}
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold leading-none">Blood product</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-medium leading-none">Blood Product</span>
-                  <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-rose-500/20 text-rose-300">
-                    Blood
-                  </span>
-                </div>
-                <div className="text-xs text-[var(--app-muted)]">
-                  Search product, set time, volume, and blood bag details.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={closeBloodProductModal}
-                className={secondaryButton}
-                disabled={bloodProductSaving}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="relative">
-              <input
-                autoFocus
-                className="w-full rounded border px-3 py-2 text-sm"
-                placeholder="Search blood product..."
-                value={bloodProductSearch}
-                onChange={e => {
-                  setBloodProductSearch(e.target.value);
-                  setBloodProductItemId(null);
-                  setShowBloodProductDropdown(true);
-                }}
-                onFocus={() => setShowBloodProductDropdown(true)}
-                onKeyDown={e => {
-                  const matches = filteredBloodProductItems;
-                  if (!matches.length || !showBloodProductDropdown) return;
-                  if ((e.key === "Tab" && !e.shiftKey) || e.key === "Enter") {
-                    e.preventDefault();
-                    if (e.key === "Enter" || matches.length === 1) {
-                      setBloodProductItemId(matches[0].id);
-                      setBloodProductSearch(matches[0].name);
-                      setShowBloodProductDropdown(false);
-                      window.requestAnimationFrame(() => bloodProductVolumeRef.current?.focus());
-                    } else {
-                      bloodProductOptionRefs.current[0]?.focus();
-                    }
-                  }
-                }}
-              />
-              {showBloodProductDropdown ? (
-                <>
-                  <div
-                    className="fixed inset-0 z-0"
-                    onMouseDown={() => setShowBloodProductDropdown(false)}
-                  />
-                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg">
-                    {filteredBloodProductItems.length > 0 ? (
-                      filteredBloodProductItems.map((item, index) => (
-                        <button
-                          key={`blood-product-item-${item.id}`}
-                          type="button"
-                          ref={el => { bloodProductOptionRefs.current[index] = el; }}
-                          className="w-full border-b border-[var(--app-border)] px-3 py-2 text-left text-sm hover:bg-[var(--app-hover-bg)] last:border-0"
-                          onClick={() => { setBloodProductItemId(item.id); setBloodProductSearch(item.name); setShowBloodProductDropdown(false); window.requestAnimationFrame(() => bloodProductVolumeRef.current?.focus()); }}
-                          onKeyDown={e => {
-                            if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); bloodProductOptionRefs.current[Math.min(index + 1, filteredBloodProductItems.length - 1)]?.focus(); return; }
-                            if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); if (index === 0) { (e.currentTarget.closest(".relative")?.querySelector("input") as HTMLInputElement | null)?.focus(); } else { bloodProductOptionRefs.current[index - 1]?.focus(); } return; }
-                            if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) { e.preventDefault(); e.stopPropagation(); setBloodProductItemId(item.id); setBloodProductSearch(item.name); setShowBloodProductDropdown(false); window.requestAnimationFrame(() => bloodProductVolumeRef.current?.focus()); }
-                          }}
-                        >
-                          <div className="font-medium">{item.name}</div>
-                          <div className="flex justify-between text-xs text-[var(--app-muted)]">
-                            <span>Blood Product</span>
-                            <span>{item.default_unit || "ml"}</span>
-                          </div>
-                        </button>
-                      ))
-                    ) : bloodProductSearch.trim().length > 0 &&
-                      bloodProductSearch.trim().length < 2 ? (
-                      <div className="p-3 text-sm text-[var(--app-muted)] italic">
-                        Type at least 2 characters...
-                      </div>
-                    ) : bloodProductSearch.trim() ? (
-                      <div className="p-3 text-sm text-[var(--app-muted)] italic">
-                        No matches found
-                      </div>
-                    ) : (
-                      <div className="p-3 text-sm text-[var(--app-muted)] italic">
-                        Start typing to search...
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : null}
-            </div>
-
-            <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Route</label>
-              <div className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5">
-                IV
-              </div>
-              <div />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Date</label>
-              <input
-                className="rounded border px-2 py-1.5"
-                value={bloodProductDate}
-                onChange={e => setBloodProductDate(formatDateInputDDMMYYYY(e.target.value))}
-                onBlur={e => {
-                  const normalized = normalizeDateInputDDMMYYYY(e.target.value);
-                  if (normalized) setBloodProductDate(normalized);
-                }}
-                placeholder="dd/mm/yyyy"
-              />
-              <input
-                className="rounded border px-2 py-1.5"
-                value={bloodProductTime}
-                onChange={e => setBloodProductTime(formatTimeInputHHMM(e.target.value))}
-                onBlur={e => {
-                  const normalized = normalizeTimeInputHHMM(e.target.value);
-                  if (normalized) setBloodProductTime(normalized);
-                }}
-                placeholder="HH:mm"
-              />
-            </div>
-
-            <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Blood Group</label>
-              <select
-                className="rounded border px-2 py-1.5"
-                value={bloodProductGroup}
-                onChange={e => setBloodProductGroup(e.target.value)}
-              >
-                <option value="">{selectedBloodProductType ? "Select group" : "Optional"}</option>
-                {BLOOD_GROUP_OPTIONS.map(group => (
-                  <option key={`quick-blood-group-${group}`} value={group}>
-                    {group}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-[var(--app-muted)]">
-                {selectedBloodProductType || ""}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Bag No.</label>
-              <input
-                className="rounded border px-2 py-1.5"
-                value={bloodProductBagNo}
-                onChange={e => setBloodProductBagNo(e.target.value)}
-                placeholder="Required"
-              />
-              <div />
-            </div>
-
-            <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Volume</label>
-              <input
-                ref={bloodProductVolumeRef}
-                type="number"
-                min="0"
-                step="0.01"
-                className="rounded border px-2 py-1.5"
-                value={bloodProductVolumeMl}
-                onChange={e => setBloodProductVolumeMl(e.target.value)}
-                placeholder="Volume"
-              />
-              <div className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-2 py-1.5 text-[var(--app-muted)]">
-                mL
-              </div>
-            </div>
-
-            <div className="grid grid-cols-[110px_1fr_120px] gap-2 items-center text-sm">
-              <label className="text-[var(--app-muted)]">Note</label>
-              <input
-                className="rounded border px-2 py-1.5"
-                value={bloodProductNote}
-                onChange={e => setBloodProductNote(e.target.value)}
-                placeholder="Optional note"
-              />
-              <div />
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeBloodProductModal}
-                className={secondaryButton}
-                disabled={bloodProductSaving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveBloodProduct()}
-                disabled={bloodProductSaving}
-                className={`${primaryButton} ${bloodProductSaving ? primaryDisabled : primaryEnabled}`}
-              >
-                {bloodProductSaving ? "Saving..." : "Save"}
-              </button>
-            </div>
-
-            {bloodProductError ? (
-              <div className="text-xs text-red-600 dark:text-red-400">{bloodProductError}</div>
-            ) : null}
-          </div>
-        </div>
+        <BloodProductEntryModal
+          patientContext={ioModalPatientContext}
+          items={bloodProductItems}
+          selectedItemId={bloodProductItemId}
+          search={bloodProductSearch}
+          date={bloodProductDate}
+          time={bloodProductTime}
+          volumeMl={bloodProductVolumeMl}
+          bloodGroup={bloodProductGroup}
+          bagNumber={bloodProductBagNo}
+          note={bloodProductNote}
+          saving={bloodProductSaving}
+          error={bloodProductError}
+          bloodGroupRequired={selectedBloodProductType != null}
+          onClose={closeBloodProductModal}
+          onSave={() => void saveBloodProduct()}
+          onSelectItem={item => {
+            setBloodProductItemId(item.id);
+            setBloodProductSearch(item.name);
+          }}
+          onSearchChange={value => {
+            setBloodProductSearch(value);
+            setBloodProductItemId(null);
+          }}
+          onDateChange={value => setBloodProductDate(formatDateInputDDMMYYYY(value))}
+          onDateBlur={value => {
+            const normalized = normalizeDateInputDDMMYYYY(value);
+            if (normalized) setBloodProductDate(normalized);
+          }}
+          onTimeChange={value => setBloodProductTime(formatTimeInputHHMM(value))}
+          onTimeBlur={value => {
+            const normalized = normalizeTimeInputHHMM(value);
+            if (normalized) setBloodProductTime(normalized);
+          }}
+          onVolumeChange={setBloodProductVolumeMl}
+          onBloodGroupChange={setBloodProductGroup}
+          onBagNumberChange={setBloodProductBagNo}
+          onNoteChange={setBloodProductNote}
+        />
       ) : null}
 
       {fluidModalOpen ? (
-        <div
-          className="app-theme-scope io-modal-backdrop"
-          onMouseDown={closeFluidModal}
-        >
-          <div
-            className="io-modal w-full max-w-xl p-5 space-y-4"
-            role="dialog"
-            aria-modal="true"
-            data-fluid-modal
-            onMouseDown={e => e.stopPropagation()}
-            onKeyDown={handleFluidModalKeyDown}
-          >
-            {ioModalPatientContext}
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold leading-none">Fluid</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-medium leading-none">Fluid</span>
-                  <span className="rounded px-1.5 py-0.5 text-[10px] font-bold leading-none bg-cyan-500/20 text-cyan-300">
-                    {fluidEditRunId != null
-                      ? "Drip"
-                      : fluidEntryMode === "running"
-                        ? "Running Drip"
-                        : fluidEntryMode === "timed"
-                          ? "Timed Drip"
-                          : "Bolus"}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={closeFluidModal}
-                className={secondaryButton}
-                disabled={fluidSaving}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-3 items-start text-sm">
-              <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Fluid</label>
-              <div className="relative">
-              <input
-                autoFocus
-                className="w-full rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm"
-                placeholder="Search fluid..."
-                value={fluidSearch}
-                onChange={e => {
-                  setFluidSearch(e.target.value);
-                  setFluidItemId(null);
-                  setShowFluidDropdown(true);
-                }}
-                onFocus={() => setShowFluidDropdown(true)}
-                onKeyDown={e => {
-                  if (
-                    showFluidDropdown &&
-                    filteredFluidItems.length > 0 &&
-                    (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey))
-                  ) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (e.key === "Enter" || filteredFluidItems.length === 1) {
-                      selectFluidItem(filteredFluidItems[0]);
-                    } else {
-                      fluidOptionRefs.current[0]?.focus();
-                    }
-                  }
-                }}
-              />
-              {showFluidDropdown ? (
-                <>
-                  <div
-                    className="fixed inset-0 z-0"
-                    onMouseDown={() => setShowFluidDropdown(false)}
-                  />
-                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg">
-                    {filteredFluidItems.length > 0 ? (
-                      filteredFluidItems.map((item, index) => (
-                        <button
-                          key={`fluid-modal-item-${item.id}`}
-                          type="button"
-                          ref={element => {
-                            fluidOptionRefs.current[index] = element;
-                          }}
-                          className="w-full border-b border-[var(--app-border)] px-3 py-2 text-left text-sm hover:bg-[var(--app-hover-bg)] last:border-0"
-                          onClick={() => selectFluidItem(item)}
-                          onKeyDown={e => {
-                            if (e.key === "ArrowDown") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              fluidOptionRefs.current[
-                                Math.min(index + 1, filteredFluidItems.length - 1)
-                              ]?.focus();
-                              return;
-                            }
-                            if (e.key === "ArrowUp") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (index === 0) {
-                                const input = e.currentTarget
-                                  .closest(".relative")
-                                  ?.querySelector("input");
-                                if (input instanceof HTMLInputElement) input.focus();
-                              } else {
-                                fluidOptionRefs.current[index - 1]?.focus();
-                              }
-                              return;
-                            }
-                            if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              selectFluidItem(item);
-                            }
-                          }}
-                        >
-                          <div className="font-medium">{item.name}</div>
-                          <div className="text-xs text-[var(--app-muted)]">mL</div>
-                        </button>
-                      ))
-                    ) : fluidSearch.trim().length > 0 && fluidSearch.trim().length < 2 ? (
-                      <div className="p-3 text-sm text-[var(--app-muted)] italic">
-                        Type at least 2 characters...
-                      </div>
-                    ) : fluidSearch.trim() ? (
-                      <div className="p-3 text-sm text-[var(--app-muted)] italic">
-                        No matches found
-                      </div>
-                    ) : (
-                      <div className="p-3 text-sm text-[var(--app-muted)] italic">
-                        Start typing to search...
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : null}
-              </div>
-
-              {fluidEditRunId == null ? (
-                <>
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Mode</label>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { id: "bolus", label: "Bolus" },
-                      { id: "timed", label: "Timed Drip" },
-                      { id: "running", label: "Running Drip" },
-                    ].map(mode => {
-                      const active = fluidEntryMode === mode.id;
-                      return (
-                        <button
-                          key={`fluid-mode-${mode.id}`}
-                          type="button"
-                          className={`rounded border px-3 py-1.5 text-sm ${
-                            active
-                              ? "border-cyan-400 bg-cyan-500/20 text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.25)]"
-                              : "border-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--app-hover-bg)]"
-                          }`}
-                          onClick={() => setFluidEntryMode(mode.id as "bolus" | "timed" | "running")}
-                          disabled={fluidSaving}
-                        >
-                          {mode.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : null}
-
-              {fluidEditRunId != null ? (
-                <>
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Rate</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={fluidFirstFieldRef}
-                      type="number"
-                      min="0"
-                      step="1"
-                      className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                      value={fluidRateMlHr}
-                      onChange={e => setFluidRateMlHr(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className="text-[var(--app-muted)]">mL/hr</span>
-                  </div>
-                </>
-              ) : fluidEntryMode === "running" ? (
-                <>
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Rate</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={fluidFirstFieldRef}
-                      type="number"
-                      min="0"
-                      step="1"
-                      className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                      value={fluidRateMlHr}
-                      onChange={e => setFluidRateMlHr(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className="text-[var(--app-muted)]">mL/hr</span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">
-                    {fluidEntryMode === "timed" ? "Volume / Time" : "Volume"}
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={fluidFirstFieldRef}
-                      type="number"
-                      min="0"
-                      step="1"
-                      className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                      value={fluidVolumeMl}
-                      onChange={e => setFluidVolumeMl(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className="text-[var(--app-muted)]">mL</span>
-                    {fluidEntryMode === "timed" ? (
-                      <>
-                        <input
-                          type="number"
-                          min="0"
-                          step="5"
-                          className="w-24 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                          value={fluidOverMin}
-                          onChange={e => setFluidOverMin(e.target.value)}
-                          placeholder="over"
-                          onKeyDown={e => {
-                            if (e.key === "Tab" && !e.shiftKey) {
-                              e.preventDefault();
-                              const modal = e.currentTarget.closest("[data-fluid-modal]");
-                              const timeInput = modal?.querySelector<HTMLInputElement>("[data-fluid-time]");
-                              timeInput?.focus();
-                              timeInput?.select();
-                            }
-                          }}
-                        />
-                        <span className="text-[var(--app-muted)]">min</span>
-                      </>
-                    ) : null}
-                  </div>
-                </>
-              )}
-
-              <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">
-                {fluidEditRunId != null ? "Time" : "Start"}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                  value={fluidDate}
-                  onChange={e => setFluidDate(formatDateInputDDMMYYYY(e.target.value))}
-                  onBlur={e => {
-                    const normalized = normalizeDateInputDDMMYYYY(e.target.value);
-                    if (normalized) setFluidDate(normalized);
-                  }}
-                  placeholder="dd/mm/yyyy"
-                  tabIndex={-1}
-                />
-                <input
-                  data-fluid-time
-                  className="flex-1 rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                  value={fluidTime}
-                  onChange={e => setFluidTime(formatTimeInputHHMM(e.target.value))}
-                  onBlur={e => {
-                    const normalized = normalizeTimeInputHHMM(e.target.value);
-                    if (normalized) setFluidTime(normalized);
-                  }}
-                  placeholder="HH:mm"
-                />
-              </div>
-
-              <label className="pt-2 text-xs font-medium text-[var(--app-muted)] uppercase tracking-wide">Note</label>
-              <input
-                className="rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2"
-                value={fluidNote}
-                onChange={e => setFluidNote(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-
-            {fluidError ? (
-              <div className="text-xs text-red-600 dark:text-red-400">{fluidError}</div>
-            ) : null}
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--app-border)]">
-              <button
-                type="button"
-                onClick={closeFluidModal}
-                className={secondaryButton}
-                disabled={fluidSaving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveFluid()}
-                disabled={fluidSaving}
-                className={`${primaryButton} ${fluidSaving ? primaryDisabled : primaryEnabled}`}
-              >
-                {fluidSaving
-                  ? "Saving..."
-                  : fluidEditRunId != null
-                    ? "Save Changes"
-                    : fluidEntryMode === "running"
-                      ? "Start Drip"
-                      : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <FluidEntryModal
+          patientContext={ioModalPatientContext}
+          items={fluidItems}
+          selectedItemId={fluidItemId}
+          search={fluidSearch}
+          mode={fluidEditRunId != null ? "drip" : fluidEntryMode}
+          volumeMl={fluidVolumeMl}
+          rateMlHr={fluidRateMlHr}
+          date={fluidDate}
+          time={fluidTime}
+          note={fluidNote}
+          saving={fluidSaving}
+          error={fluidError}
+          editing={fluidEditRunId != null}
+          onClose={closeFluidModal}
+          onSave={() => void saveFluid()}
+          onSelectItem={selectFluidItem}
+          onSearchChange={value => {
+            setFluidSearch(value);
+            setFluidItemId(null);
+          }}
+          onModeChange={setFluidEntryMode}
+          onVolumeChange={setFluidVolumeMl}
+          onRateChange={setFluidRateMlHr}
+          onDateChange={value => setFluidDate(formatDateInputDDMMYYYY(value))}
+          onDateBlur={value => {
+            const normalized = normalizeDateInputDDMMYYYY(value);
+            if (normalized) setFluidDate(normalized);
+          }}
+          onTimeChange={value => setFluidTime(formatTimeInputHHMM(value))}
+          onTimeBlur={value => {
+            const normalized = normalizeTimeInputHHMM(value);
+            if (normalized) setFluidTime(normalized);
+          }}
+          onNoteChange={setFluidNote}
+        />
       ) : null}
 
       {changeRateTarget != null ? (

@@ -17,14 +17,38 @@ router=APIRouter(prefix="/api/case",tags=["clinical entry"])
 def patient(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     hn=text(payload.get("hn"))
     if not hn: raise HTTPException(400,"hn is required")
+    field_map={
+        "an":"an","idType":"notype","idCard":"id_card","titleTh":"title_th","titleEn":"title_en",
+        "firstName":"first_name","lastName":"last_name","firstNameEn":"first_name_en","lastNameEn":"last_name_en",
+        "sex":"sex","dob":"dob","ageText":"age_text","bloodGroupABO":"blood_group_abo",
+        "bloodGroupRh":"blood_group_rh","race":"race","ethnicity":"ethnicity","religion":"religion",
+        "maritalStatus":"marital_status","presentAddress":"present_address","presentProvince":"present_province",
+        "legalAddress":"legal_address","legalProvince":"legal_province","mobile":"mobile","contactName":"contact_name",
+        "contactTel":"contact_tel","contactRelation":"relation_desc","nationality":"nationality",
+    }
+    values={"hn":hn}
+    for source,target in field_map.items():
+        if source in payload: values[target]=text(payload.get(source))
+    if "weightKg" in payload: values["weight_kg"]=number(payload.get("weightKg"),"weightKg",0)
+    if "heightCm" in payload: values["height_cm"]=number(payload.get("heightCm"),"heightCm",0)
+    display_name=(" ".join(filter(None,(values.get("title_th"),values.get("first_name"),values.get("last_name"))))
+        or " ".join(filter(None,(values.get("title_en"),values.get("first_name_en"),values.get("last_name_en")))) or None)
     with database.transaction():
-        before=database.execute("SELECT * FROM cases WHERE id=%s FOR UPDATE",(case_id,)).fetchone()
-        if not before: raise HTTPException(404,"case not found")
+        before_case=editable_case(database,case_id)
+        before_patient=database.execute("SELECT * FROM case_his_patient WHERE case_id=%s FOR UPDATE",(case_id,)).fetchone()
         now=now_ms()
-        update(database,"cases",case_id,{"hn":hn,"updated_at":now})
-        database.execute("UPDATE case_his_patient SET hn=%s,updated_at=%s WHERE case_id=%s",(hn,now,case_id))
-        case_audit(database,case_id,"patient.hn",{"hn":before["hn"]},{"hn":hn},actor)
-    return {"ok":True,"row":{"case_id":case_id,"hn":hn,"previous_hn":before["hn"],"updated_at":now}}
+        case_values={"hn":hn,"updated_at":now}
+        if "an" in values: case_values["admission_number"]=values["an"]
+        if display_name: case_values["patient_display_name"]=display_name
+        update(database,"cases",case_id,case_values)
+        patient_values={**values,"updated_at":now}
+        if display_name: patient_values["patient_name"]=display_name
+        if before_patient:
+            after_patient=update(database,"case_his_patient",before_patient["id"],patient_values)
+        else:
+            after_patient=insert(database,"case_his_patient",{"case_id":case_id,**patient_values,"source":"MANUAL","created_at":now})
+        case_audit(database,case_id,"patient.profile",before_patient,after_patient,actor)
+    return {"ok":True,"row":after_patient,"previous_hn":before_case["hn"],"updated_at":now}
 
 
 def save_draft(db,case_id,draft,actor):
@@ -43,6 +67,29 @@ def save_draft(db,case_id,draft,actor):
 def draft(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
     if not isinstance(payload.get("draft"),dict): raise HTTPException(400,"draft object required")
     return save_draft(database,case_id,payload["draft"],actor)
+
+
+@router.patch("/{case_id}/detail-draft")
+def patch_draft(case_id:int,payload:dict=Body(...),actor:dict=Depends(require_permission("case.chart")),database:Connection=Depends(connection)):
+    patch=payload.get("patch")
+    if not isinstance(patch,dict): raise HTTPException(400,"patch object required")
+    with database.transaction():
+        editable_case(database,case_id)
+        row=database.execute("SELECT form_draft_json FROM case_detail WHERE case_id=%s FOR UPDATE",(case_id,)).fetchone()
+        old={}
+        if row and row.get("form_draft_json"):
+            try:
+                parsed=json.loads(row["form_draft_json"]) if isinstance(row["form_draft_json"],str) else row["form_draft_json"]
+                if isinstance(parsed,dict): old=parsed
+            except (TypeError,ValueError,json.JSONDecodeError):
+                old={}
+        merged={**old,**patch}
+        now=now_ms()
+        database.execute("""INSERT INTO case_detail(case_id,created_at,updated_at,form_draft_json) VALUES (%s,%s,%s,%s)
+            ON CONFLICT(case_id) DO UPDATE SET updated_at=excluded.updated_at,form_draft_json=excluded.form_draft_json""",
+            (case_id,now,now,json.dumps(merged)))
+        case_audit(database,case_id,"form.draft.patch",old,merged,actor)
+    return {"ok":True,"case_id":case_id,"updated_at":now,"draft":merged}
 
 
 @router.delete("/{case_id}/detail-draft")

@@ -124,11 +124,8 @@ def case_status(database: Connection = Depends(connection)) -> dict:
         """
         SELECT id, hn, status, start_time, discharge_time, admission_source, identity_status
         FROM cases
-        WHERE status IN ('active', 'discharged')
-        ORDER BY
-          CASE WHEN status = 'active' THEN 0 ELSE 1 END,
-          COALESCE(discharge_time, start_time) DESC,
-          id DESC
+        WHERE status = 'active'
+        ORDER BY start_time DESC, id DESC
         LIMIT 1
         """
     ).fetchone()

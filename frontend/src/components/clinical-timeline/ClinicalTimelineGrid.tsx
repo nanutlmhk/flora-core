@@ -712,6 +712,25 @@ export default function ClinicalTimelineGrid({
                         type="button"
                         onClick={event => {
                           event.stopPropagation();
+                          onIoHeaderClick?.();
+                        }}
+                        className="app-tooltip timegrid-section-button flex h-6 w-7 shrink-0 items-center justify-center gap-[2px] rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+                        aria-label="Add I/O entry"
+                        data-tooltip="Add I/O entry"
+                      >
+                        {[
+                          "#5B8FF9",
+                          "#9B6DFF",
+                          "#39C6C8",
+                          "#E05252",
+                        ].map(color => (
+                          <span key={color} className="h-3.5 w-[3px] rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                        ))}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
                           onSectionCollapseToggle?.("io");
                         }}
                         className="timegrid-section-button grid h-6 w-6 shrink-0 place-items-center rounded hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"

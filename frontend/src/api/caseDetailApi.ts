@@ -40,6 +40,20 @@ export async function saveCaseDetailDraft(
   await throwIfError(res, "case detail draft save failed");
 }
 
+export async function patchCaseDetailDraft(
+  caseId: number,
+  patch: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${BASE}/${caseId}/detail-draft`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patch }),
+  });
+  await throwIfError(res, "case detail draft patch failed");
+  const json = (await res.json()) as { draft?: unknown };
+  return asObject(json.draft) || { ...patch };
+}
+
 export async function deleteCaseDetailDraft(caseId: number): Promise<void> {
   const res = await fetch(`${BASE}/${caseId}/detail-draft`, {
     method: "DELETE",

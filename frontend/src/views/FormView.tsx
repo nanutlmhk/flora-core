@@ -2,20 +2,37 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CaseStatus } from "../api/caseApi";
 import ConfirmDialog from "../components/common/ConfirmDialog";
 import {
-  deleteCaseDetailDraft,
   getCaseDetailDraft,
+  patchCaseDetailDraft,
   saveCaseDetailDraft,
 } from "../api/caseDetailApi";
+import { getCasePatientInfo, updateCasePatientInfo } from "../api/caseHisApi";
 import {
   formatDateInputDDMMYYYY,
   normalizeDateInputDDMMYYYY,
   normalizeTimeInputHHMM,
 } from "../utils/clinicalInput";
+import {
+  PATIENT_DRAFT_FIELD_KEYS,
+  SHARED_PATIENT_FORM_FIELD_KEYS,
+  pickDraftFields,
+} from "../utils/patientSharedFields";
 
-type FormValue = string | boolean | string[];
+type LegacyFormField = {
+  sourceForm?: string;
+  section?: string;
+  label: string;
+  value: string;
+  unit?: string;
+  recordedAt?: string;
+  mappingStatus?: "native" | "derived" | "read_only_legacy" | "unmapped";
+};
+type FormValue = string | boolean | string[] | LegacyFormField[];
 type FormState = Record<string, FormValue>;
 type FormTabId =
   | "caseInfo"
+  | "preop"
+  | "checklist"
   | "ga_ett"
   | "ga_lma"
   | "ga_tubeless"
@@ -24,7 +41,10 @@ type FormTabId =
   | "line"
   | "invasive"
   | "comorbid"
-  | "extubation";
+  | "extubation"
+  | "pacu"
+  | "pain"
+  | "outcome";
 
 const GA_TAB_IDS: FormTabId[] = ["ga_ett", "ga_lma", "ga_tubeless"];
 type AirwayTechniqueOutcome = "success" | "failure";
@@ -44,7 +64,9 @@ type AirwayTechnique = {
 };
 
 const FORM_TAB_DEFS: Array<{ id: FormTabId; label: string; removable: boolean }> = [
-  { id: "caseInfo", label: "Case Information", removable: false },
+  { id: "caseInfo", label: "Case & Plan", removable: false },
+  { id: "preop", label: "Pre-anesthesia", removable: false },
+  { id: "checklist", label: "Safety Checklist", removable: false },
   { id: "ga_ett", label: "GA ETT", removable: true },
   { id: "ga_lma", label: "GA LMA", removable: true },
   { id: "ga_tubeless", label: "GA Tubeless", removable: true },
@@ -53,11 +75,22 @@ const FORM_TAB_DEFS: Array<{ id: FormTabId; label: string; removable: boolean }>
   { id: "line", label: "Line", removable: true },
   { id: "comorbid", label: "Comorbid", removable: true },
   { id: "extubation", label: "Extubation", removable: true },
+  { id: "pacu", label: "Recovery / PACU", removable: false },
+  { id: "pain", label: "Pain", removable: true },
+  { id: "outcome", label: "Outcome", removable: false },
 ];
 
 const NON_GA_ADDABLE_TABS = FORM_TAB_DEFS.filter(t => t.removable && !GA_TAB_IDS.includes(t.id));
 
 const FORM_REQUIRED_TAB: FormTabId = "caseInfo";
+const CORE_FORM_TABS: FormTabId[] = ["caseInfo", "preop", "checklist", "pacu", "outcome"];
+const TAB_REQUIRED_FIELDS: Partial<Record<FormTabId, string[]>> = {
+  caseInfo: ["hn", "service", "anesthesiaTypes", "postoperativeDestination"],
+  preop: ["preopConsent", "preopNpoStatus", "preopAirwayAssessment"],
+  checklist: ["checklistPatientIdentity", "checklistProcedure", "checklistConsent", "checklistMachine"],
+  pacu: ["pacuArrivalTime", "pacuAirway", "pacuDestination"],
+  outcome: ["outcomeStatus"],
+};
 const AIRWAY_DETAIL_FIELDS_BY_DEVICE: Record<string, string[]> = {
   facemask: ["mask_adjunct", "opa_size", "npa_size"],
   oral_endotracheal_tube: [
@@ -102,7 +135,7 @@ function normalizeEnabledForms(v: FormValue | undefined): FormTabId[] {
   const allowed = new Set(order);
   const raw = Array.isArray(v) ? v : [];
   const seen = new Set<FormTabId>();
-  if (!seen.has(FORM_REQUIRED_TAB)) seen.add(FORM_REQUIRED_TAB);
+  for (const required of CORE_FORM_TABS) seen.add(required);
   for (const item of raw) {
     if (typeof item !== "string") continue;
     if (item === "invasive") {
@@ -120,17 +153,17 @@ interface FormViewProps {
 }
 
 const card =
-  "rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 space-y-3";
+  "rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-4 space-y-4 shadow-sm";
 const input =
-  "w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5";
+  "min-h-11 w-full rounded-xl border border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm text-[var(--app-text)] outline-none transition focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-accent)]/15";
 const inputNarrow =
-  "w-[70%] min-w-[140px] rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5";
+  "min-h-11 w-full rounded-xl border border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm text-[var(--app-text)] outline-none transition focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-accent)]/15";
 const inputCompact =
-  "w-[50%] min-w-[90px] rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5";
-const label = "text-gray-500 dark:text-gray-400";
-const primaryButton = "rounded px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700";
+  "min-h-10 w-full rounded-xl border border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm text-[var(--app-text)] outline-none transition focus:border-[var(--app-accent)]";
+const label = "text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--app-muted)]";
+const primaryButton = "min-h-10 rounded-xl bg-[var(--app-accent)] px-4 py-2 text-sm font-bold text-[var(--app-accent-contrast)] hover:brightness-105";
 const secondaryButton =
-  "rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800";
+  "min-h-10 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-4 py-2 text-sm font-semibold text-[var(--app-text)] hover:bg-[var(--app-control-bg-hover)]";
 const dangerButton =
   "rounded border border-red-400 text-red-600 dark:text-red-300 px-3 py-1.5 text-sm";
 const tabButtonBase =
@@ -553,6 +586,81 @@ function defaults(hn: string): FormState {
     cvcInsertionEventNote: "",
     comorbidDiseases: "",
     currentMedication: "",
+    preopConsent: "",
+    preopNpoStatus: "",
+    preopLastMealTime: "",
+    preopAirwayAssessment: "",
+    preopMallampati: "",
+    preopMouthOpeningCm: "",
+    preopThyromentalDistanceCm: "",
+    preopNeckMobility: "",
+    preopDentition: [],
+    preopFunctionalCapacity: "",
+    preopGcsEye: "",
+    preopGcsVerbal: "",
+    preopGcsMotor: "",
+    preopBaselineBp: "",
+    preopBaselineHr: "",
+    preopBaselineRr: "",
+    preopBaselineSpo2: "",
+    preopBaselineTemp: "",
+    preopHb: "",
+    preopHct: "",
+    preopGlucose: "",
+    preopPremedication: "",
+    preopSpecialRisk: "",
+    checklistPatientIdentity: false,
+    checklistProcedure: false,
+    checklistSite: false,
+    checklistConsent: false,
+    checklistAllergy: false,
+    checklistAirwayRisk: false,
+    checklistBloodLossRisk: false,
+    checklistBloodAvailable: false,
+    checklistMachine: false,
+    checklistAirwayEquipment: false,
+    checklistMedication: false,
+    checklistFluids: false,
+    checklistMonitoring: false,
+    checklistAntibiotic: false,
+    checklistImaging: false,
+    checklistTeamIntroduced: false,
+    checklistConcerns: "",
+    pacuArrivalTime: "",
+    pacuPlannedDestination: "",
+    pacuAirway: "",
+    pacuRespiration: "",
+    pacuOxygen: "",
+    pacuConsciousness: "",
+    pacuCirculation: "",
+    pacuActivity: "",
+    pacuPainScore: "",
+    pacuNauseaVomiting: "",
+    pacuTemperature: "",
+    pacuDrainOutput: "",
+    pacuComplication: "",
+    pacuIntervention: "",
+    pacuDischargeTime: "",
+    pacuDestination: "",
+    painAssessmentTime: "",
+    painScoreRest: "",
+    painScoreMovement: "",
+    painLocation: "",
+    painTechnique: "",
+    painCatheterSite: "",
+    painSensoryLevel: "",
+    painMotorBlock: "",
+    painSedationScore: "",
+    painNauseaVomiting: "",
+    painPruritus: "",
+    painRescueMedication: "",
+    painPlan: "",
+    outcomeStatus: "",
+    outcomeComplications: [],
+    outcomeSeverity: "",
+    outcomeLocation: "",
+    outcomeFollowUp: "",
+    outcomeNote: "",
     extubation_time: "",
     extubation_location: "",
     extubation_status: "",
@@ -562,7 +670,7 @@ function defaults(hn: string): FormState {
     airway_device_removed: "",
     suction_performed: "",
     extubation_note: "",
-    enabledForms: [FORM_REQUIRED_TAB],
+    enabledForms: CORE_FORM_TABS,
   };
 }
 
@@ -643,6 +751,11 @@ function normalizeAgeText(raw: string, maxDigits: number): string {
   return raw.replace(/\D+/g, "").slice(0, maxDigits);
 }
 
+function normalizeAgeMonthText(raw: string): string {
+  const value = normalizeAgeText(raw, 2);
+  return value ? String(Math.min(11, Number(value))) : "";
+}
+
 function dobFromAge(ageYRaw: string, ageMRaw: string): Date | null {
   const yText = ageYRaw.trim();
   const mText = ageMRaw.trim();
@@ -674,7 +787,10 @@ function clampNumeric(raw: string, min: number, max: number, decimals = 0): stri
 }
 
 function normalizeStringList(v: FormValue | undefined): string[] {
-  if (Array.isArray(v)) return v.length > 0 ? v : [""];
+  if (Array.isArray(v)) {
+    const values = v.filter((item): item is string => typeof item === "string");
+    return values.length > 0 ? values : [""];
+  }
   if (typeof v === "string") return v.trim() ? [v] : [""];
   return [""];
 }
@@ -1309,6 +1425,8 @@ export default function FormView({ caseStatus }: FormViewProps) {
   const [saveNote, setSaveNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const autoSaveReadyRef = useRef(false);
+  const lastSyncedFormRef = useRef("");
+  const patientSharedDirtyRef = useRef(new Set<string>());
   const [showSavedPreview, setShowSavedPreview] = useState(false);
   const [savedPreview, setSavedPreview] = useState("");
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -1316,14 +1434,41 @@ export default function FormView({ caseStatus }: FormViewProps) {
 
   const text = (name: string) => (typeof form[name] === "string" ? (form[name] as string) : "");
   const bool = (name: string) => form[name] === true;
-  const multi = (name: string) => (Array.isArray(form[name]) ? (form[name] as string[]) : []);
+  const multi = (name: string) => (Array.isArray(form[name]) ? form[name].filter((value): value is string => typeof value === "string") : []);
   const enabledTabs = useMemo(
     () => normalizeEnabledForms(form.enabledForms),
     [form.enabledForms],
   );
+  const completionByTab = useMemo(() => {
+    const complete = (key: string) => {
+      const value = form[key];
+      if (typeof value === "boolean") return value;
+      if (Array.isArray(value)) return value.some(item => typeof item === "string" && item.trim() !== "");
+      return typeof value === "string" && value.trim() !== "";
+    };
+    return Object.fromEntries(enabledTabs.map(tabId => {
+      const fields = TAB_REQUIRED_FIELDS[tabId] || [];
+      const done = fields.filter(complete).length;
+      return [tabId, { done, total: fields.length, percent: fields.length ? Math.round(done / fields.length * 100) : null }];
+    })) as Record<FormTabId, { done: number; total: number; percent: number | null }>;
+  }, [enabledTabs, form]);
+  const coreCompletion = useMemo(() => {
+    const totals = CORE_FORM_TABS.map(tabId => completionByTab[tabId]).filter(Boolean);
+    const done = totals.reduce((sum, item) => sum + item.done, 0);
+    const total = totals.reduce((sum, item) => sum + item.total, 0);
+    return total ? Math.round(done / total * 100) : 0;
+  }, [completionByTab]);
   const activeGaTab = enabledTabs.find(id => GA_TAB_IDS.includes(id)) ?? null;
 
-  const setText = (name: string, value: string) => setForm((p) => ({ ...p, [name]: value }));
+  const markPatientSharedDirty = (...names: string[]) => {
+    for (const name of names) {
+      if (SHARED_PATIENT_FORM_FIELD_KEYS.has(name)) patientSharedDirtyRef.current.add(name);
+    }
+  };
+  const setText = (name: string, value: string) => {
+    markPatientSharedDirty(name);
+    setForm((p) => ({ ...p, [name]: value }));
+  };
   const setBool = (name: string, value: boolean) => setForm((p) => ({ ...p, [name]: value }));
   const setAirwayDevice = (scope: "primary" | "secondary", device: string) => {
     const deviceKey = scope === "primary" ? "primary_airway_device" : "secondary_airway_device";
@@ -1397,6 +1542,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
 
   };
   const setDob = (value: string, normalize = false) => {
+    markPatientSharedDirty("dob", "ageY", "ageM");
     setForm((p) => {
       const inputValue = formatDateInputDDMMYYYY(value);
       const parsed = parseClinicalDate(inputValue);
@@ -1414,17 +1560,13 @@ export default function FormView({ caseStatus }: FormViewProps) {
       };
     });
   };
-  const setAgeText = (field: "ageY" | "ageM", value: string) => {
-    const maxDigits = field === "ageY" ? 3 : 2;
-    const next = normalizeAgeText(value, maxDigits);
-    setForm((p) => ({ ...p, [field]: next }));
-  };
   const applyAgeToDob = (ageYRaw: string, ageMRaw: string) => {
+    markPatientSharedDirty("dob", "ageY", "ageM");
     setForm((p) => {
       const ageY = normalizeAgeText(ageYRaw, 3);
-      const ageM = normalizeAgeText(ageMRaw, 2);
+      const ageM = normalizeAgeMonthText(ageMRaw);
       const derivedDob = dobFromAge(ageY, ageM);
-      if (!derivedDob) return { ...p, ageY, ageM };
+      if (!derivedDob) return { ...p, dob: ageY || ageM ? p.dob : "", ageY, ageM };
       const age = ageFromDob(derivedDob);
       return {
         ...p,
@@ -1435,6 +1577,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
     });
   };
   const loadDraftFromStorage = useCallback(() => {
+    patientSharedDirtyRef.current.clear();
     if (caseStatus.status === "IDLE") {
       autoSaveReadyRef.current = false;
       setForm(defaults(""));
@@ -1444,6 +1587,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
     const base = defaults(caseStatus.hn);
     const raw = storageKey ? localStorage.getItem(storageKey) : null;
     if (!raw) {
+      lastSyncedFormRef.current = JSON.stringify(base);
       setForm(base);
       setSaveNote("");
       return;
@@ -1598,7 +1742,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
           merged.dob = toClinicalDate(derivedDob);
           const age = ageFromDob(derivedDob);
           merged.ageY = age ? String(age.years) : normalizeAgeText(String(merged.ageY || ""), 3);
-          merged.ageM = age ? String(age.months) : normalizeAgeText(String(merged.ageM || ""), 2);
+          merged.ageM = age ? String(age.months) : normalizeAgeMonthText(String(merged.ageM || ""));
         }
       }
 
@@ -1657,9 +1801,11 @@ export default function FormView({ caseStatus }: FormViewProps) {
         parseTechniqueList(merged.secondary_airway_techniques),
       );
 
+      lastSyncedFormRef.current = JSON.stringify(merged);
       setForm(merged);
       setSaveNote("Loaded saved draft");
     } catch {
+      lastSyncedFormRef.current = JSON.stringify(base);
       setForm(base);
       setSaveNote("");
     }
@@ -1693,6 +1839,43 @@ export default function FormView({ caseStatus }: FormViewProps) {
   }, [caseStatus, storageKey, loadDraftFromStorage]);
 
   useEffect(() => {
+    let alive = true;
+    async function loadSharedPatientRecord() {
+      if (caseStatus.status === "IDLE") return;
+      try {
+        const info = await getCasePatientInfo(caseStatus.case_id);
+        if (!alive || !info) return;
+        setForm(prev => {
+          const dob = info.dob ? formatDateInputDDMMYYYY(info.dob) : normalizeCodeText(prev.dob);
+          const parsedDob = parseClinicalDate(dob);
+          const age = parsedDob ? ageFromDob(parsedDob) : null;
+          const next = {
+            ...prev,
+            hn: info.hn || caseStatus.hn,
+            an: info.an || normalizeCodeText(prev.an),
+            dob,
+            ageY: age ? String(age.years) : normalizeCodeText(prev.ageY),
+            ageM: age ? String(age.months) : normalizeCodeText(prev.ageM),
+            weightKg: info.weight_kg != null ? String(info.weight_kg) : normalizeCodeText(prev.weightKg),
+            heightCm: info.height_cm != null ? String(info.height_cm) : normalizeCodeText(prev.heightCm),
+            bloodGroupABO: info.blood_group_abo || normalizeCodeText(prev.bloodGroupABO),
+            bloodGroupRh: info.blood_group_rh || normalizeCodeText(prev.bloodGroupRh),
+          };
+          lastSyncedFormRef.current = JSON.stringify(next);
+          return next;
+        });
+        patientSharedDirtyRef.current.clear();
+      } catch {
+        // The shared draft remains the offline fallback when patient API data is unavailable.
+      }
+    }
+    void loadSharedPatientRecord();
+    return () => {
+      alive = false;
+    };
+  }, [caseStatus]);
+
+  useEffect(() => {
     if (caseStatus.status === "IDLE") return;
     const onStorageChanged = (event: Event) => {
       const custom = event as CustomEvent<{ caseId?: unknown; source?: unknown }>;
@@ -1722,8 +1905,11 @@ export default function FormView({ caseStatus }: FormViewProps) {
   // Auto-save: debounced 2s after any form change, once initial load is done
   useEffect(() => {
     if (!autoSaveReadyRef.current || caseStatus.status === "IDLE") return;
+    const signature = JSON.stringify(form);
+    if (signature === lastSyncedFormRef.current) return;
     const timer = setTimeout(() => {
       if (!autoSaveReadyRef.current) return;
+      lastSyncedFormRef.current = signature;
       setIsSaving(true);
       void save(true).finally(() => setIsSaving(false));
     }, 2000);
@@ -1736,10 +1922,14 @@ export default function FormView({ caseStatus }: FormViewProps) {
   }
 
   const reset = () => {
-    setForm(defaults(caseStatus.hn));
-    localStorage.removeItem(storageKey);
-    void deleteCaseDetailDraft(caseStatus.case_id).catch(() => {
-      // keep local reset behavior even if backend delete fails
+    const patientFields = pickDraftFields(form as Record<string, unknown>, PATIENT_DRAFT_FIELD_KEYS);
+    const next = { ...defaults(caseStatus.hn), ...patientFields, hn: caseStatus.hn } as FormState;
+    lastSyncedFormRef.current = JSON.stringify(next);
+    setForm(next);
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    patientSharedDirtyRef.current.clear();
+    void saveCaseDetailDraft(caseStatus.case_id, next as Record<string, unknown>).catch(() => {
+      // Keep the local reset while retaining the shared patient fields.
     });
     window.dispatchEvent(
       new CustomEvent("flora:form-storage-changed", {
@@ -1769,7 +1959,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
       const normalized: FormState = { ...form };
       normalized.monitoring = normalizeMonitoringList(normalized.monitoring);
       const ageY = normalizeAgeText(text("ageY"), 3);
-      const ageM = normalizeAgeText(text("ageM"), 2);
+      const ageM = normalizeAgeMonthText(text("ageM"));
       const parsedDob = parseClinicalDate(text("dob"));
       const finalDob = parsedDob || dobFromAge(ageY, ageM);
       if (finalDob) {
@@ -1796,10 +1986,39 @@ export default function FormView({ caseStatus }: FormViewProps) {
       if (!auto && normalizedExtubationTime) {
         normalized.extubation_time = normalizedExtubationTime;
       }
-      localStorage.setItem(storageKey, JSON.stringify(normalized));
-      await saveCaseDetailDraft(caseStatus.case_id, normalized as Record<string, unknown>);
+      const dirtyPatientKeys = new Set(patientSharedDirtyRef.current);
+      if (dirtyPatientKeys.size > 0) {
+        const patientPatch: Parameters<typeof updateCasePatientInfo>[1] = {
+          hn: normalizeCodeText(normalized.hn) || caseStatus.hn,
+        };
+        if (dirtyPatientKeys.has("an")) patientPatch.an = normalizeCodeText(normalized.an);
+        if (["dob", "ageY", "ageM"].some(key => dirtyPatientKeys.has(key))) {
+          patientPatch.dob = normalizeCodeText(normalized.dob);
+          patientPatch.ageText = [
+            normalizeCodeText(normalized.ageY) ? `${normalizeCodeText(normalized.ageY)}y` : "",
+            normalizeCodeText(normalized.ageM) ? `${normalizeCodeText(normalized.ageM)}m` : "",
+          ].filter(Boolean).join(" ");
+        }
+        if (dirtyPatientKeys.has("weightKg")) patientPatch.weightKg = normalizeCodeText(normalized.weightKg);
+        if (dirtyPatientKeys.has("heightCm")) patientPatch.heightCm = normalizeCodeText(normalized.heightCm);
+        if (dirtyPatientKeys.has("bloodGroupABO")) patientPatch.bloodGroupABO = normalizeCodeText(normalized.bloodGroupABO);
+        if (dirtyPatientKeys.has("bloodGroupRh")) patientPatch.bloodGroupRh = normalizeCodeText(normalized.bloodGroupRh);
+        await updateCasePatientInfo(caseStatus.case_id, patientPatch);
+      }
+
+      const draftPatch = Object.fromEntries(
+        Object.entries(normalized).filter(([key]) => !PATIENT_DRAFT_FIELD_KEYS.has(key)),
+      );
+      for (const key of dirtyPatientKeys) {
+        draftPatch[key] = normalized[key];
+      }
+      const mergedDraft = await patchCaseDetailDraft(caseStatus.case_id, draftPatch);
+      localStorage.setItem(storageKey, JSON.stringify(mergedDraft));
+      patientSharedDirtyRef.current.clear();
       if (!auto) {
-        setForm(normalized);
+        const next = { ...normalized, ...mergedDraft } as FormState;
+        lastSyncedFormRef.current = JSON.stringify(next);
+        setForm(next);
       }
       window.dispatchEvent(
         new CustomEvent("flora:form-storage-changed", {
@@ -1920,10 +2139,53 @@ export default function FormView({ caseStatus }: FormViewProps) {
       <div className={label}>{title}</div>
       <div className={`grid ${cols} gap-2`}>
         {vals.map((v) => (
-          <label key={`${key}-${v}`} className="inline-flex items-center gap-2 rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5">
+          <label key={`${key}-${v}`} className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition ${text(key) === v ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10 text-[var(--app-text)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)]"}`}>
             <input type="radio" checked={text(key) === v} onChange={() => setText(key, v)} />
             <span>{v}</span>
           </label>
+        ))}
+      </div>
+    </div>
+  );
+
+  const choiceSelect = (
+    key: string,
+    title: string,
+    vals: Array<{ value: string; label: string }>,
+    placeholder = "Choose an option",
+  ) => (
+    <label key={key} className="space-y-1">
+      <div className={label}>{title}</div>
+      <select className={input} value={text(key)} onChange={(e) => setText(key, e.target.value)}>
+        <option value="">{placeholder}</option>
+        {vals.map(({ value, label: optionLabel }) => (
+          <option key={`${key}-${value}`} value={value}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  const scorePicker = (key: string, title: string, max = 10) => (
+    <div key={key} className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className={label}>{title}</div>
+        <div className="rounded-full bg-[var(--app-control-bg)] px-3 py-1 text-sm font-semibold text-[var(--app-text)]">
+          {text(key) || "—"} / {max}
+        </div>
+      </div>
+      <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-11">
+        {Array.from({ length: max + 1 }, (_, value) => String(value)).map((value) => (
+          <button
+            key={`${key}-${value}`}
+            type="button"
+            className={`min-h-10 rounded-lg border text-sm font-semibold transition ${text(key) === value ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)]"}`}
+            onClick={() => setText(key, value)}
+            aria-pressed={text(key) === value}
+          >
+            {value}
+          </button>
         ))}
       </div>
     </div>
@@ -1983,7 +2245,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
       <div className={label}>{title}</div>
       <div className={`grid ${cols} gap-2`}>
         {vals.map((v) => (
-          <label key={`${key}-${v}`} className="inline-flex items-center gap-2 rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5">
+          <label key={`${key}-${v}`} className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition ${multi(key).includes(v) ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10 text-[var(--app-text)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)]"}`}>
             <input type="checkbox" checked={multi(key).includes(v)} onChange={() => toggle(key, v)} />
             <span>{v}</span>
           </label>
@@ -2003,7 +2265,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
       <div className={label}>{title}</div>
       <div className={`grid ${cols} gap-2`}>
         {vals.map((v) => (
-          <label key={`${key}-${v}`} className="inline-flex items-center gap-2 rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5">
+          <label key={`${key}-${v}`} className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition ${text(key) === v ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10 text-[var(--app-text)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)]"}`}>
             <input type="radio" checked={text(key) === v} onChange={() => (onSelect ? onSelect(v) : setText(key, v))} />
             <span>{codeLabel(v)}</span>
           </label>
@@ -2017,7 +2279,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
       <div className={label}>{title}</div>
       <div className={`grid ${cols} gap-2`}>
         {vals.map((v) => (
-          <label key={`${key}-${v}`} className="inline-flex items-center gap-2 rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5">
+          <label key={`${key}-${v}`} className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition ${multi(key).includes(v) ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10 text-[var(--app-text)]" : "border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)]"}`}>
             <input type="checkbox" checked={multi(key).includes(v)} onChange={() => toggle(key, v)} />
             <span>{codeLabel(v)}</span>
           </label>
@@ -2027,7 +2289,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
   );
 
   const b = (key: string, title: string) => (
-    <label key={key} className="inline-flex items-center gap-2 rounded border border-gray-200 dark:border-gray-800 px-2 py-1.5">
+    <label key={key} className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition ${bool(key) ? "border-emerald-500/60 bg-emerald-500/10" : "border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)]"}`}>
       <input type="checkbox" checked={bool(key)} onChange={(e) => setBool(key, e.target.checked)} />
       <span>{title}</span>
     </label>
@@ -2159,47 +2421,69 @@ export default function FormView({ caseStatus }: FormViewProps) {
     extubationTimeText.trim() !== "" && normalizeTimeInputHHMM(extubationTimeText) == null
       ? "Use HH:mm (24-hour)"
       : "";
+  const pacuScoreFields = ["pacuActivity", "pacuRespiration", "pacuCirculation", "pacuConsciousness", "pacuOxygen"];
+  const pacuScore = pacuScoreFields.reduce((sum, key) => sum + (Number.parseInt(text(key), 10) || 0), 0);
+  const pacuScoreRecorded = pacuScoreFields.some(key => text(key) !== "");
+  const legacyFields = Array.isArray(form.innovianLegacyFields)
+    ? form.innovianLegacyFields.filter((field): field is LegacyFormField => (
+      typeof field === "object"
+      && field !== null
+      && typeof field.label === "string"
+      && typeof field.value === "string"
+    ))
+    : [];
+  const legacyGroups = Array.from(
+    legacyFields.reduce((groups, field) => {
+      const group = field.sourceForm?.trim() || "Imported Innovian record";
+      const existing = groups.get(group) || [];
+      existing.push(field);
+      groups.set(group, existing);
+      return groups;
+    }, new Map<string, LegacyFormField[]>()),
+  );
 
   const tabClass = (tabId: FormTabId) =>
-    `${tabButtonBase} ${
+    `${tabButtonBase} min-h-11 whitespace-nowrap rounded-xl px-3 ${
       activeTab === tabId
-        ? "border-blue-500 bg-blue-600 text-white"
-        : "border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+        ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)] shadow-sm"
+        : "border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-muted)] hover:bg-[var(--app-control-bg-hover)] hover:text-[var(--app-text)]"
     }`;
 
   return (
-    <div className="app-theme-scope p-4 pb-24 space-y-4 text-gray-900 dark:text-gray-100">
+    <div className="app-theme-scope mx-auto max-w-[1500px] space-y-4 p-4 pb-24 text-[var(--app-text)]">
       <div className="sticky top-3 z-20">
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-950/95 backdrop-blur px-3 py-2 shadow-sm">
-          {enabledTabs.map(tabId => {
-            const tab = FORM_TAB_DEFS.find(item => item.id === tabId);
-            if (!tab) return null;
-            return (
-              <div key={tab.id} className="inline-flex items-center gap-1">
-                <button
-                  type="button"
-                  className={tabClass(tab.id)}
-                  onClick={() => setActiveTab(tab.id)}
-                >
-                  {tab.label}
+        <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)]/95 p-3 shadow-lg backdrop-blur">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-56">
+              <div className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--app-muted)]">Clinical documentation</div>
+              <div className="flex items-center gap-2"><h1 className="text-lg font-bold">Anesthesia record</h1><span className="rounded-full bg-[var(--app-accent)]/12 px-2 py-0.5 text-[10px] font-bold text-[var(--app-accent)]">{coreCompletion}% core complete</span></div>
+            </div>
+            <div className="min-w-48 flex-1">
+              <div className="h-1.5 overflow-hidden rounded-full bg-[var(--app-border)]"><div className="h-full rounded-full bg-[var(--app-accent)] transition-all" style={{ width: `${coreCompletion}%` }} /></div>
+            </div>
+            <div className="text-xs font-medium text-[var(--app-muted)]">{isSaving ? "Saving…" : saveNote || "Auto-save ready"}</div>
+          </div>
+
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Anesthesia record sections">
+            {enabledTabs.map(tabId => {
+              const tab = FORM_TAB_DEFS.find(item => item.id === tabId);
+              const progress = completionByTab[tabId];
+              if (!tab) return null;
+              return (
+                <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} className={tabClass(tab.id)} onClick={() => setActiveTab(tab.id)}>
+                  <span className="font-bold">{tab.label}</span>
+                  {progress?.percent != null ? <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[9px] ${progress.percent === 100 ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : "bg-black/10 dark:bg-white/10"}`}>{progress.done}/{progress.total}</span> : null}
                 </button>
-                {tab.removable ? (
-                  <button
-                    type="button"
-                    className="rounded border border-gray-300 dark:border-gray-700 px-1.5 py-1 text-xs text-gray-500 hover:text-red-500"
-                    onClick={() => removeFormTab(tab.id)}
-                    aria-label={`Remove ${tab.label}`}
-                  >
-                    x
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
-          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 dark:border-gray-800 pt-1 mt-1 w-full">
+              );
+            })}
+          </div>
+
+          <details className="mt-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2">
+            <summary className="cursor-pointer text-xs font-bold text-[var(--app-muted)]">Configure procedure-specific sections</summary>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--app-border)] pt-2">
             {/* GA type — radio, mutually exclusive */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">GA:</span>
+              <span className="text-xs font-bold text-[var(--app-muted)] shrink-0">General anesthesia:</span>
               {([null, "ga_ett", "ga_lma", "ga_tubeless"] as (FormTabId | null)[]).map(id => (
                 <label key={id ?? "none"} className="inline-flex items-center gap-1 cursor-pointer text-xs">
                   <input
@@ -2214,7 +2498,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
               ))}
             </div>
             {/* Separator */}
-            <div className="w-px h-3 bg-gray-300 dark:bg-gray-700 shrink-0" />
+            <div className="h-4 w-px shrink-0 bg-[var(--app-border)]" />
             {/* Other sections — checkboxes */}
             {NON_GA_ADDABLE_TABS.map(tab => (
               <label key={tab.id} className="inline-flex items-center gap-1 cursor-pointer text-xs">
@@ -2227,12 +2511,23 @@ export default function FormView({ caseStatus }: FormViewProps) {
                 <span>{tab.label}</span>
               </label>
             ))}
+            </div>
+          </details>
           </div>
-        </div>
       </div>
 
       <section className={`${card} ${activeTab === "caseInfo" ? "" : "hidden"}`}>
-        <h2 className="font-semibold">General Information</h2>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="font-semibold">Patient and case information</h2>
+            <p className="mt-0.5 text-xs text-[var(--app-muted)]">
+              AN, DOB, age, blood group, height, and weight stay synchronized with Patient.
+            </p>
+          </div>
+          <span className="rounded-full border border-blue-300 bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+            Shared with Patient
+          </span>
+        </div>
         <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <label className="space-y-1">
@@ -2269,8 +2564,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
                 className={inputNarrow}
                 inputMode="numeric"
                 value={text("ageY")}
-                onChange={(e) => setAgeText("ageY", e.target.value)}
-                onBlur={(e) => applyAgeToDob(e.target.value, text("ageM"))}
+                onChange={(e) => applyAgeToDob(e.target.value, text("ageM"))}
               />
             </label>
             <label className="space-y-1">
@@ -2279,8 +2573,7 @@ export default function FormView({ caseStatus }: FormViewProps) {
                 className={inputNarrow}
                 inputMode="numeric"
                 value={text("ageM")}
-                onChange={(e) => setAgeText("ageM", e.target.value)}
-                onBlur={(e) => applyAgeToDob(text("ageY"), e.target.value)}
+                onChange={(e) => applyAgeToDob(text("ageY"), e.target.value)}
               />
             </label>
             <label className="space-y-1">
@@ -2456,6 +2749,50 @@ export default function FormView({ caseStatus }: FormViewProps) {
         </div>
         {c("patientSafetyChecks", "Patient safety", options.patientSafety, "grid-cols-1 md:grid-cols-2")}
         {c("temperatureControl", "Temperature control", options.temperatureControl, "grid-cols-1 md:grid-cols-3")}
+      </section>
+
+      <section className={`${card} ${activeTab === "preop" ? "" : "hidden"}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><div className={label}>Before anesthesia</div><h2 className="text-lg font-bold">Pre-anesthetic assessment</h2><p className="text-xs text-[var(--app-muted)]">Focused risk assessment with details revealed only when clinically relevant.</p></div>
+          <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-1 text-xs font-bold text-[var(--app-muted)]">Innovian: Preanesthetic evaluation / PreOp</span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="space-y-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4">
+            <h3 className="font-bold">Readiness</h3>
+            {r("preopConsent", "Consent", ["Confirmed", "Pending", "Not applicable"], "grid-cols-3")}
+            {r("preopNpoStatus", "Fasting / NPO", ["Adequate", "Inadequate", "Emergency / unknown"], "grid-cols-3")}
+            {text("preopNpoStatus") !== "Adequate" ? t("preopLastMealTime", "Last oral intake") : null}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{s("preopFunctionalCapacity", "Functional capacity", ["< 4 METs", "4–10 METs", "> 10 METs", "Unable to assess"])}{t("preopSpecialRisk", "Special risk / precaution")}</div>
+          </div>
+          <div className="space-y-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4">
+            <h3 className="font-bold">Airway assessment</h3>
+            {r("preopAirwayAssessment", "Airway risk", ["Routine", "Potentially difficult", "Known difficult airway"], "grid-cols-3")}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{s("preopMallampati", "Mallampati", ["I", "II", "III", "IV"])}{t("preopMouthOpeningCm", "Mouth opening (cm)", "number")}{t("preopThyromentalDistanceCm", "Thyromental (cm)", "number")}{s("preopNeckMobility", "Neck mobility", ["Normal", "Limited", "Fixed"])}</div>
+            {c("preopDentition", "Dentition", ["Normal", "Loose tooth", "Denture", "Crown / bridge", "Edentulous"], "grid-cols-2 md:grid-cols-3")}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4">
+            <h3 className="font-bold">Baseline clinical state</h3>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{t("preopBaselineBp", "BP")}{t("preopBaselineHr", "HR", "number")}{t("preopBaselineRr", "RR", "number")}{t("preopBaselineSpo2", "SpO₂ (%)", "number")}{t("preopBaselineTemp", "Temp (°C)", "number")}</div>
+            <div className="grid grid-cols-3 gap-3">{t("preopGcsEye", "GCS E", "number")}{t("preopGcsVerbal", "GCS V", "number")}{t("preopGcsMotor", "GCS M", "number")}</div>
+          </div>
+          <div className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4">
+            <h3 className="font-bold">Key investigations and preparation</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{t("preopHb", "Hb")}{t("preopHct", "Hct")}{t("preopGlucose", "Glucose / DTX")}</div>
+            {a("preopPremedication", "Premedication and instructions", 3)}
+          </div>
+        </div>
+      </section>
+
+      <section className={`${card} ${activeTab === "checklist" ? "" : "hidden"}`}>
+        <div><div className={label}>Safety workflow</div><h2 className="text-lg font-bold">Anesthesia safety checklist</h2><p className="text-xs text-[var(--app-muted)]">Tap once to confirm. Unconfirmed items stay visually quiet instead of filling the page with empty inputs.</p></div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"><h3 className="font-bold">Patient and plan</h3>{b("checklistPatientIdentity", "Identity confirmed")}{b("checklistProcedure", "Procedure confirmed")}{b("checklistSite", "Site / side marked")}{b("checklistConsent", "Consent confirmed")}</div>
+          <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"><h3 className="font-bold">Risk briefing</h3>{b("checklistAllergy", "Allergy reviewed")}{b("checklistAirwayRisk", "Airway risk reviewed")}{b("checklistBloodLossRisk", "Blood-loss risk reviewed")}{b("checklistBloodAvailable", "Blood availability confirmed")}</div>
+          <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"><h3 className="font-bold">Equipment and team</h3>{b("checklistMachine", "Machine check complete")}{b("checklistAirwayEquipment", "Airway equipment ready")}{b("checklistMedication", "Medication checked")}{b("checklistFluids", "Fluid / IV equipment ready")}</div>
+        </div>
+        <details className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4"><summary className="cursor-pointer font-bold">Time-out and additional checks</summary><div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">{b("checklistMonitoring", "Monitoring ready")}{b("checklistAntibiotic", "Antibiotic plan confirmed")}{b("checklistImaging", "Essential imaging displayed")}{b("checklistTeamIntroduced", "Team introduced / concerns shared")}</div><div className="mt-3">{a("checklistConcerns", "Team concerns or exception note", 3)}</div></details>
       </section>
 
       <section className={`${card} ${activeTab === "comorbid" ? "" : "hidden"}`}>
@@ -2828,6 +3165,76 @@ export default function FormView({ caseStatus }: FormViewProps) {
         {rCode("suction_performed", "Suction performed", options.gaYesNo, "grid-cols-2")}
         {a("extubation_note", "Extubation note", 4)}
       </section>
+
+      <section className={`${card} ${activeTab === "pacu" ? "" : "hidden"}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><div className={label}>Post-anesthesia</div><h2 className="text-lg font-bold">Recovery / PACU</h2><p className="text-xs text-[var(--app-muted)]">Arrival, recovery score, complications and safe destination in one flow.</p></div>
+          <div className={`rounded-2xl border px-4 py-2 text-center ${pacuScoreRecorded && pacuScore >= 9 ? "border-emerald-500/50 bg-emerald-500/10" : "border-[var(--app-border)] bg-[var(--app-control-bg)]"}`}><div className={label}>Recovery score</div><div className="text-2xl font-black">{pacuScoreRecorded ? pacuScore : "—"}<span className="text-sm font-medium text-[var(--app-muted)]"> / 10</span></div></div>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{t("pacuArrivalTime", "Arrival time")}{s("pacuAirway", "Airway", ["Patent", "Requires support", "Artificial airway", "Obstructed"])}{s("pacuPlannedDestination", "Planned destination", ["Ward", "ICU", "Day surgery", "Home", "Other"])}</div>
+        <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4">
+          <div className="mb-3"><h3 className="font-bold">Recovery scoring</h3><p className="text-xs text-[var(--app-muted)]">Choose the current state; FLORA totals the five dimensions automatically.</p></div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {choiceSelect("pacuActivity", "Activity", [{ value: "2", label: "2 · Moves four limbs" }, { value: "1", label: "1 · Moves two limbs" }, { value: "0", label: "0 · No movement" }])}
+            {choiceSelect("pacuRespiration", "Respiration", [{ value: "2", label: "2 · Breathes and coughs" }, { value: "1", label: "1 · Limited / dyspnea" }, { value: "0", label: "0 · Apneic" }])}
+            {choiceSelect("pacuCirculation", "Circulation", [{ value: "2", label: "2 · Within 20% baseline" }, { value: "1", label: "1 · 20–50% deviation" }, { value: "0", label: "0 · Over 50% deviation" }])}
+            {choiceSelect("pacuConsciousness", "Consciousness", [{ value: "2", label: "2 · Fully awake" }, { value: "1", label: "1 · Arousable" }, { value: "0", label: "0 · Unresponsive" }])}
+            {choiceSelect("pacuOxygen", "Oxygenation", [{ value: "2", label: "2 · SpO₂ >92% on air" }, { value: "1", label: "1 · Needs oxygen" }, { value: "0", label: "0 · SpO₂ <90% with oxygen" }])}
+          </div>
+        </div>
+        {scorePicker("pacuPainScore", "Pain score")}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{s("pacuNauseaVomiting", "Nausea / vomiting", ["None", "Nausea", "Vomiting", "Persistent"])}{t("pacuTemperature", "Temperature (°C)", "number")}{t("pacuDrainOutput", "Drain / output")}</div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{a("pacuComplication", "Complication / abnormal finding", 3)}{a("pacuIntervention", "Intervention and response", 3)}</div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{t("pacuDischargeTime", "PACU discharge time")}{s("pacuDestination", "Actual destination", ["Ward", "ICU", "Day surgery", "Home", "Other"])}</div>
+      </section>
+
+      <section className={`${card} ${activeTab === "pain" ? "" : "hidden"}`}>
+        <div><div className={label}>Acute pain service</div><h2 className="text-lg font-bold">Pain assessment and plan</h2><p className="text-xs text-[var(--app-muted)]">Compact assessment with conditional catheter and adverse-effect detail.</p></div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{t("painAssessmentTime", "Assessment time")}{t("painLocation", "Location")}{s("painTechnique", "Analgesia technique", ["Systemic", "PCA", "Epidural", "Peripheral catheter", "Intrathecal", "Multimodal", "Other"])}</div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{scorePicker("painScoreRest", "Pain at rest")}{scorePicker("painScoreMovement", "Pain on movement")}</div>
+        {["Epidural", "Peripheral catheter"].includes(text("painTechnique")) ? <div className="grid grid-cols-1 gap-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4 md:grid-cols-3">{t("painCatheterSite", "Catheter site")}{t("painSensoryLevel", "Sensory level")}{s("painMotorBlock", "Motor block", ["None", "Mild", "Moderate", "Dense"])}</div> : null}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{s("painSedationScore", "Sedation", ["Alert", "Occasionally drowsy", "Frequently drowsy", "Somnolent"])}{s("painNauseaVomiting", "Nausea / vomiting", ["None", "Mild", "Moderate", "Severe"])}{s("painPruritus", "Pruritus", ["None", "Mild", "Moderate", "Severe"])}</div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{a("painRescueMedication", "Rescue medication and response", 3)}{a("painPlan", "Pain service plan", 3)}</div>
+      </section>
+
+      <section className={`${card} ${activeTab === "outcome" ? "" : "hidden"}`}>
+        <div><div className={label}>Case follow-up</div><h2 className="text-lg font-bold">Outcome and complications</h2><p className="text-xs text-[var(--app-muted)]">Explicitly record a normal outcome or document the complication—absence of data is not treated as “none”.</p></div>
+        {r("outcomeStatus", "Outcome", ["No complication identified", "Complication identified", "Follow-up pending"], "grid-cols-1 md:grid-cols-3")}
+        {text("outcomeStatus") === "Complication identified" ? <div className="space-y-4 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">{c("outcomeComplications", "Complication category", ["Airway", "Respiratory", "Cardiovascular", "Neurologic", "Medication", "Regional anesthesia", "Pain", "PONV", "Injury", "Other"], "grid-cols-2 md:grid-cols-5")}<div className="grid grid-cols-1 gap-3 md:grid-cols-3">{s("outcomeSeverity", "Severity", ["Mild", "Moderate", "Severe", "Life-threatening", "Death"])}{t("outcomeLocation", "Location detected")}{t("outcomeFollowUp", "Follow-up due")}</div>{a("outcomeNote", "Clinical description, action and current status", 5)}</div> : null}
+        {text("outcomeStatus") !== "Complication identified" ? a("outcomeNote", "Outcome / follow-up note", 4) : null}
+      </section>
+
+      {legacyGroups.length > 0 ? (
+        <section className={card} aria-label="Imported Innovian record">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className={label}>Migration provenance</div>
+              <h2 className="text-lg font-bold">Imported Innovian record</h2>
+              <p className="text-xs text-[var(--app-muted)]">Read-only source values remain available even when they do not need a permanent FLORA input.</p>
+            </div>
+            <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-1 text-xs font-bold">{legacyFields.length} source fields</span>
+          </div>
+          <div className="space-y-2">
+            {legacyGroups.map(([group, fields]) => (
+              <details key={group} className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-4 py-3">
+                <summary className="cursor-pointer font-bold">{group}<span className="ml-2 text-xs font-medium text-[var(--app-muted)]">{fields.length} fields</span></summary>
+                <div className="mt-3 divide-y divide-[var(--app-border)] border-t border-[var(--app-border)]">
+                  {fields.map((field, index) => (
+                    <div key={`${group}-${field.label}-${index}`} className="grid gap-1 py-3 md:grid-cols-[minmax(12rem,1fr)_minmax(16rem,2fr)_auto] md:items-center">
+                      <div><div className="font-semibold">{field.label}</div>{field.section ? <div className="text-xs text-[var(--app-muted)]">{field.section}</div> : null}</div>
+                      <div className="break-words text-sm">{field.value}{field.unit ? ` ${field.unit}` : ""}</div>
+                      <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wide text-[var(--app-muted)]">
+                        {field.recordedAt ? <span>{field.recordedAt}</span> : null}
+                        <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5">{field.mappingStatus || "read_only_legacy"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {showSavedPreview ? (
         <div className="fixed inset-0 z-30 bg-black/40 flex items-center justify-center p-4">

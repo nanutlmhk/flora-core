@@ -34,6 +34,7 @@ import {
 } from "../api/caseHisApi";
 import { getCaseStaff, type StaffMember } from "../api/staffApi";
 import HnBarcode from "../components/common/HnBarcode";
+import PdfPreviewCanvas from "../components/report/PdfPreviewCanvas";
 import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../components/clinical-timeline/types";
 import { BASE_IVY_ROWS, ROW_META, getRowGroup, makeFallbackLabel } from "./clinical-chart/constants";
 import { readStoredUsername } from "./clinical-chart/storage";
@@ -528,7 +529,9 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
   const [suggestedEndBusy, setSuggestedEndBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewBlobUrl, setPreviewBlobUrl] = useState("");
+  const [previewPdfBytes, setPreviewPdfBytes] = useState<Uint8Array | null>(null);
   const [previewFileName, setPreviewFileName] = useState("flora-report.pdf");
+  const [browserPreviewOpen, setBrowserPreviewOpen] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
   const [data, setData] = useState<ReportData | null>(null);
@@ -709,6 +712,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
   const closePdfPreview = () => {
     setPrintError("");
     setPreviewFileName("flora-report.pdf");
+    setPreviewPdfBytes(null);
     setPreviewBlobUrl(prev => {
       if (prev) URL.revokeObjectURL(prev);
       return "";
@@ -721,12 +725,12 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
     };
   }, [previewBlobUrl]);
 
-  const previewFrameUrl = previewBlobUrl
-    ? `${previewBlobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`
-    : "";
-
   const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
-    const text = window.atob(base64);
+    const normalized = base64
+      .replace(/^data:application\/pdf;base64,/i, "")
+      .replace(/\s+/g, "");
+    if (!normalized) return new ArrayBuffer(0);
+    const text = window.atob(normalized);
     const out = new ArrayBuffer(text.length);
     const view = new Uint8Array(out);
     for (let i = 0; i < text.length; i += 1) view[i] = text.charCodeAt(i);
@@ -752,7 +756,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       if (pageLimitExceeded) {
         flushSync(() => setSelectedTimelineParamIds(outputParamIds));
       }
-      window.print();
+      setBrowserPreviewOpen(true);
       return;
     }
     try {
@@ -765,6 +769,9 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       });
       const buffer = base64ToArrayBuffer(result?.pdfBase64 || "");
       if (buffer.byteLength === 0) throw new Error("Generated PDF is empty");
+      const signature = new TextDecoder("ascii").decode(buffer.slice(0, 5));
+      if (signature !== "%PDF-") throw new Error("Generated file is not a valid PDF");
+      setPreviewPdfBytes(new Uint8Array(buffer.slice(0)));
       const blob = new Blob([buffer], { type: "application/pdf" });
       setPreviewBlobUrl(prev => {
         if (prev) URL.revokeObjectURL(prev);
@@ -2463,8 +2470,6 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       })}
     </div>
   );
-  void legacyReportPagesContent;
-
   return (
     <div className="report-root mx-auto max-w-[1480px] p-4 pb-8 text-gray-900 dark:text-gray-100">
       <div className="report-toolbar mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -2481,7 +2486,7 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
             disabled={previewBusy}
             title={pageLimitExceeded ? `Print will use the best-fitting ${maxSelectableTimelineParamRows} parameter rows.` : undefined}
           >
-            {previewBusy ? "Opening PDF..." : window.floraDesktop?.generateReportPdf ? "Review PDF" : "Print"}
+            {previewBusy ? "Opening PDF..." : "Review report"}
           </button>
         </div>
       </div>
@@ -2696,6 +2701,30 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
       </>
       )}
 
+      {browserPreviewOpen ? (
+        <div className="report-browser-preview fixed inset-0 z-[1000] bg-black/70 p-3">
+          <div className="report-browser-preview-shell mx-auto flex h-full w-full max-w-[1500px] flex-col overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-2xl">
+            <div className="report-browser-preview-actions flex flex-wrap items-center justify-between gap-3 border-b border-[var(--app-border)] px-4 py-3">
+              <div>
+                <div className="font-bold">Report preview</div>
+                <div className="text-xs text-[var(--app-muted)]">Review the populated report before opening the system print dialog.</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" className="rounded-lg bg-[var(--app-accent)] px-4 py-2 text-sm font-bold text-[var(--app-accent-contrast)]" onClick={() => window.print()}>
+                  Print / Save PDF
+                </button>
+                <button type="button" className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-4 py-2 text-sm font-semibold" onClick={() => setBrowserPreviewOpen(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="report-browser-preview-scroll min-h-0 flex-1 overflow-auto bg-slate-300 p-4 dark:bg-slate-950">
+              {legacyReportPagesContent}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {previewBlobUrl ? (
         <div className="fixed inset-0 z-[1000] bg-black/50 p-3">
           <div className="mx-auto flex h-full w-full flex-col rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)]">
@@ -2725,12 +2754,8 @@ export default function ReportView({ caseStatus, onCaseDischargeTimeUpdated }: P
                 </button>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden bg-gray-200 p-4 dark:bg-gray-900">
-              <iframe
-                title="FLORA Report PDF Review"
-                src={previewFrameUrl}
-                className="h-full w-full rounded border border-[var(--app-border)] bg-white"
-              />
+            <div className="min-h-0 flex-1 overflow-hidden bg-gray-200 p-3 dark:bg-gray-900">
+              {previewPdfBytes ? <PdfPreviewCanvas key={previewBlobUrl} pdfData={previewPdfBytes} /> : null}
             </div>
           </div>
         </div>

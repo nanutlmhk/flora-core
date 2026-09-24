@@ -1,11 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CaseStatus } from "../api/caseApi";
+import type { LabSummary } from "./LabView";
 
 const LabView = lazy(() => import("./LabView"));
 import ConfirmDialog from "../components/common/ConfirmDialog";
 import {
   getCaseDetailDraft,
-  saveCaseDetailDraft,
+  patchCaseDetailDraft,
 } from "../api/caseDetailApi";
 import {
   createCaseAllergy,
@@ -25,8 +26,6 @@ import {
   formatDateInputDDMMYYYY,
   normalizeDateInputDDMMYYYY,
 } from "../utils/clinicalInput";
-import HnBarcode from "../components/common/HnBarcode";
-import HnQrCode from "../components/common/HnQrCode";
 
 type Props = {
   caseStatus: CaseStatus;
@@ -35,6 +34,8 @@ type Props = {
 type PatientFormState = {
   hn: string;
   an: string;
+  idType: string;
+  idCard: string;
   titleTh: string;
   titleEn: string;
   firstName: string;
@@ -53,22 +54,46 @@ type PatientFormState = {
   ethnicity: string;
   religion: string;
   maritalStatus: string;
+  nationality: string;
+  preferredLanguage: string;
+  mobile: string;
+  email: string;
+  presentAddress: string;
+  presentProvince: string;
+  legalAddress: string;
+  legalProvince: string;
+  contactName: string;
+  contactRelation: string;
+  contactTel: string;
+  contactInstructions: string;
 };
 
 const card =
-  "rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 space-y-3";
+  "rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-4 space-y-4 shadow-sm";
 const input =
-  "w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-xs";
-const label = "text-xs text-gray-500 dark:text-gray-400";
+  "w-full min-h-10 rounded-lg border border-[var(--app-control-border)] bg-[var(--app-control-bg)] px-3 py-2 text-sm text-[var(--app-text)] disabled:cursor-not-allowed disabled:opacity-60";
+const label = "text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--app-muted)]";
 const primaryButton =
-  "rounded px-3 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-700";
+  "min-h-9 rounded-lg bg-[var(--app-accent)] px-3 py-1.5 text-xs font-bold text-[var(--app-accent-contrast)] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton =
-  "rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-xs";
+  "min-h-9 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] hover:bg-[var(--app-control-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50";
 const TITLE_TH_OPTIONS = ["", "นาย", "นาง", "น.ส.", "ด.ช.", "ด.ญ."];
 const TITLE_EN_OPTIONS = ["", "Mr.", "Mrs.", "Ms.", "Miss", "Master"];
+const IDENTIFIER_TYPE_OPTIONS = [
+  { value: "", label: "Select or enter ID to detect" },
+  { value: "National ID", label: "Thai national ID" },
+  { value: "Passport", label: "Passport" },
+  { value: "Other government ID", label: "Other government ID" },
+  { value: "Unknown", label: "Unknown / not provided" },
+];
 const ALLERGY_SEVERITY_OPTIONS = ["Mild", "Moderate", "Severe", "Fatal", "Unknown", "None"];
 const PRESTART_PATIENT_DRAFT_PREFIX = "flora.prestartPatientDraft.";
 const PRESTART_HN_SYNC_EVENT = "flora:prestart-hn-sync";
+
+function isNoKnownAllergy(row: CaseAllergyRow) {
+  const value = String(row.allergen || "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+  return value === "NKA" || value === "NKDA" || value === "NOKNOWNALLERGY" || value === "NOKNOWNDRUGALLERGY";
+}
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -112,6 +137,8 @@ function defaults(hn: string): PatientFormState {
   return {
     hn,
     an: "",
+    idType: "",
+    idCard: "",
     titleTh: "",
     titleEn: "",
     firstName: "",
@@ -130,6 +157,18 @@ function defaults(hn: string): PatientFormState {
     ethnicity: "",
     religion: "",
     maritalStatus: "",
+    nationality: "",
+    preferredLanguage: "",
+    mobile: "",
+    email: "",
+    presentAddress: "",
+    presentProvince: "",
+    legalAddress: "",
+    legalProvince: "",
+    contactName: "",
+    contactRelation: "",
+    contactTel: "",
+    contactInstructions: "",
   };
 }
 
@@ -165,6 +204,38 @@ function formatDob(date: Date): string {
 
 function normalizeAgeText(raw: string, maxDigits: number): string {
   return raw.replace(/\D+/g, "").slice(0, maxDigits);
+}
+
+function normalizeAgeMonthText(raw: string): string {
+  const value = normalizeAgeText(raw, 2);
+  if (!value) return "";
+  return String(Math.min(11, Number(value)));
+}
+
+function detectIdentifierType(raw: string): "National ID" | "Passport" | "" {
+  const value = raw.trim().replace(/[\s-]+/g, "");
+  if (/^\d{13}$/.test(value)) return "National ID";
+  if (/^(?=.*[A-Za-z])[A-Za-z0-9]{6,12}$/.test(value)) return "Passport";
+  return "";
+}
+
+function normalizeIdentifierType(raw: string, identifier = ""): string {
+  const value = raw.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (["1", "cid", "nid", "nationalid", "thaiid", "บัตรประชาชน"].includes(value)) return "National ID";
+  if (["2", "passport", "pp", "หนังสือเดินทาง"].includes(value)) return "Passport";
+  if (["other", "othergovernmentid", "governmentid"].includes(value)) return "Other government ID";
+  if (["unknown", "na", "none"].includes(value)) return "Unknown";
+  return detectIdentifierType(identifier) || (raw.trim() ? "Other government ID" : "");
+}
+
+function isValidThaiNationalId(raw: string): boolean {
+  const digits = raw.replace(/\D+/g, "");
+  if (digits.length !== 13) return false;
+  const sum = digits
+    .slice(0, 12)
+    .split("")
+    .reduce((total, digit, index) => total + Number(digit) * (13 - index), 0);
+  return (11 - (sum % 11)) % 10 === Number(digits[12]);
 }
 
 function dobFromAge(ageYRaw: string, ageMRaw: string): Date | null {
@@ -264,6 +335,8 @@ function buildFormFromDraft(hn: string, draft: Record<string, unknown>): Patient
     ...defaults(hn),
     hn,
     an: text(draft.an),
+    idType: normalizeIdentifierType(text(draft.idType || draft.notype), text(draft.idCard || draft.id_card)),
+    idCard: text(draft.idCard || draft.id_card),
     titleTh: text(draft.titleTh || draft.title_th),
     titleEn: text(draft.titleEn || draft.title_en),
     firstName: text(draft.firstName || draft.first_name),
@@ -282,6 +355,18 @@ function buildFormFromDraft(hn: string, draft: Record<string, unknown>): Patient
     ethnicity: text(draft.ethnicity),
     religion: text(draft.religion),
     maritalStatus: text(draft.maritalStatus),
+    nationality: text(draft.nationality),
+    preferredLanguage: text(draft.preferredLanguage || draft.language),
+    mobile: text(draft.mobile),
+    email: text(draft.email),
+    presentAddress: text(draft.presentAddress || draft.present_address),
+    presentProvince: text(draft.presentProvince || draft.present_province),
+    legalAddress: text(draft.legalAddress || draft.legal_address),
+    legalProvince: text(draft.legalProvince || draft.legal_province),
+    contactName: text(draft.contactName || draft.contact_name),
+    contactRelation: text(draft.contactRelation || draft.relation_desc),
+    contactTel: text(draft.contactTel || draft.contact_tel),
+    contactInstructions: text(draft.contactInstructions),
   };
 }
 
@@ -313,6 +398,8 @@ function applyHisToForm(prev: PatientFormState, info: CasePatientInfo): PatientF
     ...prev,
     hn: info.hn || prev.hn,
     an: info.an || "",
+    idType: normalizeIdentifierType(info.notype || "", info.id_card || ""),
+    idCard: info.id_card || "",
     titleTh: info.title_th || prev.titleTh,
     titleEn: info.title_en || prev.titleEn,
     firstName: resolvedFirstName,
@@ -329,6 +416,18 @@ function applyHisToForm(prev: PatientFormState, info: CasePatientInfo): PatientF
     ethnicity: info.ethnicity || "",
     religion: info.religion || "",
     maritalStatus: info.marital_status || "",
+    nationality: info.nationality || "",
+    preferredLanguage: prev.preferredLanguage,
+    mobile: info.mobile || "",
+    email: prev.email,
+    presentAddress: info.present_address || "",
+    presentProvince: info.present_province || "",
+    legalAddress: info.legal_address || "",
+    legalProvince: info.legal_province || "",
+    contactName: info.contact_name || "",
+    contactRelation: info.relation_desc || "",
+    contactTel: info.contact_tel || "",
+    contactInstructions: prev.contactInstructions,
   };
 }
 
@@ -336,16 +435,24 @@ export default function PatientView({ caseStatus }: Props) {
   const activeCase = caseStatus.status === "IDLE" ? null : caseStatus;
   const caseId = activeCase?.case_id ?? null;
   const hasActiveCase = activeCase != null && caseId != null;
+  const isReadOnly = caseStatus.status === "ARCHIVED";
   const [form, setForm] = useState<PatientFormState>(defaults(""));
 
   const [allergies, setAllergies] = useState<CaseAllergyRow[]>([]);
-  const [editingAllergyId, setEditingAllergyId] = useState<number | null>(null);
+  const [labSummary, setLabSummary] = useState<LabSummary>({ total: 0, abnormal: 0, critical: 0, loaded: false });
+  const [editingAllergyId, setEditingAllergyId] = useState<number | string | null>(null);
   const [newAllergen, setNewAllergen] = useState("");
   const [newReaction, setNewReaction] = useState("");
   const [newSeverity, setNewSeverity] = useState("");
   const [pendingDeleteAllergyId, setPendingDeleteAllergyId] = useState<number | string | null>(null);
   const [alertTitle, setAlertTitle] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+  const knownAllergies = useMemo(() => allergies.filter(row => !isNoKnownAllergy(row)), [allergies]);
+  const noKnownAllergyRows = useMemo(() => allergies.filter(isNoKnownAllergy), [allergies]);
+  const allergyReviewState = knownAllergies.length > 0 ? "allergic" : noKnownAllergyRows.length > 0 ? "none" : "unknown";
+  const handleLabSummary = useCallback((next: LabSummary) => {
+    setLabSummary(prev => prev.total === next.total && prev.abnormal === next.abnormal && prev.critical === next.critical && prev.loaded === next.loaded ? prev : next);
+  }, []);
 
   const loadAllergies = async () => {
     if (!caseId) return;
@@ -359,7 +466,7 @@ export default function PatientView({ caseStatus }: Props) {
   };
 
   const handleSaveAllergy = async () => {
-    if (!newAllergen.trim() || !caseId) return;
+    if (!newAllergen.trim() || !caseId || isReadOnly) return;
     try {
       if (editingAllergyId) {
         await updateCaseAllergy(caseId, editingAllergyId, {
@@ -368,6 +475,7 @@ export default function PatientView({ caseStatus }: Props) {
           severity: newSeverity,
         });
       } else {
+        await Promise.all(noKnownAllergyRows.map(row => deleteCaseAllergy(caseId, row.id)));
         await createCaseAllergy(caseId, {
           allergen: newAllergen,
           reaction: newReaction,
@@ -386,15 +494,45 @@ export default function PatientView({ caseStatus }: Props) {
     }
   };
 
+  const markNoKnownAllergies = async () => {
+    if (!caseId || isReadOnly || knownAllergies.length > 0 || noKnownAllergyRows.length > 0) return;
+    setLoadingSupport(true);
+    try {
+      await createCaseAllergy(caseId, { allergen: "NKA", reaction: "", severity: "None", status: "Active" });
+      await loadAllergies();
+      emitAllergyChanged();
+    } catch (err) {
+      setAlertTitle("Update Failed");
+      setAlertMessage(err instanceof Error ? err.message : "Allergy review status could not be saved");
+    } finally {
+      setLoadingSupport(false);
+    }
+  };
+
+  const markAllergiesNotReviewed = async () => {
+    if (!caseId || isReadOnly || knownAllergies.length > 0) return;
+    setLoadingSupport(true);
+    try {
+      await Promise.all(noKnownAllergyRows.map(row => deleteCaseAllergy(caseId, row.id)));
+      await loadAllergies();
+      emitAllergyChanged();
+    } catch (err) {
+      setAlertTitle("Update Failed");
+      setAlertMessage(err instanceof Error ? err.message : "Allergy review status could not be saved");
+    } finally {
+      setLoadingSupport(false);
+    }
+  };
+
   const handleEditAllergy = (allergy: CaseAllergyRow) => {
-    setEditingAllergyId(Number(allergy.id));
+    setEditingAllergyId(allergy.id);
     setNewAllergen(allergy.allergen);
     setNewReaction(allergy.reaction || "");
     setNewSeverity(allergy.severity || "");
   };
 
   const confirmDeleteAllergy = async () => {
-    if (!pendingDeleteAllergyId || !caseId) return;
+    if (!pendingDeleteAllergyId || !caseId || isReadOnly) return;
     try {
       await deleteCaseAllergy(caseId, pendingDeleteAllergyId);
       setPendingDeleteAllergyId(null);
@@ -410,12 +548,13 @@ export default function PatientView({ caseStatus }: Props) {
   const [error, setError] = useState("");
   const [saveNote, setSaveNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [patientTab, setPatientTab] = useState<"info" | "allergy" | "lab">("info");
+  const [patientTab, setPatientTab] = useState<"info" | "contact" | "allergy" | "lab">("info");
   const [dataSource, setDataSource] = useState<"HIS" | "BUFFER" | null>(null);
   const [notification, setNotification] = useState<{ type: "success" | "warning" | "error"; text: string } | null>(null);
   const [hisRawPayloadText, setHisRawPayloadText] = useState("");
   const [showHisRawPayload, setShowHisRawPayload] = useState(false);
   const autoSaveReadyRef = useRef(false);
+  const lastSyncedFormRef = useRef("");
   const hnInputRef = useRef<HTMLInputElement>(null);
 
   const emitAllergyChanged = () => {
@@ -443,8 +582,11 @@ export default function PatientView({ caseStatus }: Props) {
       setShowHisRawPayload(false);
       return;
     }
+    autoSaveReadyRef.current = false;
     const draft = readDraft(caseId);
-    setForm(buildFormFromDraft(activeCase.hn, draft));
+    const next = buildFormFromDraft(activeCase.hn, draft);
+    lastSyncedFormRef.current = JSON.stringify(next);
+    setForm(next);
   }, [activeCase, caseId]);
 
   useEffect(() => {
@@ -475,7 +617,9 @@ export default function PatientView({ caseStatus }: Props) {
         if (!alive) return;
         if (backendDraft) {
           writeDraft(caseId, backendDraft);
-          setForm(buildFormFromDraft(activeCase.hn, backendDraft));
+          const next = buildFormFromDraft(activeCase.hn, backendDraft);
+          lastSyncedFormRef.current = JSON.stringify(next);
+          setForm(next);
         }
         autoSaveReadyRef.current = true;
       } catch {
@@ -498,7 +642,9 @@ export default function PatientView({ caseStatus }: Props) {
       if (!Number.isFinite(changedCaseId) || changedCaseId !== caseId) return;
       if (source === "patient") return;
       const draft = readDraft(caseId);
-      setForm(buildFormFromDraft(activeCase.hn, draft));
+      const next = buildFormFromDraft(activeCase.hn, draft);
+      lastSyncedFormRef.current = JSON.stringify(next);
+      setForm(next);
       setSaveNote("Updated from Form");
     };
     window.addEventListener("flora:form-storage-changed", onDraftChanged);
@@ -515,15 +661,18 @@ export default function PatientView({ caseStatus }: Props) {
 
   // Auto-save: debounced 1.5s after any form change, once initial load is done
   useEffect(() => {
-    if (!autoSaveReadyRef.current || !hasActiveCase) return;
+    if (!autoSaveReadyRef.current || !hasActiveCase || isReadOnly) return;
+    const signature = JSON.stringify(form);
+    if (signature === lastSyncedFormRef.current) return;
     const timer = setTimeout(() => {
-      if (!autoSaveReadyRef.current || !hasActiveCase) return;
+      if (!autoSaveReadyRef.current || !hasActiveCase || isReadOnly) return;
+      lastSyncedFormRef.current = signature;
       setIsSaving(true);
       void save().finally(() => setIsSaving(false));
     }, 1500);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form]);
+  }, [form, isReadOnly]);
 
   useEffect(() => {
     if (hasActiveCase) return;
@@ -534,6 +683,8 @@ export default function PatientView({ caseStatus }: Props) {
       const patch: Record<string, unknown> = {
         hn: targetHn,
         an: form.an.trim(),
+        idType: form.idType.trim(),
+        idCard: form.idCard.trim(),
         titleTh: form.titleTh.trim(),
         titleEn: form.titleEn.trim(),
         firstName: form.firstName.trim(),
@@ -543,7 +694,7 @@ export default function PatientView({ caseStatus }: Props) {
         sex: normalizeSex(form.sex),
         dob: normalizedDob,
         ageY: normalizeAgeText(form.ageY, 3),
-        ageM: normalizeAgeText(form.ageM, 2),
+        ageM: normalizeAgeMonthText(form.ageM),
         weightKg: form.weightKg.trim(),
         heightCm: form.heightCm.trim(),
         bloodGroupABO: form.bloodGroupABO.trim(),
@@ -552,6 +703,18 @@ export default function PatientView({ caseStatus }: Props) {
         ethnicity: form.ethnicity.trim(),
         religion: form.religion.trim(),
         maritalStatus: form.maritalStatus.trim(),
+        nationality: form.nationality.trim(),
+        preferredLanguage: form.preferredLanguage.trim(),
+        mobile: form.mobile.trim(),
+        email: form.email.trim(),
+        presentAddress: form.presentAddress.trim(),
+        presentProvince: form.presentProvince.trim(),
+        legalAddress: form.legalAddress.trim(),
+        legalProvince: form.legalProvince.trim(),
+        contactName: form.contactName.trim(),
+        contactRelation: form.contactRelation.trim(),
+        contactTel: form.contactTel.trim(),
+        contactInstructions: form.contactInstructions.trim(),
       };
       writePrestartPatientDraft(targetHn, patch);
       setSaveNote(`Saved pre-start patient draft ${fmt(Date.now())}`);
@@ -785,6 +948,10 @@ export default function PatientView({ caseStatus }: Props) {
   }, [getHis]);
 
   const save = async () => {
+    if (isReadOnly) {
+      setError("Archived patient records are read-only.");
+      return;
+    }
     const finalHn = String(form.hn || "").trim();
     if (!finalHn) {
       setError("HN is required");
@@ -797,7 +964,7 @@ export default function PatientView({ caseStatus }: Props) {
     }
 
     const ageYInput = normalizeAgeText(form.ageY, 3);
-    const ageMInput = normalizeAgeText(form.ageM, 2);
+    const ageMInput = normalizeAgeMonthText(form.ageM);
     const parsed =
       normalizedDob != null
         ? parseDob(normalizedDob)
@@ -809,6 +976,8 @@ export default function PatientView({ caseStatus }: Props) {
     const patch: Record<string, unknown> = {
       hn: finalHn,
       an: form.an.trim(),
+      idType: form.idType.trim(),
+      idCard: form.idCard.trim(),
       titleTh: form.titleTh.trim(),
       titleEn: form.titleEn.trim(),
       firstName: form.firstName.trim(),
@@ -827,6 +996,18 @@ export default function PatientView({ caseStatus }: Props) {
       ethnicity: form.ethnicity.trim(),
       religion: form.religion.trim(),
       maritalStatus: form.maritalStatus.trim(),
+      nationality: form.nationality.trim(),
+      preferredLanguage: form.preferredLanguage.trim(),
+      mobile: form.mobile.trim(),
+      email: form.email.trim(),
+      presentAddress: form.presentAddress.trim(),
+      presentProvince: form.presentProvince.trim(),
+      legalAddress: form.legalAddress.trim(),
+      legalProvince: form.legalProvince.trim(),
+      contactName: form.contactName.trim(),
+      contactRelation: form.contactRelation.trim(),
+      contactTel: form.contactTel.trim(),
+      contactInstructions: form.contactInstructions.trim(),
     };
 
     if (!hasActiveCase || !caseId || !activeCase) {
@@ -843,12 +1024,40 @@ export default function PatientView({ caseStatus }: Props) {
       return;
     }
 
-    await updateCasePatientInfo(caseId, { hn: finalHn });
-    writeDraft(caseId, patch);
-    await saveCaseDetailDraft(caseId, {
-      ...readDraft(caseId),
-      ...patch,
+    await updateCasePatientInfo(caseId, {
+      hn: finalHn,
+      an: form.an.trim(),
+      idType: form.idType.trim(),
+      idCard: form.idCard.trim(),
+      titleTh: form.titleTh.trim(),
+      titleEn: form.titleEn.trim(),
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      firstNameEn: form.firstNameEn.trim(),
+      lastNameEn: form.lastNameEn.trim(),
+      sex: normalizeSex(form.sex),
+      dob: finalDob,
+      ageText: [finalAgeY ? `${finalAgeY}y` : "", finalAgeM ? `${finalAgeM}m` : ""].filter(Boolean).join(" "),
+      weightKg: form.weightKg.trim(),
+      heightCm: form.heightCm.trim(),
+      bloodGroupABO: form.bloodGroupABO.trim(),
+      bloodGroupRh: form.bloodGroupRh.trim(),
+      race: form.race.trim(),
+      ethnicity: form.ethnicity.trim(),
+      religion: form.religion.trim(),
+      maritalStatus: form.maritalStatus.trim(),
+      nationality: form.nationality.trim(),
+      mobile: form.mobile.trim(),
+      presentAddress: form.presentAddress.trim(),
+      presentProvince: form.presentProvince.trim(),
+      legalAddress: form.legalAddress.trim(),
+      legalProvince: form.legalProvince.trim(),
+      contactName: form.contactName.trim(),
+      contactRelation: form.contactRelation.trim(),
+      contactTel: form.contactTel.trim(),
     });
+    const mergedDraft = await patchCaseDetailDraft(caseId, patch);
+    writeDraft(caseId, mergedDraft);
     window.dispatchEvent(
       new CustomEvent("flora:form-storage-changed", {
         detail: { caseId, source: "patient" },
@@ -859,13 +1068,17 @@ export default function PatientView({ caseStatus }: Props) {
         detail: { caseId, hn: finalHn },
       }),
     );
-    setForm(prev => ({
-      ...prev,
-      hn: finalHn,
-      dob: finalDob,
-      ageY: finalAgeY,
-      ageM: finalAgeM,
-    }));
+    setForm(prev => {
+      const next = {
+        ...prev,
+        hn: finalHn,
+        dob: finalDob,
+        ageY: finalAgeY,
+        ageM: finalAgeM,
+      };
+      lastSyncedFormRef.current = JSON.stringify(next);
+      return next;
+    });
     setError("");
     setSaveNote(`Saved ${fmt(Date.now())}`);
   };
@@ -873,9 +1086,9 @@ export default function PatientView({ caseStatus }: Props) {
   const applyAgeToDob = (ageYRaw: string, ageMRaw: string) => {
     setForm(prev => {
       const ageY = normalizeAgeText(ageYRaw, 3);
-      const ageM = normalizeAgeText(ageMRaw, 2);
+      const ageM = normalizeAgeMonthText(ageMRaw);
       const derivedDob = dobFromAge(ageY, ageM);
-      if (!derivedDob) return { ...prev, ageY, ageM };
+      if (!derivedDob) return { ...prev, dob: ageY || ageM ? prev.dob : "", ageY, ageM };
       const age = ageFromDob(derivedDob);
       return {
         ...prev,
@@ -887,39 +1100,77 @@ export default function PatientView({ caseStatus }: Props) {
   };
 
   return (
-    <div className="app-theme-scope p-4 space-y-3">
+    <div className="app-theme-scope mx-auto max-w-7xl space-y-3 p-4">
       <div className="sticky top-3 z-20">
-        <div className="flex items-center flex-wrap gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-950/95 backdrop-blur px-3 py-2 shadow-sm">
-          <div className="inline-flex rounded border border-gray-300 dark:border-gray-700 overflow-hidden shrink-0">
-            <button type="button" onClick={() => setPatientTab("info")}
-              className={`px-2.5 py-1 text-xs ${patientTab === "info" ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-              Patient
-            </button>
-            <button type="button" onClick={() => setPatientTab("allergy")}
-              className={`px-2.5 py-1 text-xs border-l border-gray-300 dark:border-gray-700 ${patientTab === "allergy" ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-              Allergy
-            </button>
-            <button type="button" onClick={() => setPatientTab("lab")}
-              className={`px-2.5 py-1 text-xs border-l border-gray-300 dark:border-gray-700 ${patientTab === "lab" ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-              Lab
-            </button>
-          </div>
-          {patientTab === "info" && (
-            <button type="button" className={secondaryButton} onClick={() => void getHis()} disabled={loadingHis}>
-              {loadingHis ? "Loading..." : "GetHIS"}
-            </button>
-          )}
-          {patientTab === "allergy" && (
-            <button type="button" className={secondaryButton} onClick={() => void getAllergy()} disabled={loadingHis}>
-              GetAllergy
-            </button>
-          )}
-          <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
-            {isSaving ? "Saving…" : saveNote || ""}
+        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)]/95 px-3 py-2.5 shadow-sm backdrop-blur">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-44">
+              <div className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--app-muted)]">Clinical record</div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold text-[var(--app-text)]">Patient</h1>
+                {caseStatus.status !== "IDLE" ? (
+                  <span className={`rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide ${
+                    caseStatus.status === "ACTIVE"
+                      ? "border-emerald-500/45 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : caseStatus.status === "DISCHARGED"
+                        ? "border-amber-500/45 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        : "border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-muted)]"
+                  }`}>{caseStatus.status.toLowerCase()}</span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)]" role="tablist" aria-label="Patient record sections">
+              {([
+                ["info", "Profile", ""],
+                ["contact", "Contact", ""],
+                ["allergy", "Allergy", allergyReviewState === "allergic" ? `${knownAllergies.length} recorded` : allergyReviewState === "none" ? "None known" : "Not reviewed"],
+                ["lab", "Labs", !labSummary.loaded ? "Open to review" : labSummary.critical ? `${labSummary.critical} critical` : labSummary.total ? `${labSummary.total} results` : "No results"],
+              ] as const).map(([tab, tabLabel, tabStatus]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={patientTab === tab}
+                  onClick={() => setPatientTab(tab)}
+                  className={`min-h-11 border-l border-[var(--app-border)] px-3 py-1 text-xs font-bold first:border-l-0 ${patientTab === tab ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "text-[var(--app-muted)] hover:bg-[var(--app-control-bg-hover)] hover:text-[var(--app-text)]"}`}
+                >
+                  <span className="block">{tabLabel}</span>
+                  {tabStatus ? <span className={`block text-[9px] font-semibold ${patientTab === tab ? "opacity-85" : tab === "allergy" && allergyReviewState === "allergic" ? "text-red-600 dark:text-red-300" : tab === "allergy" && allergyReviewState === "unknown" ? "text-amber-600 dark:text-amber-300" : tab === "lab" && labSummary.critical ? "text-red-600 dark:text-red-300" : "text-[var(--app-muted)]"}`}>{tabStatus}</span> : null}
+                </button>
+              ))}
+            </div>
+
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {patientTab === "info" || patientTab === "contact" ? (
+                <button type="button" className={secondaryButton} onClick={() => void getHis()} disabled={loadingHis || isReadOnly}>
+                  {loadingHis ? "Loading HIS…" : "Sync HIS"}
+                </button>
+              ) : null}
+              {patientTab === "allergy" ? (
+                <button type="button" className={secondaryButton} onClick={() => void getAllergy()} disabled={loadingHis || isReadOnly}>
+                  {loadingHis ? "Syncing…" : "Sync allergy"}
+                </button>
+              ) : null}
+              {(patientTab === "info" || patientTab === "contact") && !isReadOnly ? (
+                <button
+                  type="button"
+                  className={primaryButton}
+                  disabled={isSaving || !form.hn.trim()}
+                  onClick={() => {
+                    setIsSaving(true);
+                    void save().finally(() => setIsSaving(false));
+                  }}
+                >
+                  {isSaving ? "Saving…" : "Save changes"}
+                </button>
+              ) : null}
+              <span className="max-w-64 truncate text-[10px] text-[var(--app-muted)]">{!isSaving ? saveNote : ""}</span>
+            </div>
           </div>
         </div>
         {notification && (
-          <div className={`mt-1 flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs shadow-sm ${
+          <div className={`mt-1 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs shadow-sm ${
             notification.type === "success"
               ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
               : notification.type === "warning"
@@ -938,19 +1189,25 @@ export default function PatientView({ caseStatus }: Props) {
         )}
       </div>
 
+      {isReadOnly ? (
+        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-xs font-semibold text-[var(--app-muted)]">
+          Archived record — patient information and safety data are read-only.
+        </div>
+      ) : null}
+
       {patientTab === "lab" && (
         <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>
-          <LabView caseStatus={caseStatus} />
+          <LabView caseStatus={caseStatus} onSummaryChange={handleLabSummary} />
         </Suspense>
       )}
 
-      {patientTab === "info" && <>
+      {patientTab === "info" && <fieldset disabled={isReadOnly} className="space-y-3">
 
       <section className={card}>
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <div className="text-sm font-semibold">Patient Info</div>
+            <div className="text-sm font-bold text-[var(--app-text)]">Identity and demographics</div>
               {dataSource && (
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                   dataSource === "HIS"
@@ -962,9 +1219,12 @@ export default function PatientView({ caseStatus }: Props) {
               )}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              Enter and verify demographic data
+              Verify identifiers first. Common case fields stay synchronized with Forms.
             </div>
           </div>
+          <span className="rounded-full border border-blue-300 bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+            Shared with Forms
+          </span>
           {hisRawPayloadText ? (
             <div className="flex items-center gap-2">
               <button
@@ -1003,7 +1263,7 @@ export default function PatientView({ caseStatus }: Props) {
         ) : null}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-          <div className="md:col-span-6 space-y-2">
+          <div className="md:col-span-12 space-y-2">
             <label className="space-y-1 block">
               <div className={label}>HN</div>
               <div className="flex gap-1">
@@ -1032,21 +1292,35 @@ export default function PatientView({ caseStatus }: Props) {
                 onChange={e => setForm(prev => ({ ...prev, an: e.target.value }))}
               />
             </label>
-          </div>
-
-          <div className="md:col-span-6 md:row-span-2 space-y-1">
-            <div className={label}>HN Barcode / QR</div>
-            <div className="flex items-start gap-2 rounded border border-gray-200 dark:border-gray-700 p-2">
-              <HnBarcode
-                value={form.hn}
-                height={42}
-                className="flex-1 text-gray-900 dark:text-gray-100"
-              />
-              <HnQrCode
-                value={form.hn}
-                size={68}
-                className="text-gray-900 dark:text-gray-100"
-              />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <label className="space-y-1">
+                <div className={label}>Identifier type</div>
+                <select
+                  className={input}
+                  value={form.idType}
+                  onChange={e => setForm(prev => ({ ...prev, idType: e.target.value }))}
+                >
+                  {IDENTIFIER_TYPE_OPTIONS.map(option => <option key={option.value || "auto"} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 sm:col-span-2">
+                <div className="flex items-center justify-between gap-2"><span className={label}>Government / Passport ID</span>{detectIdentifierType(form.idCard) ? <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-300">Detected: {detectIdentifierType(form.idCard) === "National ID" ? "Thai national ID" : "Passport"}</span> : null}</div>
+                <input
+                  className={input}
+                  value={form.idCard}
+                  autoComplete="off"
+                  onChange={e => {
+                    const idCard = e.target.value;
+                    const detected = detectIdentifierType(idCard);
+                    setForm(prev => ({ ...prev, idCard, idType: detected || prev.idType }));
+                  }}
+                />
+                {form.idType === "National ID" && form.idCard.replace(/\D+/g, "").length === 13 ? (
+                  <div className={`text-[11px] font-semibold ${isValidThaiNationalId(form.idCard) ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300"}`}>
+                    {isValidThaiNationalId(form.idCard) ? "Thai national ID checksum valid" : "13 digits detected, but the checksum is invalid"}
+                  </div>
+                ) : null}
+              </label>
             </div>
           </div>
 
@@ -1136,11 +1410,12 @@ export default function PatientView({ caseStatus }: Props) {
                   setForm(prev => ({
                     ...prev,
                     dob,
-                    ageY: age ? String(age.years) : "",
-                    ageM: age ? String(age.months) : "",
+                    ageY: age ? String(age.years) : dob ? prev.ageY : "",
+                    ageM: age ? String(age.months) : dob ? prev.ageM : "",
                   }));
                 }}
               />
+              <div className="text-[10px] text-[var(--app-muted)]">Enter DOB to calculate age, or enter age to estimate DOB.</div>
             </label>
             <label className="space-y-1 md:col-span-2">
               <div className={label}>Age (Y)</div>
@@ -1150,9 +1425,8 @@ export default function PatientView({ caseStatus }: Props) {
                 value={form.ageY}
                 onChange={e => {
                   const ageY = normalizeAgeText(e.target.value, 3);
-                  setForm(prev => ({ ...prev, ageY }));
+                  applyAgeToDob(ageY, form.ageM);
                 }}
-                onBlur={e => applyAgeToDob(e.target.value, form.ageM)}
               />
             </label>
             <label className="space-y-1 md:col-span-3">
@@ -1162,10 +1436,10 @@ export default function PatientView({ caseStatus }: Props) {
                 inputMode="numeric"
                 value={form.ageM}
                 onChange={e => {
-                  const ageM = normalizeAgeText(e.target.value, 2);
-                  setForm(prev => ({ ...prev, ageM }));
+                  const ageM = normalizeAgeMonthText(e.target.value);
+                  applyAgeToDob(form.ageY, ageM);
                 }}
-                onBlur={e => applyAgeToDob(form.ageY, e.target.value)}
+                max={11}
               />
             </label>
 
@@ -1225,6 +1499,34 @@ export default function PatientView({ caseStatus }: Props) {
                 onChange={e => setForm(prev => ({ ...prev, heightCm: e.target.value }))}
               />
             </label>
+
+            <div className="md:col-span-12 mt-2 border-t border-[var(--app-border)] pt-3">
+              <div className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[var(--app-muted)]">Additional demographics</div>
+            </div>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Race</div>
+              <input className={input} value={form.race} onChange={e => setForm(prev => ({ ...prev, race: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Ethnicity</div>
+              <input className={input} value={form.ethnicity} onChange={e => setForm(prev => ({ ...prev, ethnicity: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Religion</div>
+              <input className={input} value={form.religion} onChange={e => setForm(prev => ({ ...prev, religion: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Marital status</div>
+              <input className={input} value={form.maritalStatus} onChange={e => setForm(prev => ({ ...prev, maritalStatus: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Nationality</div>
+              <input className={input} value={form.nationality} onChange={e => setForm(prev => ({ ...prev, nationality: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Preferred language</div>
+              <input className={input} value={form.preferredLanguage} onChange={e => setForm(prev => ({ ...prev, preferredLanguage: e.target.value }))} />
+            </label>
           </div>
         </div>
 
@@ -1235,28 +1537,124 @@ export default function PatientView({ caseStatus }: Props) {
         ) : null}
       </section>
 
-      </>}
+      </fieldset>}
 
-      {patientTab === "allergy" && <section className={card}>
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold">Allergy</div>
-          <div className="flex gap-2">
-            <div className="text-xs text-gray-500 dark:text-gray-400 self-center">
-              {loadingSupport ? "Loading..." : `${allergies.length} records`}
+      {patientTab === "contact" && <fieldset disabled={isReadOnly} className="space-y-3">
+        <section className={card}>
+          <div>
+            <div className="text-sm font-bold text-[var(--app-text)]">Contact and communication</div>
+            <div className="text-xs text-[var(--app-muted)]">Patient-owned contact data. Encounter location and care team are maintained with the case.</div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-12">
+            <label className="space-y-1 md:col-span-4">
+              <div className={label}>Mobile</div>
+              <input className={input} inputMode="tel" value={form.mobile} onChange={e => setForm(prev => ({ ...prev, mobile: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-4">
+              <div className={label}>Email</div>
+              <input className={input} type="email" value={form.email} onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-4">
+              <div className={label}>Preferred language</div>
+              <input className={input} value={form.preferredLanguage} onChange={e => setForm(prev => ({ ...prev, preferredLanguage: e.target.value }))} />
+            </label>
+          </div>
+        </section>
+
+        <section className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-bold text-[var(--app-text)]">Addresses</div>
+              <div className="text-xs text-[var(--app-muted)]">Keep current and registered addresses distinct for HIS reconciliation.</div>
             </div>
+            <button
+              type="button"
+              className={secondaryButton}
+              onClick={() => setForm(prev => ({ ...prev, legalAddress: prev.presentAddress, legalProvince: prev.presentProvince }))}
+            >
+              Same as current
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3">
+              <div className={label}>Current address</div>
+              <textarea className={`${input} min-h-24 resize-y`} value={form.presentAddress} onChange={e => setForm(prev => ({ ...prev, presentAddress: e.target.value }))} />
+              <label className="space-y-1 block">
+                <div className={label}>Province / State</div>
+                <input className={input} value={form.presentProvince} onChange={e => setForm(prev => ({ ...prev, presentProvince: e.target.value }))} />
+              </label>
+            </div>
+            <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-3">
+              <div className={label}>Registered address</div>
+              <textarea className={`${input} min-h-24 resize-y`} value={form.legalAddress} onChange={e => setForm(prev => ({ ...prev, legalAddress: e.target.value }))} />
+              <label className="space-y-1 block">
+                <div className={label}>Province / State</div>
+                <input className={input} value={form.legalProvince} onChange={e => setForm(prev => ({ ...prev, legalProvince: e.target.value }))} />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section className={card}>
+          <div>
+            <div className="text-sm font-bold text-[var(--app-text)]">Emergency contact / next of kin</div>
+            <div className="text-xs text-[var(--app-muted)]">A contact party is not the patient and may later be linked as a FHIR RelatedPerson.</div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-12">
+            <label className="space-y-1 md:col-span-5">
+              <div className={label}>Contact name</div>
+              <input className={input} value={form.contactName} onChange={e => setForm(prev => ({ ...prev, contactName: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className={label}>Relationship</div>
+              <input className={input} value={form.contactRelation} onChange={e => setForm(prev => ({ ...prev, contactRelation: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-4">
+              <div className={label}>Phone</div>
+              <input className={input} inputMode="tel" value={form.contactTel} onChange={e => setForm(prev => ({ ...prev, contactTel: e.target.value }))} />
+            </label>
+            <label className="space-y-1 md:col-span-12">
+              <div className={label}>Contact instructions</div>
+              <textarea className={`${input} min-h-20 resize-y`} placeholder="Priority, preferred time, interpreter, or other contact instruction" value={form.contactInstructions} onChange={e => setForm(prev => ({ ...prev, contactInstructions: e.target.value }))} />
+            </label>
+          </div>
+        </section>
+      </fieldset>}
+
+      {patientTab === "allergy" && <fieldset className={card} disabled={isReadOnly}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-base font-bold text-[var(--app-text)]">Allergy safety</div>
+            <div className="text-xs text-[var(--app-muted)]">Review and confirm allergy status before medication administration.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-[var(--app-muted)]">{loadingSupport ? "Loading…" : "Case record"}</span>
             <button
               type="button"
               className={secondaryButton}
               onClick={() => void getAllergy()}
               disabled={loadingHis}
             >
-              {loadingHis ? "Syncing..." : "Sync HIS"}
+              {loadingHis ? "Syncing…" : "Sync HIS allergy"}
             </button>
           </div>
         </div>
 
-        {allergies.length === 0 ? (
-          <div className="text-xs text-gray-500 dark:text-gray-400">No allergy data recorded.</div>
+        <div className={`rounded-xl border p-4 ${allergyReviewState === "allergic" ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/25" : allergyReviewState === "none" ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/25" : "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/25"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className={`flex h-10 w-10 items-center justify-center rounded-full text-xl font-black ${allergyReviewState === "allergic" ? "bg-red-600 text-white" : allergyReviewState === "none" ? "bg-emerald-600 text-white" : "bg-amber-500 text-white"}`}>{allergyReviewState === "allergic" ? "!" : allergyReviewState === "none" ? "✓" : "?"}</span>
+              <div>
+                <div className={`font-extrabold ${allergyReviewState === "allergic" ? "text-red-700 dark:text-red-300" : allergyReviewState === "none" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>{allergyReviewState === "allergic" ? `${knownAllergies.length} recorded allerg${knownAllergies.length === 1 ? "y" : "ies"}` : allergyReviewState === "none" ? "No known allergies (NKA)" : "Allergy status not reviewed"}</div>
+                <div className="text-xs text-[var(--app-muted)]">{allergyReviewState === "allergic" ? "Review the allergen, reaction, and severity below." : allergyReviewState === "none" ? "A clinician has explicitly confirmed no known allergies." : "An empty list does not mean this patient has no allergies."}</div>
+              </div>
+            </div>
+            {allergyReviewState === "unknown" ? <button type="button" className="min-h-9 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500" onClick={() => void markNoKnownAllergies()}>Confirm no known allergies</button> : allergyReviewState === "none" ? <button type="button" className={secondaryButton} onClick={() => void markAllergiesNotReviewed()}>Mark not reviewed</button> : null}
+          </div>
+        </div>
+
+        {knownAllergies.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[var(--app-border)] px-4 py-6 text-center text-xs text-[var(--app-muted)]">{allergyReviewState === "none" ? "No allergen entries. Add one below if new information is discovered." : "No allergy has been documented yet. Confirm NKA or record an allergen below."}</div>
         ) : (
           <div className="rounded border border-gray-200 dark:border-gray-800 overflow-hidden">
             <table className="w-full text-xs">
@@ -1270,7 +1668,7 @@ export default function PatientView({ caseStatus }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {allergies.map(row => (
+                {knownAllergies.map(row => (
                   <tr key={row.id} className="border-t border-gray-200 dark:border-gray-800">
                     <td className="px-2 py-1 font-bold text-red-600 dark:text-red-400">{row.allergen}</td>
                     <td className="px-2 py-1">{row.reaction || "-"}</td>
@@ -1306,10 +1704,8 @@ export default function PatientView({ caseStatus }: Props) {
           </div>
         )}
 
-        <div className="mt-4 space-y-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-black/20 p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-            {editingAllergyId ? "Edit Allergy Entry" : "Add Manual Allergy"}
-          </div>
+        <div className="mt-4 space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4">
+          <div><div className="text-sm font-bold text-[var(--app-text)]">{editingAllergyId ? "Edit allergy" : "Record an allergy"}</div><div className="text-xs text-[var(--app-muted)]">Adding an allergen automatically replaces a previous NKA status.</div></div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
             <div className="space-y-1">
               <div className={label}>Allergen</div>
@@ -1383,22 +1779,24 @@ export default function PatientView({ caseStatus }: Props) {
                 placeholder="e.g. Skin rash"
                 value={newReaction}
                 onChange={e => setNewReaction(e.target.value)}
+                list="patient-allergy-reaction-options"
               />
+              <datalist id="patient-allergy-reaction-options">
+                {['Rash', 'Urticaria', 'Angioedema', 'Bronchospasm', 'Hypotension', 'Anaphylaxis', 'Nausea / vomiting', 'Stevens-Johnson syndrome'].map(item => <option key={item} value={item} />)}
+              </datalist>
             </div>
             <div className="space-y-1">
               <div className={label}>Severity</div>
-              <input
+              <select
                 className={input}
-                placeholder="e.g. Severe"
                 value={newSeverity}
                 onChange={e => setNewSeverity(e.target.value)}
-                list="patient-allergy-severity-options"
-              />
-              <datalist id="patient-allergy-severity-options">
+              >
+                <option value="">Select severity</option>
                 {ALLERGY_SEVERITY_OPTIONS.map(item => (
-                  <option key={item} value={item} />
+                  <option key={item} value={item}>{item}</option>
                 ))}
-              </datalist>
+              </select>
             </div>
           </div>
           <div className="flex justify-end gap-2">
@@ -1426,7 +1824,7 @@ export default function PatientView({ caseStatus }: Props) {
             </button>
           </div>
         </div>
-      </section>}
+      </fieldset>}
 
       <ConfirmDialog
         open={pendingDeleteAllergyId !== null}

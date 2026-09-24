@@ -72,9 +72,10 @@ export default function HistoryView({ onOpenCase }: Props) {
   return (
     <div className="mx-auto max-w-5xl p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-semibold text-[var(--app-text)]">
-          Archive
-        </h1>
+        <div>
+          <h1 className="text-base font-semibold text-[var(--app-text)]">Case records</h1>
+          <p className="mt-1 text-xs text-[var(--app-muted)]">Discharged cases remain editable until they are archived.</p>
+        </div>
         <span className="text-xs text-[var(--app-muted)]">
           {loading
             ? "Loading…"
@@ -202,7 +203,7 @@ export default function HistoryView({ onOpenCase }: Props) {
                         handleOpen(row);
                       }}
                     >
-                      Open
+                      {row.status === "DISCHARGED" ? "Review" : "Open"}
                     </button>
                   </td>
                 </tr>
