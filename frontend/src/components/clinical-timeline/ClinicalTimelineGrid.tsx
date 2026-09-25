@@ -70,6 +70,8 @@ interface Props {
   labelColWidth?: number;
   dripGroupColors?: DripGroupColors;
   smartContrast?: boolean;
+  /** Render values without edit controls or entry affordances. */
+  readOnly?: boolean;
 }
 
 const SYSTEM_ROWS: ClinicalTimelineRow[] = [
@@ -372,6 +374,7 @@ export default function ClinicalTimelineGrid({
   labelColWidth = LABEL_COL_WIDTH,
   dripGroupColors = DEFAULT_DRIP_GROUP_COLORS,
   smartContrast = true,
+  readOnly = false,
 }: Props) {
   const workstation = useWorkstationSettings();
   const { color: themeCode, schemes } = useTheme();
@@ -696,37 +699,38 @@ export default function ClinicalTimelineGrid({
                   ) : null}
                   {isIoSectionHeaderRow ? (
                     <div className="flex flex-1 min-w-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          onIoHeaderClick?.();
-                        }}
-                        className="timegrid-section-button flex-1 min-w-0 rounded px-1 py-0.5 text-left hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
-                        aria-label="Add I/O entry"
-                        title="Add I/O entry"
-                      >
-                        <span className="truncate block text-[11px] font-medium text-[var(--app-text)]">{row.label}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          onIoHeaderClick?.();
-                        }}
-                        className="app-tooltip timegrid-section-button flex h-6 w-7 shrink-0 items-center justify-center gap-[2px] rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
-                        aria-label="Add I/O entry"
-                        data-tooltip="Add I/O entry"
-                      >
-                        {[
-                          "#5B8FF9",
-                          "#9B6DFF",
-                          "#39C6C8",
-                          "#E05252",
-                        ].map(color => (
-                          <span key={color} className="h-3.5 w-[3px] rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-                        ))}
-                      </button>
+                      {readOnly ? (
+                        <span className="min-w-0 flex-1 truncate px-1 py-0.5 text-[11px] font-medium text-[var(--app-text)]">{row.label}</span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              onIoHeaderClick?.();
+                            }}
+                            className="timegrid-section-button flex-1 min-w-0 rounded px-1 py-0.5 text-left hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+                            aria-label="Add I/O entry"
+                            title="Add I/O entry"
+                          >
+                            <span className="truncate block text-[11px] font-medium text-[var(--app-text)]">{row.label}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              onIoHeaderClick?.();
+                            }}
+                            className="app-tooltip timegrid-section-button flex h-6 w-7 shrink-0 items-center justify-center gap-[2px] rounded border border-[var(--app-border)] bg-[var(--app-control-bg)] hover:bg-[var(--app-control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+                            aria-label="Add I/O entry"
+                            data-tooltip="Add I/O entry"
+                          >
+                            {["#5B8FF9", "#9B6DFF", "#39C6C8", "#E05252"].map(color => (
+                              <span key={color} className="h-3.5 w-[3px] rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                            ))}
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         onClick={event => {
@@ -815,8 +819,8 @@ export default function ClinicalTimelineGrid({
                 const markers = isPrimaryEventRow ? eventMarkersByTs[ts] ?? [] : [];
                 const prepared = isFluidMedHeaderRow ? preparedMarkersByTs[ts] ?? [] : [];
                 const visibleEventCount = colWidth < 88 ? 1 : 2;
-                const canOpenEvent = isPrimaryEventRow && Boolean(onEventCellClick);
-                const canOpenIo = isFluidMedHeaderRow && Boolean(onIoHeaderColumnClick);
+                const canOpenEvent = !readOnly && isPrimaryEventRow && Boolean(onEventCellClick);
+                const canOpenIo = !readOnly && isFluidMedHeaderRow && Boolean(onIoHeaderColumnClick);
                 const cellActionClass = canOpenEvent || canOpenIo
                   ? "timegrid-cell-action cursor-pointer"
                   : "";
@@ -851,8 +855,9 @@ export default function ClinicalTimelineGrid({
                             <button
                               key={marker.id}
                               type="button"
+                              disabled={readOnly || !onEventMarkerClick}
                               className={`app-tooltip inline-flex h-8 min-w-8 items-center justify-center rounded px-0.5 leading-none font-semibold ${token.className}`}
-                              data-tooltip={`${marker.event_type === "note" ? "NOTE" : "EVENT"} · ${formatHHMM(marker.event_ts)}\n${marker.title}\nClick to view or edit`}
+                              data-tooltip={`${marker.event_type === "note" ? "NOTE" : "EVENT"} · ${formatHHMM(marker.event_ts)}\n${marker.title}${readOnly ? "" : "\nClick to view or edit"}`}
                               onClick={event => {
                                 event.stopPropagation();
                                 onEventMarkerClick?.(marker);
@@ -879,6 +884,7 @@ export default function ClinicalTimelineGrid({
                             <button
                               key={`prepared-${marker.run_id}-${marker.item_id}-${markerIndex}`}
                               type="button"
+                              disabled={readOnly || !onPreparedMarkerClick}
                               className="app-tooltip inline-flex h-5 w-2 min-w-0 appearance-none items-center justify-center border-0 bg-transparent p-0 shadow-none hover:bg-[var(--app-hover-bg)]"
                               data-tooltip={preparedTooltip}
                               onClick={event => {
@@ -921,11 +927,15 @@ export default function ClinicalTimelineGrid({
                     className={`app-tooltip ${cellClass}`}
                     data-tooltip={values.ecg?.[ts] === ECG_CLEAR_VALUE ? "Rhythm cleared at this time" : (values.ecg?.[ts] as string) ?? ""}
                   >
-                    <EcgPicker
-                      value={(values.ecg?.[ts] as string) ?? ""}
-                      displayCode={displayCode}
-                      onChange={value => onChange?.("ecg", ts, value)}
-                    />
+                    {readOnly ? (
+                      <span className="block h-full w-full px-1 text-center text-[10px] leading-[var(--timegrid-row-height)] text-[var(--app-text)]">{displayCode || "—"}</span>
+                    ) : (
+                      <EcgPicker
+                        value={(values.ecg?.[ts] as string) ?? ""}
+                        displayCode={displayCode}
+                        onChange={value => onChange?.("ecg", ts, value)}
+                      />
+                    )}
                   </td>
                 );
               }
@@ -1049,8 +1059,8 @@ export default function ClinicalTimelineGrid({
                   <td
                     key={ts}
                     style={{ width: colWidth, minWidth: colWidth }}
-                    className={`app-tooltip group ${cellClass} px-0.5 cursor-pointer hover:bg-emerald-500/10`}
-                    onClick={() => onIoCellClick?.(row.id, ts)}
+                    className={`app-tooltip group ${cellClass} px-0.5 ${readOnly ? "" : "cursor-pointer hover:bg-emerald-500/10"}`}
+                    onClick={() => { if (!readOnly) onIoCellClick?.(row.id, ts); }}
                     data-tooltip={tooltipText}
                   >
                     <div
@@ -1071,7 +1081,7 @@ export default function ClinicalTimelineGrid({
                         </span>
                       ) : displayValue ? (
                         <span className="relative z-10">{displayValue}</span>
-                      ) : !hasDrip ? (
+                      ) : !hasDrip && !readOnly ? (
                         <span className="relative z-10 opacity-0 group-hover:opacity-70 group-focus-within:opacity-70">+</span>
                       ) : null}
                     </div>
@@ -1097,14 +1107,23 @@ export default function ClinicalTimelineGrid({
                   className={`app-tooltip ${cellClass} ${editedDeviceValue ? "timegrid-edited-device-cell" : ""}`}
                   data-tooltip={clinicalCellTooltip(value, fallbackHint, workstation, provenance)}
                 >
-                  <EditableCellInput
-                    value={value}
-                    numeric={value === "" || isNumericLike(raw)}
-                    fallback={displayCell.isFallback}
-                    editedDeviceValue={editedDeviceValue}
-                    ariaLabel={`${row.label} at ${formatHHMM(ts)}`}
-                    onCommit={nextValue => onChange?.(row.id, ts, nextValue)}
-                  />
+                  {readOnly ? (
+                    <span
+                      className={`relative z-10 block h-full w-full px-1 text-center text-[10px] leading-[var(--timegrid-row-height)] ${displayCell.isFallback ? "font-medium text-amber-600 dark:text-amber-400" : "text-[var(--app-text)]"} ${editedDeviceValue ? "underline decoration-dotted decoration-2 underline-offset-2" : ""}`}
+                      aria-label={`${row.label} at ${formatHHMM(ts)}`}
+                    >
+                      {value || "—"}
+                    </span>
+                  ) : (
+                    <EditableCellInput
+                      value={value}
+                      numeric={value === "" || isNumericLike(raw)}
+                      fallback={displayCell.isFallback}
+                      editedDeviceValue={editedDeviceValue}
+                      ariaLabel={`${row.label} at ${formatHHMM(ts)}`}
+                      onCommit={nextValue => onChange?.(row.id, ts, nextValue)}
+                    />
+                  )}
                 </td>
               );
             })}

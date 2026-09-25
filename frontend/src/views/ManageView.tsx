@@ -63,7 +63,7 @@ const tabLabel: Record<ManageTab, string> = {
   license: "License",
 };
 
-const emptyWorkstation: Omit<WorkstationContext, "updatedAt"> = {
+const emptyWorkstation: Omit<WorkstationContext, "updatedAt" | "controlPlaneVersion"> = {
   hospitalName: "",
   buildingName: "",
   careUnitName: "",

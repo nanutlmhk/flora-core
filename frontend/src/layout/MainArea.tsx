@@ -6,6 +6,8 @@ import ManageView from "../views/ManageView";
 import HistoryView from "../views/HistoryView";
 import InputOutputBalanceView from "../views/InputOutputBalanceView";
 import CanopyFleetView from "../views/CanopyFleetView";
+import CanopyDashboardView from "../views/CanopyDashboardView";
+import CanopyInfrastructureView from "../views/CanopyInfrastructureView";
 import IdleCaseLanding from "../views/IdleCaseLanding";
 import AccountView from "../views/AccountView";
 
@@ -27,7 +29,9 @@ interface Props {
     | "report"
     | "master"
     | "account"
+    | "dashboard"
     | "fleet"
+    | "infrastructure"
     | "history";
   sessionUser: AuthUser | null;
   onCaseDischargeTimeUpdated?: (caseId: number, dischargeTime: number) => void;
@@ -126,8 +130,12 @@ export default function MainArea({
           caseStatus={caseStatus}
           onCaseDischargeTimeUpdated={onCaseDischargeTimeUpdated}
         />
+      ) : activeView === "dashboard" ? (
+        <CanopyDashboardView />
       ) : activeView === "fleet" ? (
         <CanopyFleetView />
+      ) : activeView === "infrastructure" ? (
+        <CanopyInfrastructureView />
       ) : activeView === "history" ? (
         <HistoryView onOpenCase={onOpenCase ?? (() => {})} />
       ) : (

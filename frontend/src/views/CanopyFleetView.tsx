@@ -1,140 +1,195 @@
-import { useCallback, useEffect, useState } from "react";
-import { getActiveFleetCases, getFleetCaseSnapshot, getLeaves, type FleetCase, type LeafNode } from "../api/fleetApi";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getActiveFleetCases,
+  getFleetCases,
+  getFleetCaseSnapshot,
+  getLeaves,
+  type FleetCase,
+  type LeafNode,
+} from "../api/fleetApi";
+import CanopyCaseChartView from "./CanopyCaseChartView";
 
-const tone: Record<string, string> = {
-  online: "bg-emerald-400",
-  live: "bg-emerald-400",
-  delayed: "bg-amber-400",
-  offline: "bg-rose-400",
+type SelectedCase = {
+  entry: FleetCase;
+  snapshot: Awaited<ReturnType<typeof getFleetCaseSnapshot>>;
 };
 
-function elapsed(iso: string) {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
+type CanopySection = "live" | "archive" | "legacy";
+
+const sectionCopy: Record<CanopySection, { title: string; description: string; empty: string }> = {
+  live: {
+    title: "Live cases",
+    description: "Active synchronized cases from Flora Leaf workstations.",
+    empty: "No active cases are being synchronized.",
+  },
+  archive: {
+    title: "Flora archive",
+    description: "Completed Flora cases retained for central read-only review.",
+    empty: "No completed Flora cases are available.",
+  },
+  legacy: {
+    title: "Innovian archive",
+    description: "Historical cases imported specifically from Innovian.",
+    empty: "No Innovian cases have been imported yet.",
+  },
+};
+
+function dateTime(value: string | number | null | undefined) {
+  if (value == null) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat(undefined, {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(date);
 }
 
+function freshness(value: string) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86_400)}d ago`;
+}
+
+const statusTone: Record<string, string> = {
+  ACTIVE: "border-emerald-500/45 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
+  DISCHARGED: "border-amber-500/45 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  ARCHIVED: "border-[var(--app-border)] bg-[var(--app-control-bg)] text-[var(--app-muted)]",
+};
+
 export default function CanopyFleetView() {
-  const [leaves, setLeaves] = useState<LeafNode[]>([]);
+  const [section, setSection] = useState<CanopySection>("live");
   const [cases, setCases] = useState<FleetCase[]>([]);
+  const [leaves, setLeaves] = useState<LeafNode[]>([]);
+  const [selected, setSelected] = useState<SelectedCase | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [openingId, setOpeningId] = useState("");
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState<{ entry: FleetCase; snapshot: Record<string, unknown> } | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const [nextLeaves, nextCases] = await Promise.all([getLeaves(), getActiveFleetCases()]);
-      setLeaves(nextLeaves);
-      setCases(nextCases);
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Fleet unavailable");
-    }
-  }, []);
-
-  const openCase = useCallback(async (entry: FleetCase) => {
-    try {
-      const result = await getFleetCaseSnapshot(entry.global_case_id);
-      setSelected({ entry, snapshot: result.snapshot });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Case snapshot unavailable");
-    }
-  }, []);
-
-  const sectionRows = (key: string) => {
-    const section = selected?.snapshot[key] as { rows?: unknown[] } | undefined;
-    return Array.isArray(section?.rows) ? section.rows : [];
-  };
+  const selectedRef = useRef<SelectedCase | null>(null);
 
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 10_000);
+    selectedRef.current = selected;
+  }, [selected]);
+
+  const openCase = useCallback(async (entry: FleetCase, quiet = false) => {
+    if (!quiet) setOpeningId(entry.global_case_id);
+    try {
+      const snapshot = await getFleetCaseSnapshot(entry.global_case_id);
+      setSelected({ entry, snapshot });
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The synchronized chart could not be opened.");
+    } finally {
+      setOpeningId("");
+    }
+  }, []);
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    try {
+      const [active, recent, leafRows] = await Promise.all([
+        getActiveFleetCases(), getFleetCases(100), getLeaves(),
+      ]);
+      const merged = new Map<string, FleetCase>();
+      [...active, ...recent].forEach(item => merged.set(item.global_case_id, item));
+      const next = Array.from(merged.values()).sort((left, right) => {
+        const activeRank = Number(right.status === "ACTIVE") - Number(left.status === "ACTIVE");
+        return activeRank || new Date(right.last_synced_at).getTime() - new Date(left.last_synced_at).getTime();
+      });
+      setCases(next);
+      setLeaves(leafRows);
+      setError("");
+      const currentSelection = selectedRef.current;
+      if (currentSelection) {
+        const current = next.find(item => item.global_case_id === currentSelection.entry.global_case_id);
+        if (current) setSelected({ entry: current, snapshot: await getFleetCaseSnapshot(current.global_case_id) });
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Canopy data could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }, [openCase]);
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(true), 10_000);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [load]);
+
+  const leafMap = useMemo(() => new Map(leaves.map(leaf => [leaf.leaf_id, leaf])), [leaves]);
+  const isInnovian = useCallback((entry: FleetCase) => {
+    const source = `${entry.admission_source || ""} ${entry.source_system || ""}`.toLowerCase();
+    return source.includes("innovian");
+  }, []);
+  const sectionCases = useMemo(() => cases.filter(entry => {
+    if (section === "live") return entry.status === "ACTIVE";
+    if (section === "legacy") return entry.status !== "ACTIVE" && isInnovian(entry);
+    return entry.status !== "ACTIVE" && !isInnovian(entry);
+  }), [cases, isInnovian, section]);
+  const counts = useMemo(() => ({
+    live: cases.filter(entry => entry.status === "ACTIVE").length,
+    archive: cases.filter(entry => entry.status !== "ACTIVE" && !isInnovian(entry)).length,
+    legacy: cases.filter(entry => entry.status !== "ACTIVE" && isInnovian(entry)).length,
+  }), [cases, isInnovian]);
+  const changeSection = (next: CanopySection) => {
+    setSection(next);
+    setSelected(null);
+  };
+  const canopyNavigation = (
+    <nav className="shrink-0 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2 sm:px-5" aria-label="Canopy records">
+      <div className="mx-auto flex max-w-7xl items-center gap-2">
+        {(["live", "archive", "legacy"] as const).map(item => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => changeSection(item)}
+            aria-current={section === item ? "page" : undefined}
+            className={`inline-flex min-h-10 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold transition ${section === item ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-transparent text-[var(--app-muted)] hover:border-[var(--app-border)] hover:bg-[var(--app-control-bg)] hover:text-[var(--app-text)]"}`}
+          >
+            <span className={`h-2 w-2 rounded-full ${item === "live" ? "bg-emerald-400" : item === "archive" ? "bg-sky-400" : "bg-amber-400"}`} aria-hidden="true" />
+            {item === "live" ? "Live" : item === "archive" ? "Archive" : "Legacy"}
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${section === item ? "bg-black/15" : "bg-[var(--app-control-bg)]"}`}>{counts[item]}</span>
+          </button>
+        ))}
+        <span className="ml-auto hidden text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--app-muted)] sm:block">Canopy · read-only</span>
+      </div>
+    </nav>
+  );
+
+  if (selected) {
+    return <div className="flex h-full min-h-0 flex-col">{canopyNavigation}<div className="min-h-0 flex-1"><CanopyCaseChartView entry={selected.entry} data={selected.snapshot} onBack={() => setSelected(null)} onRefresh={() => void load()} refreshing={loading} /></div></div>;
+  }
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] space-y-5 p-4 md:p-6">
-      <section className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--app-muted)]">Flora Canopy</div>
-          <h1 className="mt-1 text-2xl font-semibold text-[var(--app-text)]">Hospital live overview</h1>
-        </div>
-        <button className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-4 py-2 text-sm" onClick={() => void refresh()}>
-          Refresh
-        </button>
-      </section>
+    <div className="flex h-full min-h-0 flex-col bg-[var(--app-bg)]">
+      {canopyNavigation}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
+      <div className="mx-auto max-w-7xl space-y-4">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div><div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--app-accent)]">{section === "legacy" ? "Historical Innovian records" : "Synchronized Flora records"}</div><h1 className="mt-1 text-2xl font-semibold text-[var(--app-text)]">{sectionCopy[section].title}</h1><p className="mt-1 text-sm text-[var(--app-muted)]">{sectionCopy[section].description}</p></div>
+          <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-4 py-2.5 text-sm font-semibold text-[var(--app-text)] disabled:opacity-50">{loading ? "Refreshing…" : "Refresh"}</button>
+        </header>
 
-      {error ? <div className="rounded-xl border border-rose-400/40 bg-rose-400/10 p-3 text-rose-200">{error}</div> : null}
+        {error ? <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">{error}</div> : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {leaves.map((leaf) => (
-          <article key={leaf.leaf_id} className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate font-semibold text-[var(--app-text)]">{leaf.display_name}</div>
-                <div className="truncate text-xs text-[var(--app-muted)]">{leaf.hospital_id} · {leaf.leaf_id}</div>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-semibold capitalize text-[var(--app-muted)]">
-                <span className={`h-2.5 w-2.5 rounded-full ${tone[leaf.connection_status]}`} />
-                {leaf.connection_status}
-              </div>
-            </div>
-            <div className="mt-3 text-xs text-[var(--app-muted)]">Updated {elapsed(leaf.last_seen_at)}</div>
-          </article>
-        ))}
-        {!leaves.length && !error ? <div className="text-sm text-[var(--app-muted)]">No Leaf workstations connected.</div> : null}
-      </section>
-
-      <section className="overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)]">
-        <div className="border-b border-[var(--app-border)] px-4 py-3">
-          <h2 className="font-semibold text-[var(--app-text)]">Active cases <span className="text-[var(--app-accent)]">{cases.length}</span></h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="text-xs uppercase tracking-wider text-[var(--app-muted)]">
-              <tr><th className="px-4 py-3">Patient HN</th><th className="px-4 py-3">Case</th><th className="px-4 py-3">Leaf</th><th className="px-4 py-3">Started</th><th className="px-4 py-3">Feed</th></tr>
-            </thead>
-            <tbody>
-              {cases.map((entry) => (
-                <tr key={entry.global_case_id} onClick={() => void openCase(entry)} className="cursor-pointer border-t border-[var(--app-border)] text-[var(--app-text)] hover:bg-[var(--app-control-bg)]">
-                  <td className="px-4 py-3 font-semibold">{entry.hn || "—"}</td>
-                  <td className="px-4 py-3">{entry.case_code || entry.source_case_id}</td>
-                  <td className="px-4 py-3">{entry.leaf_name}</td>
-                  <td className="px-4 py-3">{entry.start_time ? new Date(entry.start_time).toLocaleString() : "—"}</td>
-                  <td className="px-4 py-3"><span className="inline-flex items-center gap-2 capitalize"><span className={`h-2.5 w-2.5 rounded-full ${tone[entry.sync_status]}`} />{entry.sync_status}</span></td>
-                </tr>
-              ))}
-              {!cases.length ? <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--app-muted)]">No synchronized active cases.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {selected ? (
-        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/60 p-3" role="dialog" aria-modal="true">
-          <section className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-2xl">
-            <header className="sticky top-0 flex items-center justify-between gap-3 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-5 py-4">
-              <div><div className="text-xs uppercase tracking-wider text-[var(--app-muted)]">{selected.entry.leaf_name} · live read-only</div><h2 className="text-xl font-semibold">HN {selected.entry.hn || "—"} · {selected.entry.case_code || selected.entry.source_case_id}</h2></div>
-              <button className="rounded-lg border border-[var(--app-border)] px-3 py-2" onClick={() => setSelected(null)}>Close</button>
-            </header>
-            <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
-              {(["allergies", "diagnosis", "procedures", "staff"] as const).map((key) => (
-                <article key={key} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-[var(--app-muted)]">{key}</div>
-                  <div className="mt-2 text-2xl font-semibold">{sectionRows(key).length}</div>
-                  <div className="text-xs text-[var(--app-muted)]">recorded entries</div>
-                </article>
-              ))}
-            </div>
-            <div className="grid gap-3 px-5 pb-5 sm:grid-cols-3">
-              <div className="rounded-xl border border-[var(--app-border)] p-4"><div className="text-xs uppercase text-[var(--app-muted)]">Vitals</div><div className="mt-1 text-xl font-semibold">{sectionRows("vitals").length} minutes</div></div>
-              <div className="rounded-xl border border-[var(--app-border)] p-4"><div className="text-xs uppercase text-[var(--app-muted)]">Events</div><div className="mt-1 text-xl font-semibold">{sectionRows("events").length} entries</div></div>
-              <div className="rounded-xl border border-[var(--app-border)] p-4"><div className="text-xs uppercase text-[var(--app-muted)]">I/O</div><div className="mt-1 text-xl font-semibold">{sectionRows("io_events").length} entries</div></div>
-            </div>
-            <div className="px-5 pb-5 text-sm text-[var(--app-muted)]">The synchronized chart payload is available. Full live chart rendering is the next viewer increment.</div>
-          </section>
-        </div>
-      ) : null}
-    </main>
+        <section className="overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel-bg)]">
+          <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(180px,.8fr)_140px_150px_96px] gap-3 border-b border-[var(--app-border)] px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--app-muted)] max-lg:hidden"><span>Patient / case</span><span>{section === "legacy" ? "Source system" : "Leaf"}</span><span>Started</span><span>Last sync</span><span /></div>
+          {sectionCases.map(entry => {
+            const leaf = leafMap.get(entry.leaf_id);
+            return (
+              <article key={entry.global_case_id} className="grid grid-cols-1 gap-3 border-b border-[var(--app-border)] px-4 py-4 last:border-b-0 lg:grid-cols-[minmax(0,1.5fr)_minmax(180px,.8fr)_140px_150px_96px] lg:items-center">
+                <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-[var(--app-text)]">HN {entry.hn || "—"}</strong><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTone[entry.status] || statusTone.ARCHIVED}`}>{entry.status}</span></div><div className="mt-1 truncate text-xs text-[var(--app-muted)]">{entry.case_code || entry.source_case_id}</div></div>
+                <div><div className="text-sm font-semibold text-[var(--app-text)]">{section === "legacy" ? entry.source_system || "Innovian" : entry.leaf_name || leaf?.display_name || entry.leaf_id}</div><div className="text-xs text-[var(--app-muted)]">{section === "legacy" ? entry.admission_source || "imported" : leaf?.connection_status || entry.sync_status}</div></div>
+                <div className="text-xs text-[var(--app-muted)]">{dateTime(entry.start_time)}</div>
+                <div className="text-xs text-[var(--app-muted)]"><span className="font-semibold text-[var(--app-text)]">{entry.sync_status}</span><br />{freshness(entry.last_synced_at)}</div>
+                <button type="button" onClick={() => void openCase(entry)} disabled={openingId === entry.global_case_id} className="rounded-lg border border-[var(--app-accent)] bg-[var(--app-accent)] px-3 py-2 text-xs font-bold text-[var(--app-accent-contrast)] disabled:opacity-50">{openingId === entry.global_case_id ? "Opening…" : "Open chart"}</button>
+              </article>
+            );
+          })}
+          {!loading && sectionCases.length === 0 ? <div className="px-6 py-16 text-center"><div className="text-lg font-semibold text-[var(--app-text)]">{sectionCopy[section].empty}</div><div className="mt-1 text-sm text-[var(--app-muted)]">Select another Canopy section or refresh after new records arrive.</div></div> : null}
+        </section>
+      </div>
+      </div>
+    </div>
   );
 }

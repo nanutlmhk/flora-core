@@ -28,7 +28,7 @@ export default function App() {
   const [caseStatus, setCaseStatus] = useState<CaseStatus>({ status: "IDLE" });
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
   const [isNavigationCollapsed, setIsNavigationCollapsed] = useState(() => readStoredBool(NAV_COLLAPSED_KEY, false));
-  const [activeView, setActiveView] = useState<AppView>(surface.code === "canopy" ? "fleet" : "case");
+  const [activeView, setActiveView] = useState<AppView>(surface.code === "canopy" ? "dashboard" : "case");
   const [shutdownPrompt, setShutdownPrompt] = useState<{
     open: boolean;
     stage: "confirm" | "closing";
@@ -87,8 +87,8 @@ export default function App() {
     if (!user?.username) return;
     // A changed authenticated session resets navigation to its safe landing view.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveView(user.mustChangePassword ? "account" : surface.code === "canopy" ? "fleet" : "case");
-    if (!user.mustChangePassword) void refreshCase();
+    setActiveView(user.mustChangePassword ? "account" : surface.code === "canopy" ? "dashboard" : "case");
+    if (!user.mustChangePassword && surface.code === "leaf") void refreshCase();
   }, [refreshCase, surface.code, user?.mustChangePassword, user?.username]);
 
   useEffect(() => {

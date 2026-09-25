@@ -14,6 +14,7 @@ services:
       - flora_postgres_data:/var/lib/postgresql/data
       - ../infrastructure/postgres/0000-create-app-role.sql:/docker-entrypoint-initdb.d/0000-create-app-role.sql:ro
       - ../docs/database/flora-schema.sql:/docker-entrypoint-initdb.d/0001-schema.sql:ro
+      - ../infrastructure/postgres/0001-post-import-indexes.sql:/docker-entrypoint-initdb.d/0002-post-import-indexes.sql:ro
       - ../infrastructure/postgres/0003-create-view-role.sql:/docker-entrypoint-initdb.d/0003-create-view-role.sql:ro
       - ../infrastructure/postgres/0004-leaf-canopy-sync.sql:/docker-entrypoint-initdb.d/0004-leaf-canopy-sync.sql:ro
       - ../infrastructure/postgres/0005-leaf-writes.sql:/docker-entrypoint-initdb.d/0005-leaf-writes.sql:ro
@@ -37,6 +38,7 @@ services:
       - ../infrastructure/postgres/0024-curated-theme-schemes.sql:/docker-entrypoint-initdb.d/0024-curated-theme-schemes.sql:ro
       - ../infrastructure/postgres/0025-expanded-light-theme-schemes.sql:/docker-entrypoint-initdb.d/0025-expanded-light-theme-schemes.sql:ro
       - ../infrastructure/postgres/0026-rename-cupcake-theme.sql:/docker-entrypoint-initdb.d/0026-rename-cupcake-theme.sql:ro
+      - ../infrastructure/postgres/0027-canopy-control-plane.sql:/docker-entrypoint-initdb.d/0027-canopy-control-plane.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

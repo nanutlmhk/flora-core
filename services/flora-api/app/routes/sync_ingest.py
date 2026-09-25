@@ -31,6 +31,8 @@ class SyncBatch(BaseModel):
     hospital_id: str = Field(min_length=1, max_length=120)
     display_name: str = Field(min_length=1, max_length=160)
     software_version: str | None = Field(default=None, max_length=80)
+    observed_location: dict[str, Any] | None = None
+    applied_config_version: int = Field(default=0, ge=0)
     messages: list[SyncMessage] = Field(default_factory=list, max_length=500)
 
 
@@ -56,15 +58,29 @@ def ingest_batch(batch: SyncBatch, database: Connection = Depends(connection)) -
         database.execute(
             """
             INSERT INTO sync_leaf_node
-              (leaf_id, hospital_id, display_name, software_version, last_seen_at)
-            VALUES (%s, %s, %s, %s, %s)
+              (leaf_id, hospital_id, display_name, software_version, last_seen_at, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (leaf_id) DO UPDATE SET
               hospital_id = EXCLUDED.hospital_id,
               display_name = EXCLUDED.display_name,
               software_version = EXCLUDED.software_version,
-              last_seen_at = EXCLUDED.last_seen_at
+              last_seen_at = EXCLUDED.last_seen_at,
+              metadata = sync_leaf_node.metadata || EXCLUDED.metadata
             """,
-            (batch.leaf_id, batch.hospital_id, batch.display_name, batch.software_version, now),
+            (
+                batch.leaf_id,
+                batch.hospital_id,
+                batch.display_name,
+                batch.software_version,
+                now,
+                Jsonb({"observed_location": batch.observed_location or {}}),
+            ),
+        )
+        database.execute(
+            """UPDATE canopy_leaf_assignment
+               SET applied_version=GREATEST(applied_version,%s),updated_at=(extract(epoch from clock_timestamp())*1000)::bigint
+               WHERE leaf_id=%s""",
+            (batch.applied_config_version, batch.leaf_id),
         )
         for message in batch.messages:
             inserted = database.execute(
@@ -126,11 +142,23 @@ def ingest_batch(batch: SyncBatch, database: Connection = Depends(connection)) -
                     now,
                 ),
             )
-    return {"ok": True, "accepted": accepted, "duplicates": duplicates, "server_time": now}
+        assignment = database.execute(
+            """SELECT desired_config,desired_version,applied_version
+               FROM canopy_leaf_assignment WHERE leaf_id=%s""",
+            (batch.leaf_id,),
+        ).fetchone()
+    return {
+        "ok": True,
+        "accepted": accepted,
+        "duplicates": duplicates,
+        "server_time": now,
+        "configuration": assignment["desired_config"] if assignment else None,
+        "desired_config_version": assignment["desired_version"] if assignment else 0,
+        "applied_config_version": assignment["applied_version"] if assignment else 0,
+    }
 
 
 @router.get("/fingerprint")
 def fingerprint() -> dict[str, str]:
     secret = os.getenv("FLORA_SYNC_SHARED_SECRET", "").encode("utf-8")
     return {"protocol": "flora-sync-v1", "key_fingerprint": hashlib.sha256(secret).hexdigest()[:12]}
-

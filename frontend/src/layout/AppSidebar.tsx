@@ -13,7 +13,7 @@ import reportMenuIcon from "../assets/menu-report.png";
 import configMenuIcon from "../assets/menu-config.png";
 import archiveMenuIcon from "../assets/menu-archive.png";
 
-export type AppView = "case" | "form" | "diagnosis" | "staff" | "io" | "patient" | "report" | "master" | "account" | "fleet" | "history";
+export type AppView = "case" | "form" | "diagnosis" | "staff" | "io" | "patient" | "report" | "master" | "account" | "dashboard" | "fleet" | "infrastructure" | "history";
 
 type Props = {
   activeView: AppView;
@@ -69,7 +69,11 @@ function SidebarBody({ activeView, setActiveView, sessionUser, caseStatus, colla
   const canConfigure = permissions.some(permission => ["account.manage", "config.manage", "clinical_master.manage", "staff.manage"].includes(permission));
   const canReport = permissions.includes("report.generate");
   const items: NavItem[] = surface.code === "canopy"
-    ? [{ view: "fleet", label: "Live overview", icon: "fleet" }, { view: "history", label: t("topbar.archive"), icon: "archive" }]
+    ? [
+        { view: "dashboard", label: "Dashboard", icon: "fleet" },
+        { view: "fleet", label: "Clinical charts", icon: "chart" },
+        { view: "infrastructure", label: "Infrastructure", icon: "config" },
+      ]
     : isIdleLeaf
       ? [
           { view: "case", label: t("topbar.startCase"), icon: "start" },

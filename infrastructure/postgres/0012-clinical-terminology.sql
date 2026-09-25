@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS clinical_concept (
   id bigserial PRIMARY KEY,
-  domain text NOT NULL CHECK (domain IN ('vital','agent','fluid','medication','output','diagnosis','procedure')),
+  domain text NOT NULL CHECK (domain IN ('observation','fluid','blood_product','medication','output','diagnosis','procedure')),
   local_id text NOT NULL,
   local_name text NOT NULL,
   is_active bigint NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
@@ -109,27 +109,27 @@ WHERE concept.domain='procedure'
   AND entry.concept_id IS NULL;
 
 WITH seed(param_key,display_name,unit,domain) AS (VALUES
-  ('hr','Heart rate','/min','vital'),('pr','Pulse rate','/min','vital'),('spo2','Peripheral oxygen saturation','%','vital'),
-  ('nibp_sys','Non-invasive systolic blood pressure','mm[Hg]','vital'),('nibp_map','Non-invasive mean blood pressure','mm[Hg]','vital'),('nibp_dia','Non-invasive diastolic blood pressure','mm[Hg]','vital'),
-  ('art_sys','Arterial systolic blood pressure','mm[Hg]','vital'),('art_map','Arterial mean blood pressure','mm[Hg]','vital'),('art_dia','Arterial diastolic blood pressure','mm[Hg]','vital'),
-  ('cvp','Central venous pressure','mm[Hg]','vital'),('temperature','Body temperature','Cel','vital'),('rr','Respiratory rate','/min','vital'),
-  ('et_co2','End-tidal carbon dioxide','mm[Hg]','vital'),('fi_co2','Inspired carbon dioxide','mm[Hg]','vital'),
-  ('fio2','Inspired oxygen fraction','%','vital'),('fio2_meas','Inspired oxygen fraction sensor','%','vital'),('et_o2','End-tidal oxygen fraction','%','vital'),
-  ('tidal_volume_exp','Expiratory tidal volume','mL','vital'),('minute_volume_exp','Expiratory minute volume','L/min','vital'),
-  ('airway_pressure_peak','Peak airway pressure','cm[H2O]','vital'),('airway_pressure_plateau','Plateau airway pressure','cm[H2O]','vital'),
-  ('airway_pressure_mean','Mean airway pressure','cm[H2O]','vital'),('airway_pressure_min','Minimum airway pressure','cm[H2O]','vital'),
-  ('peep_total','Total positive end-expiratory pressure','cm[H2O]','vital'),('compliance','Respiratory compliance','mL/cm[H2O]','vital'),
-  ('set_vent_mode','Ventilator mode',NULL,'vital'),('set_tidal_volume','Set tidal volume','mL','vital'),
-  ('set_insp_pressure','Set inspiratory pressure','cm[H2O]','vital'),('set_rr','Set respiratory rate','/min','vital'),
-  ('set_ie_ratio','Set inspiratory expiratory ratio',NULL,'vital'),('set_t_insp','Set inspiratory time','s','vital'),
-  ('set_insp_pause_pct','Set inspiratory pause','%','vital'),('set_peep','Set positive end-expiratory pressure','cm[H2O]','vital'),
-  ('set_peak_limit','Set peak pressure limit','cm[H2O]','vital'),('set_psupp','Set pressure support','cm[H2O]','vital'),
-  ('set_flow_trigger','Set flow trigger','L/min','vital'),('set_end_flow','Set end flow','%','vital'),
-  ('set_fio2','Set inspired oxygen fraction','%','vital'),('set_fgf_total','Set total fresh gas flow','L/min','vital'),
-  ('flow_o2','Oxygen flow','L/min','vital'),('flow_n2o','Nitrous oxide flow','L/min','vital'),('flow_air','Air flow','L/min','vital'),
-  ('fi_n2o','Inspired nitrous oxide fraction','%','vital'),('et_n2o','End-tidal nitrous oxide fraction','%','vital'),
-  ('fi_agent','Inspired anesthetic agent concentration','%','agent'),('et_agent','End-tidal anesthetic agent concentration','%','agent'),
-  ('mac','Minimum alveolar concentration','1','agent')
+  ('hr','Heart rate','/min','observation'),('pr','Pulse rate','/min','observation'),('spo2','Peripheral oxygen saturation','%','observation'),
+  ('nibp_sys','Non-invasive systolic blood pressure','mm[Hg]','observation'),('nibp_map','Non-invasive mean blood pressure','mm[Hg]','observation'),('nibp_dia','Non-invasive diastolic blood pressure','mm[Hg]','observation'),
+  ('art_sys','Arterial systolic blood pressure','mm[Hg]','observation'),('art_map','Arterial mean blood pressure','mm[Hg]','observation'),('art_dia','Arterial diastolic blood pressure','mm[Hg]','observation'),
+  ('cvp','Central venous pressure','mm[Hg]','observation'),('temperature','Body temperature','Cel','observation'),('rr','Respiratory rate','/min','observation'),
+  ('et_co2','End-tidal carbon dioxide','mm[Hg]','observation'),('fi_co2','Inspired carbon dioxide','mm[Hg]','observation'),
+  ('fio2','Inspired oxygen fraction','%','observation'),('fio2_meas','Inspired oxygen fraction sensor','%','observation'),('et_o2','End-tidal oxygen fraction','%','observation'),
+  ('tidal_volume_exp','Expiratory tidal volume','mL','observation'),('minute_volume_exp','Expiratory minute volume','L/min','observation'),
+  ('airway_pressure_peak','Peak airway pressure','cm[H2O]','observation'),('airway_pressure_plateau','Plateau airway pressure','cm[H2O]','observation'),
+  ('airway_pressure_mean','Mean airway pressure','cm[H2O]','observation'),('airway_pressure_min','Minimum airway pressure','cm[H2O]','observation'),
+  ('peep_total','Total positive end-expiratory pressure','cm[H2O]','observation'),('compliance','Respiratory compliance','mL/cm[H2O]','observation'),
+  ('set_vent_mode','Ventilator mode',NULL,'observation'),('set_tidal_volume','Set tidal volume','mL','observation'),
+  ('set_insp_pressure','Set inspiratory pressure','cm[H2O]','observation'),('set_rr','Set respiratory rate','/min','observation'),
+  ('set_ie_ratio','Set inspiratory expiratory ratio',NULL,'observation'),('set_t_insp','Set inspiratory time','s','observation'),
+  ('set_insp_pause_pct','Set inspiratory pause','%','observation'),('set_peep','Set positive end-expiratory pressure','cm[H2O]','observation'),
+  ('set_peak_limit','Set peak pressure limit','cm[H2O]','observation'),('set_psupp','Set pressure support','cm[H2O]','observation'),
+  ('set_flow_trigger','Set flow trigger','L/min','observation'),('set_end_flow','Set end flow','%','observation'),
+  ('set_fio2','Set inspired oxygen fraction','%','observation'),('set_fgf_total','Set total fresh gas flow','L/min','observation'),
+  ('flow_o2','Oxygen flow','L/min','observation'),('flow_n2o','Nitrous oxide flow','L/min','observation'),('flow_air','Air flow','L/min','observation'),
+  ('fi_n2o','Inspired nitrous oxide fraction','%','observation'),('et_n2o','End-tidal nitrous oxide fraction','%','observation'),
+  ('fi_agent','Inspired anesthetic agent concentration','%','observation'),('et_agent','End-tidal anesthetic agent concentration','%','observation'),
+  ('mac','Minimum alveolar concentration','1','observation')
 ), concepts AS (
   INSERT INTO clinical_concept(domain,local_id,local_name,is_active,created_at,updated_at)
   SELECT domain,param_key,display_name,1,(extract(epoch from clock_timestamp())*1000)::bigint,(extract(epoch from clock_timestamp())*1000)::bigint FROM seed

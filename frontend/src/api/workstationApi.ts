@@ -13,6 +13,7 @@ export type WorkstationContext = {
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   timeFormat: "24h" | "12h";
   updatedAt: number;
+  controlPlaneVersion?: number;
 };
 
 export async function getWorkstationContext(): Promise<WorkstationContext> {

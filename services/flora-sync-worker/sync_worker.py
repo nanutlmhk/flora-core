@@ -28,6 +28,22 @@ def get_json(client: httpx.Client, path: str) -> Any:
     return response.json()
 
 
+def apply_configuration(client: httpx.Client, configuration: dict[str, Any]) -> None:
+    location = configuration.get("location") or {}
+    response = client.put(
+        f"{LEAF_API}/api/workstation/context/control-plane",
+        headers={"X-FLORA-Service-Secret": LEAF_SERVICE_SECRET},
+        json={
+            **location,
+            "timezone": configuration.get("timezone") or "Asia/Bangkok",
+            "dateFormat": configuration.get("dateFormat") or "DD/MM/YYYY",
+            "timeFormat": configuration.get("timeFormat") or "24h",
+            "controlPlaneVersion": int(configuration.get("version") or 0),
+        },
+    )
+    response.raise_for_status()
+
+
 def build_snapshot(client: httpx.Client, case: dict[str, Any]) -> dict[str, Any]:
     case_id = case["case_id"]
     now_ms = time.time_ns() // 1_000_000
@@ -79,6 +95,7 @@ def make_message(snapshot: dict[str, Any]) -> tuple[dict[str, Any], str]:
 def synchronize() -> None:
     global INITIAL_SYNC_COMPLETE, PREVIOUS_ACTIVE_IDS
     with httpx.Client(timeout=20) as client:
+        workstation = get_json(client, "/api/workstation/context")
         cases = get_json(client, "/api/case/list?limit=500").get("rows", [])
         active_ids = {
             str(case["case_id"])
@@ -104,11 +121,19 @@ def synchronize() -> None:
                 "hospital_id": HOSPITAL_ID,
                 "display_name": DISPLAY_NAME,
                 "software_version": "0.1.0",
+                "observed_location": workstation,
+                "applied_config_version": int(workstation.get("controlPlaneVersion") or 0),
                 "messages": messages,
             },
         )
         response.raise_for_status()
         result = response.json()
+        configuration = result.get("configuration")
+        desired_version = int(result.get("desired_config_version") or 0)
+        applied_version = int(workstation.get("controlPlaneVersion") or 0)
+        if configuration and desired_version > applied_version:
+            apply_configuration(client, configuration)
+            print(f"config applied leaf={LEAF_ID} version={desired_version}", flush=True)
         for _, digest, case_id in pending:
             LAST_DIGEST[case_id] = digest
         PREVIOUS_ACTIVE_IDS = active_ids

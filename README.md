@@ -49,6 +49,13 @@ LiveAgent feed on <http://localhost:6897>; its `/health` response identifies it
 as `synthetic-demo-only`. Replace `VECTOR_READ_URL` with the real Vector endpoint
 for a device-connected deployment.
 
+On a completely new development database, Flora creates the initial account
+`admin` with password `admin` and sends it directly to Account settings to choose
+a new password. The bootstrap runs only while `auth_user` is empty; it never
+changes or recreates accounts in an existing installation. Set
+`FLORA_BOOTSTRAP_ADMIN_PASSWORD` in `.env` before first startup to choose a
+different initial password, and disable the bootstrap outside local development.
+
 Load the redistributable clinical terminology baseline once for a new database:
 
 ```powershell
