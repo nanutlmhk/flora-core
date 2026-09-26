@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { BootstrapStatus } from "../bootstrap/floraDesktop";
 import floraAppIcon from "../assets/floraicon.png";
+import canopyAppIcon from "../assets/canopyicon.png";
 import ThemePicker from "../components/ThemePicker";
 import LanguagePicker from "../components/LanguagePicker";
 import { useLanguage } from "../context/LanguageContext";
@@ -40,6 +41,7 @@ function ReadinessRow({ label, state }: { label: string; state: Readiness }) {
 export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatus }: Props) {
   const { t } = useLanguage();
   const surface = getSurfaceInfo();
+  const appIcon = surface.code === "canopy" ? canopyAppIcon : floraAppIcon;
   const productName = t(`product.${surface.code}.name`);
   const productDescription = t(`product.${surface.code}.description`);
   const [username, setUsername] = useState("");
@@ -80,7 +82,7 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
           <header className="flex items-center justify-between border-b border-[var(--app-border)] px-[22px] py-[14px] sm:px-[26px]">
             <div className="flex items-center gap-[10px]">
                 <span className="inline-flex h-[40px] w-[40px] items-center justify-center rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)]">
-                  <img src={floraAppIcon} alt="" className="h-[34px] w-[34px] object-contain [image-rendering:pixelated]" />
+                  <img src={appIcon} alt="" className="h-[34px] w-[34px] object-contain [image-rendering:pixelated]" />
                 </span>
                 <div>
                   <div className="text-[17px] font-bold leading-[21px] text-[var(--app-text)]">{productName}</div>
@@ -143,7 +145,7 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
                 {productName} {systemState === "ready" ? t("status.ready") : systemState === "checking" ? t("status.checking") : t("status.unavailable")}
               </summary>
               <div className="mt-[10px] space-y-[8px]">
-                <ReadinessRow label={t("status.localData")} state={localDataState} />
+                {surface.code === "leaf" ? <ReadinessRow label={t("status.localData")} state={localDataState} /> : null}
                 <ReadinessRow label={t("status.serverData")} state={serverDataState} />
               </div>
             </details>
@@ -153,7 +155,7 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
             <h2 className="mb-[15px] text-[18px] font-semibold leading-[24px] text-[var(--app-text)]">{t("status.title")}</h2>
             <div className="space-y-[9px]">
               <ReadinessRow label={productName} state={systemState} />
-              <ReadinessRow label={t("status.localData")} state={localDataState} />
+              {surface.code === "leaf" ? <ReadinessRow label={t("status.localData")} state={localDataState} /> : null}
               <ReadinessRow label={t("status.serverData")} state={serverDataState} />
             </div>
           </aside>

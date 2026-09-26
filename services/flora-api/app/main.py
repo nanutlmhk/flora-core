@@ -21,6 +21,7 @@ from .routes.device_writer import router as device_writer_router
 from .routes.his import router as his_router
 from .routes.fleet_read import router as fleet_read_router
 from .routes.fleet_control import router as fleet_control_router
+from .routes.legacy_archive import router as legacy_archive_router
 from .routes.sync_ingest import router as sync_ingest_router
 from .routes.workstation import router as workstation_router
 from .routes.terminology import router as terminology_router
@@ -64,6 +65,7 @@ if API_MODE == "canopy":
     app.include_router(canopy_auth_router)
     app.include_router(fleet_read_router)
     app.include_router(fleet_control_router)
+    app.include_router(legacy_archive_router)
 if API_MODE == "sync":
     app.include_router(sync_ingest_router)
 
@@ -71,7 +73,8 @@ if API_MODE == "sync":
 @app.middleware("http")
 async def enforce_canopy_read_only(request: Request, call_next):
     if API_MODE == "canopy" and request.method not in {"GET", "HEAD", "OPTIONS"}:
-        if request.url.path not in {"/api/auth/login", "/api/auth/logout"} and not request.url.path.startswith("/api/fleet/control"):
+        read_only_report = request.method == "POST" and request.url.path.startswith("/api/fleet/legacy/cases/") and request.url.path.endswith("/report.pdf")
+        if request.url.path not in {"/api/auth/login", "/api/auth/logout"} and not request.url.path.startswith("/api/fleet/control") and not read_only_report:
             return JSONResponse(
                 status_code=403,
                 content={"error": "Flora Canopy is read-only"},

@@ -57,6 +57,7 @@ def build_snapshot(client: httpx.Client, case: dict[str, Any]) -> dict[str, Any]
         "diagnosis": f"/api/case/{case_id}/diagnosis",
         "procedures": f"/api/case/{case_id}/procedures",
         "staff": f"/api/case/{case_id}/staff",
+        "forms": f"/api/case/{case_id}/detail-draft",
         "vitals": f"/api/case/{case_id}/vitals?from={from_ms}&to={end_ms}",
         "events": f"/api/case/{case_id}/events?from={from_ms}&to={end_ms}&limit=1000",
         "timeline": f"/api/case/{case_id}/timeline/effective?from={from_ms}&to={end_ms}",

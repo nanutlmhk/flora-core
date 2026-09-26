@@ -1499,19 +1499,22 @@ input {
 .case-header-card-slot:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .case-header-card-slot--dragging { opacity: .42; }
 .case-header-card-slot > .case-header-card { width: 100%; height: 100%; }
-.case-header-card { display: grid; min-width: 0; min-height: 7.15rem; grid-template-rows: auto minmax(2.7rem,1fr) auto auto; align-content: stretch; overflow: hidden; border: 1px solid var(--app-border); border-radius: .75rem; background: color-mix(in srgb,var(--app-panel-bg) 86%,var(--app-control-bg)); padding: .65rem .75rem; color: var(--app-text); text-align: left; }
+.case-header-card { display: grid; min-width: 0; min-height: 7.15rem; grid-template-rows: 1.55rem minmax(2.9rem,1fr) .9rem .9rem; align-content: stretch; overflow: hidden; border: 1px solid var(--app-border); border-radius: .75rem; background: color-mix(in srgb,var(--app-panel-bg) 86%,var(--app-control-bg)); padding: .65rem .75rem; color: var(--app-text); text-align: left; }
 .case-header-card--interactive { cursor: pointer; transition: border-color .15s ease,background .15s ease,transform .15s ease; }
 .case-header-card--interactive:hover, .case-header-card--interactive:focus-visible { border-color: var(--app-accent); background: var(--app-control-bg); outline: none; transform: translateY(-1px); }
 .case-header-card__group { display: flex; min-width: 0; align-items: center; gap: .42rem; color: var(--app-muted); font-size: .66rem; font-weight: 850; letter-spacing: .11em; line-height: 1.2; text-transform: uppercase; }
 .case-header-card__count { display: inline-grid; min-width: 1.2rem; height: 1.2rem; place-items: center; border: 1px solid color-mix(in srgb,var(--app-accent) 45%,var(--app-border)); border-radius: 999px; background: color-mix(in srgb,var(--app-accent) 12%,var(--app-control-bg)); padding: 0 .28rem; color: var(--app-text); font-size: .58rem; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .case-header-card__icon { width: 1.5rem; height: 1.5rem; flex: 0 0 auto; object-fit: contain; image-rendering: pixelated; filter: brightness(1.06) contrast(1.08) saturate(.96) drop-shadow(0 1px 1px rgb(0 0 0 / .35)); }
 .light .case-header-card__icon { filter: brightness(.9) contrast(1.18) saturate(.9) drop-shadow(0 1px 1px rgb(0 0 0 / .2)); }
-.case-header-card__main { display: -webkit-box; align-self: center; overflow: hidden; color: var(--app-text); font-size: clamp(.92rem,1.05vw,1.25rem); font-weight: 750; line-height: 1.18; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.case-header-card__main { display: -webkit-box; align-self: start; overflow: hidden; padding-top: .7rem; color: var(--app-text); font-size: clamp(.92rem,1.05vw,1.25rem); font-weight: 750; line-height: 1.18; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .case-header-card__sub { overflow: hidden; color: var(--app-muted); font-size: .68rem; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.case-header-card__sub--empty { visibility: hidden; }
 .case-header-card__sub b { color: var(--app-text); font-size: .62rem; letter-spacing: .06em; text-transform: uppercase; }
 .case-header-card--emphasis .case-header-card__main { color: var(--app-accent); font-size: clamp(1.15rem,1.45vw,1.65rem); font-variant-numeric: tabular-nums; }
 .case-header-card--alert { border-color: color-mix(in srgb,var(--app-danger,#ef4444) 55%,var(--app-border)); }
 .case-header-card--alert .case-header-card__group, .case-header-card--alert .case-header-card__main { color: var(--app-danger,#ef4444); }
+.case-header-card--success { border-color: color-mix(in srgb,#22c55e 55%,var(--app-border)); background: color-mix(in srgb,#22c55e 7%,var(--app-panel-bg)); }
+.case-header-card--success .case-header-card__group, .case-header-card--success .case-header-card__main { color: #22c55e; }
 .case-kronos__eyebrow { color: var(--app-muted); font-size: .68rem; font-weight: 800; letter-spacing: .09em; }
 .case-kronos__toolbar { display: flex; align-items: center; gap: .75rem; flex: 0 0 auto; border-color: var(--app-border); background: var(--app-panel-bg); color: var(--app-text); }
 .case-kronos__controls { display: flex; align-items: center; gap: .5rem; }

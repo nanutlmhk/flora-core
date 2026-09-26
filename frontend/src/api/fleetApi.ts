@@ -67,12 +67,77 @@ export type FleetCase = {
   sync_status: "live" | "delayed" | "offline";
 };
 
+export type LegacyArchiveCase = {
+  id: string;
+  origin: "innovian_archive";
+  source_case_id: string;
+  patient: {
+    reference?: string | null;
+    display_name?: string | null;
+    encounter_number?: string | null;
+    gender?: string | null;
+    asa_status?: string | null;
+  };
+  procedure: {
+    name?: string | null;
+    location?: string | null;
+    care_unit?: string | null;
+    diagnosis?: string | null;
+  };
+  started_at?: string | null;
+  completed_at?: string | null;
+  migration: {
+    status: "complete" | "partial" | "warning" | "superseded" | string;
+    mapping_profile?: string | null;
+    migrated_at?: string | null;
+  };
+};
+
+export type LegacyArchiveCaseList = {
+  items: LegacyArchiveCase[];
+  next_cursor?: string | null;
+  has_more: boolean;
+};
+
+export type LegacyReportOption = {
+  id: string;
+  case_id: string;
+  kind: "chart" | "form";
+  report_type?: "anesthesia_chart" | "pacu_chart" | "anesthesia_form" | "anesthesia_checklist" | "post_anesthetic_record" | "post_anesthetic_ambulatory" | "nerve_block_form" | "clinical_form";
+  title: string;
+  care_unit?: string | null;
+  started_at?: string | null;
+  source_report_id?: number | null;
+  source_form_id?: number | null;
+  classification_evidence?: string | null;
+  default: boolean;
+};
+
+export type LegacyReportCatalog = {
+  case_id: string;
+  patient?: string | null;
+  sections: LegacyReportOption[];
+  status: string;
+  template_version: string;
+  classification_version?: string;
+  warnings: string[];
+};
+
+export type FleetSnapshot = {
+  snapshot: Record<string, unknown>;
+  leaf_name: string;
+  last_synced_at: string;
+};
+
 async function rows<T>(path: string): Promise<T[]> {
   const token = readStoredAuthToken();
   const response = await fetch(`${BACKEND_BASE}${path}`, {
     headers: token ? { "X-FLORA-Session": token } : {},
   });
-  if (!response.ok) throw new Error(`Fleet request failed (${response.status})`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { detail?: string; error?: string };
+    throw new Error(data.detail || data.error || `Fleet request failed (${response.status})`);
+  }
   return ((await response.json()) as { rows?: T[] }).rows || [];
 }
 
@@ -81,7 +146,10 @@ async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${BACKEND_BASE}${path}`, {
     headers: token ? { "X-FLORA-Session": token } : {},
   });
-  if (!response.ok) throw new Error(`Fleet request failed (${response.status})`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { detail?: string; error?: string };
+    throw new Error(data.detail || data.error || `Fleet request failed (${response.status})`);
+  }
   return response.json() as Promise<T>;
 }
 
@@ -105,9 +173,46 @@ export const getFleetCases = (limit = 50, status?: "ACTIVE" | "DISCHARGED" | "AR
   return rows<FleetCase>(`/api/fleet/cases?${params.toString()}`);
 };
 export const getFleetCaseSnapshot = (globalCaseId: string) =>
-  getJson<{ snapshot: Record<string, unknown>; leaf_name: string; last_synced_at: string }>(
+  getJson<FleetSnapshot>(
     `/api/fleet/cases/${encodeURIComponent(globalCaseId)}/snapshot`,
   );
+export const getLegacyArchiveCases = (params: {
+  query?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+} = {}) => {
+  const search = new URLSearchParams({ limit: String(params.limit || 50) });
+  if (params.query?.trim()) search.set("query", params.query.trim());
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  if (params.cursor) search.set("cursor", params.cursor);
+  return getJson<LegacyArchiveCaseList>(`/api/fleet/legacy/cases?${search.toString()}`);
+};
+export const getLegacyArchiveSnapshot = (archiveCaseId: string) =>
+  getJson<FleetSnapshot>(`/api/fleet/legacy/cases/${encodeURIComponent(archiveCaseId)}/snapshot`);
+export const getLegacyArchiveReportOptions = (archiveCaseId: string) =>
+  getJson<LegacyReportCatalog>(`/api/fleet/legacy/cases/${encodeURIComponent(archiveCaseId)}/report-options`);
+export async function generateLegacyArchiveReport(archiveCaseId: string, sections: string[]): Promise<{ bytes: Uint8Array; fileName: string; destinationPath: string }> {
+  const token = readStoredAuthToken();
+  const response = await fetch(`${BACKEND_BASE}/api/fleet/legacy/cases/${encodeURIComponent(archiveCaseId)}/report.pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { "X-FLORA-Session": token } : {}) },
+    body: JSON.stringify({ sections }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { detail?: string; error?: string };
+    throw new Error(data.detail || data.error || `Innovian report request failed (${response.status})`);
+  }
+  if (!response.headers.get("content-type")?.includes("application/pdf")) {
+    throw new Error("The archive service returned an invalid report response.");
+  }
+  const disposition = response.headers.get("content-disposition") || "";
+  const fileName = disposition.match(/filename="?([^";]+)/i)?.[1]?.trim() || `flora-legacy-${archiveCaseId}.pdf`;
+  const destinationPath = (response.headers.get("x-flora-ephis-relative-path") || "").replaceAll("/", "\\");
+  return { bytes: new Uint8Array(await response.arrayBuffer()), fileName, destinationPath };
+}
 
 export const getControlPlane = () => getJson<ControlPlane>("/api/fleet/control");
 export const createControlLocation = (input: Omit<ControlPlaneLocation, "id">) =>

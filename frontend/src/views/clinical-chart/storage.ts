@@ -42,6 +42,15 @@ export function getSectionCollapseStorageKey(username: string) {
   return `flora.chartSections.${username}`;
 }
 
+export function getAutoHideEmptyParametersStorageKey(username: string) {
+  return `flora.autoHideEmptyParameters.${username}`;
+}
+
+export function readAutoHideEmptyParametersForUser(username: string): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(getAutoHideEmptyParametersStorageKey(username)) === "1";
+}
+
 export function readSectionCollapseForUser(username: string): {
   ioCollapsed: boolean;
   vitalCollapsed: boolean;

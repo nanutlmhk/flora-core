@@ -36,6 +36,18 @@ export function mergeValues(base: ClinicalTimelineValues, override: ClinicalTime
   return merged;
 }
 
+export function hasMeaningfulTimelineValue(values: Record<number, unknown> | undefined): boolean {
+  if (!values) return false;
+  return Object.values(values).some(value => {
+    if (value == null || value === false) return false;
+    if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized || normalized === "-" || normalized === "—" || normalized === "null" || normalized === "n/a") return false;
+    const numeric = Number(normalized);
+    return !Number.isFinite(numeric) || numeric !== 0;
+  });
+}
+
 export function normalizeHHMM(value: string): string | null {
   return normalizeTimeInputHHMM(value);
 }

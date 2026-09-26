@@ -7,7 +7,10 @@ import ClinicalTimelineGrid, {
 import type { ClinicalTimelineRow, ClinicalTimelineValues } from "../components/clinical-timeline/types";
 import VitalSignsTrendChart from "../components/vitals/VitalSignsTrendChart";
 import HeaderCard from "../components/case/HeaderCard";
+import CanopyCaseDetailPanel, { type CanopyCasePanel } from "./CanopyCaseDetailPanel";
 import { BASE_IVY_ROWS, makeFallbackLabel, ROW_META } from "./clinical-chart/constants";
+import { getAutoHideEmptyParametersStorageKey, readAutoHideEmptyParametersForUser, readStoredUsername } from "./clinical-chart/storage";
+import { hasMeaningfulTimelineValue } from "./clinical-chart/utils";
 import type { FleetCase } from "../api/fleetApi";
 import type { CaseIoEvent, CaseIoRun, CaseIoRunSegment, IoKind } from "../api/caseIoApi";
 import timeCardIcon from "../assets/card-time.png";
@@ -31,6 +34,14 @@ type Props = {
 };
 
 const MINUTE = 60_000;
+const CASE_PANEL_KEY = "flora.canopy.activeCasePanel";
+const CASE_PANEL_IDS: CanopyCasePanel[] = ["chart", "io", "diagnosis", "forms", "staff", "patient", "report"];
+
+function readCasePanel(): CanopyCasePanel {
+  if (typeof window === "undefined") return "chart";
+  const saved = window.localStorage.getItem(CASE_PANEL_KEY);
+  return CASE_PANEL_IDS.includes(saved as CanopyCasePanel) ? saved as CanopyCasePanel : "chart";
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -113,8 +124,16 @@ function patientName(patient: Record<string, unknown>, hn: string | null | undef
     || `HN ${hn || "—"}`;
 }
 
+function isNkaAllergen(value: unknown): boolean {
+  const normalized = String(value || "").replace(/[^a-z]/gi, "").toUpperCase();
+  return ["NKA", "NKDA", "NOKNOWNALLERGY", "NOKNOWNALLERGIES", "NOKNOWNDRUGALLERGY"].includes(normalized);
+}
+
 export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, refreshing }: Props) {
   const [scale, setScale] = useState(5);
+  const [activePanel, setActivePanel] = useState<CanopyCasePanel>(readCasePanel);
+  const preferenceScope = readStoredUsername();
+  const [autoHideEmptyParameters, setAutoHideEmptyParameters] = useState(() => readAutoHideEmptyParametersForUser(preferenceScope));
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -126,6 +145,11 @@ export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, re
   const ioRuns = useMemo(() => rows(snapshot.io_runs).map(parseRun), [snapshot.io_runs]);
   const ioEvents = useMemo(() => rows(snapshot.io_events).map(parseIoEvent), [snapshot.io_events]);
   const windowRange = record(snapshot.window);
+  const parameterMeta = record(snapshot.parameter_meta);
+  const source = record(snapshot.source);
+  const coverage = record(snapshot.coverage);
+  const isInnovian = text(snapshot.origin) === "innovian_archive" || text(source.system).toLowerCase() === "innovian";
+  const archiveDetailAvailable = !isInnovian || coverage.detail_available !== false;
   const isActive = text(caseRow.status, entry.status).toUpperCase() === "ACTIVE";
 
   const stepMs = scale * MINUTE;
@@ -158,10 +182,13 @@ export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, re
     const known = new Map(BASE_IVY_ROWS.map(row => [row.id, row]));
     for (const key of Object.keys(values)) {
       if (known.has(key) || key === "event" || key === "ecg") continue;
-      known.set(key, { id: key, label: ROW_META[key]?.label || makeFallbackLabel(key), unit: ROW_META[key]?.unit, type: "vital" });
+      const sourceMeta = record(parameterMeta[key]);
+      known.set(key, { id: key, label: ROW_META[key]?.label || text(sourceMeta.label, makeFallbackLabel(key)), unit: ROW_META[key]?.unit || text(sourceMeta.unit) || undefined, type: "vital" });
     }
-    return Array.from(known.values());
-  }, [values]);
+    return Array.from(known.values()).filter(row =>
+      !autoHideEmptyParameters || hasMeaningfulTimelineValue(values[row.id]),
+    );
+  }, [autoHideEmptyParameters, parameterMeta, values]);
 
   const eventMarkers = useMemo<Record<number, ClinicalTimelineEventMarker[]>>(() => {
     const next: Record<number, ClinicalTimelineEventMarker[]> = {};
@@ -249,6 +276,7 @@ export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, re
     { id: "__vital_agent_header__", label: "Params", type: "event" },
   ], [ioRows]);
   const allergies = rows(snapshot.allergies);
+  const nkaConfirmed = allergies.length > 0 && allergies.every(row => isNkaAllergen(row.allergen));
   const diagnoses = rows(snapshot.diagnosis);
   const procedures = rows(snapshot.procedures);
   const displayName = patientName(patient, entry.hn);
@@ -271,13 +299,32 @@ export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, re
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem(getAutoHideEmptyParametersStorageKey(preferenceScope), autoHideEmptyParameters ? "1" : "0");
+  }, [autoHideEmptyParameters, preferenceScope]);
+
+  useEffect(() => {
+    const selectPanel = (event: Event) => {
+      const panel = (event as CustomEvent<{ panel?: CanopyCasePanel }>).detail?.panel;
+      if (panel && CASE_PANEL_IDS.includes(panel)) setActivePanel(panel);
+    };
+    window.addEventListener("flora:canopy-panel-select", selectPanel);
+    return () => window.removeEventListener("flora:canopy-panel-select", selectPanel);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(CASE_PANEL_KEY, activePanel);
+    window.dispatchEvent(new CustomEvent("flora:canopy-panel-changed", { detail: { panel: activePanel } }));
+  }, [activePanel]);
+
   return (
     <div className="case-workspace case-workspace--top relative h-full min-h-0 bg-gray-50 p-2 dark:bg-gray-900">
       <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2">
         <button type="button" onClick={onBack} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-xs font-bold text-[var(--app-text)]">← Cases</button>
-        <div className="min-w-0 flex-1"><div className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--app-accent)]">Flora Canopy · synchronized Leaf chart</div><div className="truncate text-sm font-semibold text-[var(--app-text)]">{data.leaf_name} · {entry.case_code || entry.source_case_id}</div></div>
+        <div className="min-w-0 flex-1"><div className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--app-accent)]">{isInnovian ? "Flora Canopy · Innovian historical record" : "Flora Canopy · synchronized Leaf chart"}</div><div className="truncate text-sm font-semibold text-[var(--app-text)]">{data.leaf_name} · {entry.case_code || entry.source_case_id}</div></div>
         <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-600 dark:text-sky-300">View only</span>
-        <span className="text-xs text-[var(--app-muted)]">Synced {formatDateTime(data.last_synced_at)}</span>
+        {isInnovian ? <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300">{text(source.status, "migrated")}</span> : null}
+        <span className="text-xs text-[var(--app-muted)]">{isInnovian ? "Migrated" : "Synced"} {formatDateTime(data.last_synced_at)}</span>
         <button type="button" onClick={onRefresh} disabled={refreshing} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-2 text-xs font-semibold text-[var(--app-text)] disabled:opacity-50">{refreshing ? "Refreshing…" : "Refresh"}</button>
       </div>
 
@@ -285,15 +332,19 @@ export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, re
         <div className="case-header-grid">
           <HeaderCard group="Case LOS" icon={timeCardIcon} main={elapsed(caseRow.start_time, isActive ? Date.now() : caseRow.discharge_time)} sub1={<><b>Started</b> {formatDateTime(caseRow.start_time)}</>} emphasis />
           <HeaderCard group="Patient" icon={patientCardIcon} main={displayName} sub1={<><b>HN {entry.hn || "—"}</b> · {text(patient.age_text, "Age —")} · {text(patient.sex, "Sex —")}</>} sub2={patient.an ? <>AN {String(patient.an)}</> : undefined} />
-          <HeaderCard group="Allergy" icon={allergyCardIcon} count={allergies.length || undefined} main={allergies.length ? text(allergies[0].allergen, "Recorded allergy") : "No allergy recorded"} tone={allergies.length ? "alert" : "default"} />
+          <HeaderCard group="Allergy" icon={allergyCardIcon} count={nkaConfirmed ? undefined : allergies.length || undefined} main={nkaConfirmed ? "No Known Allergies" : allergies.length ? text(allergies[0].allergen, "Recorded allergy") : "No allergy recorded"} sub1={nkaConfirmed ? "Confirmed NKA" : undefined} tone={nkaConfirmed ? "success" : allergies.length ? "alert" : "default"} />
           <HeaderCard group="Diagnosis" icon={diagnosisCardIcon} count={diagnoses.length || undefined} main={diagnoses.length ? text(diagnoses[0].diagnosis_text, "Recorded diagnosis") : "Not recorded"} />
           <HeaderCard group="Operation" icon={procedureCardIcon} count={procedures.length || undefined} main={procedures.length ? text(procedures[0].procedure_text, "Recorded procedure") : "Not recorded"} />
         </div>
       </div>
 
+      {isInnovian ? <div className={`mb-2 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border px-4 py-2 text-xs ${archiveDetailAvailable ? "border-amber-500/30 bg-amber-500/8 text-[var(--app-muted)]" : "border-amber-500/50 bg-amber-500/12 text-amber-800 dark:text-amber-200"}`}><strong className="text-[var(--app-text)]">{archiveDetailAvailable ? "Migrated from Innovian" : "Innovian case index only"}</strong><span>Source case {text(source.case_id, entry.source_case_id)}</span><span>{text(source.mapping_profile, "Mapping version unavailable")}</span>{archiveDetailAvailable ? <span>{number(coverage.minutes_loaded)} / {number(coverage.minutes_total)} chart minutes loaded</span> : <span>Detailed vitals, forms, staff and clinical entries have not been migrated for this case yet.</span>}{coverage.truncated ? <span className="font-bold text-amber-700 dark:text-amber-300">Long case truncated by archive safety limit</span> : null}</div> : null}
+
+      {activePanel === "chart" && archiveDetailAvailable ? <>
+
       <div className="case-kronos__toolbar rounded-xl border px-3 py-2">
         <div className="case-kronos__controls"><span className="case-kronos__eyebrow">MINUTE SCALE</span><div className="case-kronos__stepper"><button type="button" disabled={scale <= 1} onClick={() => setScale(current => current <= 5 ? 1 : current <= 15 ? 5 : 15)}>−</button><input aria-label="Minute scale" value={scale} readOnly /><button type="button" disabled={scale >= 30} onClick={() => setScale(current => current < 5 ? 5 : current < 15 ? 15 : 30)}>+</button></div><span className="case-kronos__sync">Synchronized</span></div>
-        <div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${isActive ? "border-emerald-500/45 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "border-[var(--app-border)] text-[var(--app-muted)]"}`}>{text(caseRow.status, entry.status)}</span><span className="text-xs text-[var(--app-muted)]">{vitalRows.length} parameters</span></div>
+        <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${isActive ? "border-emerald-500/45 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "border-[var(--app-border)] text-[var(--app-muted)]"}`}>{text(caseRow.status, entry.status)}</span><label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--app-text)]" title="Parameter configuration"><input type="checkbox" checked={autoHideEmptyParameters} onChange={event => setAutoHideEmptyParameters(event.target.checked)} />Auto-hide 0 / null / —</label><span className="text-xs text-[var(--app-muted)]">{vitalRows.length} parameters</span></div>
       </div>
 
       <div ref={scrollRef} onScroll={event => setScrollLeft(event.currentTarget.scrollLeft)} className="case-timeline-scroll min-h-0 flex-1 overflow-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-gray-400/40">
@@ -304,6 +355,7 @@ export default function CanopyCaseChartView({ entry, data, onBack, onRefresh, re
           <ClinicalTimelineGrid readOnly displaySection="vitals" columns={axis} ivyRows={vitalRows} rowsAfterEvent={rowsAfterEvent} values={combinedValues} nowTs={nowTs} scrollLeft={scrollLeft} viewportWidth={viewportWidth} colWidth={colWidth} labelColWidth={labelWidth} />
         </div>
       </div>
+      </> : activePanel === "chart" ? <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 p-8 text-center"><div className="max-w-xl"><div className="text-lg font-bold text-[var(--app-text)]">Detailed clinical record not migrated</div><p className="mt-2 text-sm text-[var(--app-muted)]">This historical case is searchable by patient and procedure, but only its case index is available in Anora PostgreSQL. Backfill the clinical domains before using its chart or report.</p></div></div> : <div className="min-h-0 flex-1 overflow-y-auto rounded-xl bg-[var(--app-bg)] p-1"><CanopyCaseDetailPanel panel={activePanel} snapshot={snapshot} entry={entry} /></div>}
     </div>
   );
 }

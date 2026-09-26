@@ -85,10 +85,12 @@ import {
 } from "./clinical-chart/constants";
 import {
   getHiddenRowsStorageKey,
+  getAutoHideEmptyParametersStorageKey,
   getSectionCollapseStorageKey,
   getTimelineScaleStorageKey,
   getVisibleRowsStorageKey,
   readHiddenRowsForUser,
+  readAutoHideEmptyParametersForUser,
   readSectionCollapseForUser,
   readStoredUsername,
   readTimelineScaleForUser,
@@ -96,6 +98,7 @@ import {
 } from "./clinical-chart/storage";
 import {
   formatHHMM,
+  hasMeaningfulTimelineValue,
   mergeValues,
   normalizeHHMM,
   toTsOnSameDate,
@@ -121,6 +124,11 @@ import patientCardIcon from "../assets/card-patient.png";
 import timeCardIcon from "../assets/card-time.png";
 import diagnosisCardIcon from "../assets/card-diagnosis.png";
 import procedureCardIcon from "../assets/card-procedure.png";
+
+function isNkaAllergen(value: unknown): boolean {
+  const normalized = String(value || "").replace(/[^a-z]/gi, "").toUpperCase();
+  return normalized === "NKA" || normalized === "NKDA" || normalized === "NOKNOWNALLERGY" || normalized === "NOKNOWNDRUGALLERGY" || normalized === "NOKNOWNALLERGIES";
+}
 import { clampEditionTimelineScale, getEditionInfo, isTimelineParamAllowed } from "../edition/config";
 import {
   CHART_PREFERENCES_CHANGED_EVENT,
@@ -946,6 +954,10 @@ export default function ClinicalChartView({
   const [isParamMenuOpen, setIsParamMenuOpen] = useState(false);
   const [parameterSearch, setParameterSearch] = useState("");
   const [draftHiddenRowIds, setDraftHiddenRowIds] = useState<string[]>([]);
+  const [autoHideEmptyParameters, setAutoHideEmptyParameters] = useState(() =>
+    readAutoHideEmptyParametersForUser(scopeUsername),
+  );
+  const [draftAutoHideEmptyParameters, setDraftAutoHideEmptyParameters] = useState(autoHideEmptyParameters);
   const [summaryDock, setSummaryDock] = useState<SummaryDock>(() => {
     if (typeof window === "undefined") return "top";
     const saved = window.localStorage.getItem("flora.caseSummaryDock");
@@ -1012,6 +1024,13 @@ export default function ClinicalChartView({
     patient: CasePatientInfo | null;
     allergies: CaseAllergyRow[];
   }>({ caseId: null, patient: null, allergies: [] });
+  const patientWeightKg = (() => {
+    const apiWeight = Number(patientContext.patient?.weight_kg);
+    if (Number.isFinite(apiWeight) && apiWeight > 0) return apiWeight;
+    if (caseId == null) return null;
+    const savedWeight = Number(readWeightFromSavedForm(caseId));
+    return Number.isFinite(savedWeight) && savedWeight > 0 ? savedWeight : null;
+  })();
   const [startTimeModalOpen, setStartTimeModalOpen] = useState(false);
   const [startDateDraft, setStartDateDraft] = useState("");
   const [startTimeDraft, setStartTimeDraft] = useState("");
@@ -1179,8 +1198,11 @@ export default function ClinicalChartView({
     return ivyRows.filter(row => `${row.label} ${row.id} ${row.unit || ""}`.toLocaleLowerCase().includes(query));
   }, [ivyRows, parameterSearch]);
   const visibleIvyRows = useMemo(
-    () => ivyRows.filter(row => !hiddenRowIdSet.has(row.id)),
-    [ivyRows, hiddenRowIdSet],
+    () => ivyRows.filter(row =>
+      !hiddenRowIdSet.has(row.id)
+      && (!autoHideEmptyParameters || hasMeaningfulTimelineValue(values[row.id])),
+    ),
+    [autoHideEmptyParameters, ivyRows, hiddenRowIdSet, values],
   );
 
   const [nowTs, setNowTs] = useState(() => Date.now());
@@ -1240,6 +1262,10 @@ export default function ClinicalChartView({
     clickedTs: number;
     segmentStartTs: number | null;
   } | null>(null);
+  useEffect(() => {
+    if (!quickMedDripOpen || patientWeightKg == null) return;
+    setQuickMedDripWeightKg(current => current.trim() || String(patientWeightKg));
+  }, [patientWeightKg, quickMedDripOpen]);
   const [quickBloodProductOpen, setQuickBloodProductOpen] = useState(false);
   const [quickBloodProductSearch, setQuickBloodProductSearch] = useState("");
   const [quickBloodProductItemId, setQuickBloodProductItemId] = useState<number | null>(null);
@@ -1375,6 +1401,7 @@ export default function ClinicalChartView({
     setDripSmartContrast(readLocalSmartContrast(scopeUsername) ?? accountSmartContrast ?? true);
     setPreferredVisibleRowIds(readVisibleRowsForUser(scopeUsername));
     setHiddenRowIds(readHiddenRowsForUser(scopeUsername));
+    setAutoHideEmptyParameters(readAutoHideEmptyParametersForUser(scopeUsername));
     const sectionCollapse = readSectionCollapseForUser(scopeUsername);
     setIsIoSectionCollapsed(sectionCollapse.ioCollapsed);
     setIsVitalSectionCollapsed(sectionCollapse.vitalCollapsed);
@@ -1457,6 +1484,15 @@ export default function ClinicalChartView({
       return cleaned.length === prev.length ? prev : cleaned;
     });
   }, [ivyRows, preferredVisibleRowIds]);
+
+  useEffect(() => {
+    if (loadedPrefsScope !== scopeUsername) return;
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      getAutoHideEmptyParametersStorageKey(scopeUsername),
+      autoHideEmptyParameters ? "1" : "0",
+    );
+  }, [autoHideEmptyParameters, loadedPrefsScope, scopeUsername]);
 
   useEffect(() => {
     if (loadedPrefsScope !== scopeUsername) return;
@@ -3881,6 +3917,7 @@ export default function ClinicalChartView({
 
   const openParameterConfig = () => {
     setDraftHiddenRowIds(hiddenRowIds);
+    setDraftAutoHideEmptyParameters(autoHideEmptyParameters);
     setParameterSearch("");
     setIsParamMenuOpen(true);
   };
@@ -3913,6 +3950,7 @@ export default function ClinicalChartView({
     const hiddenSet = new Set(draftHiddenRowIds);
     setHiddenRowIds(draftHiddenRowIds);
     setPreferredVisibleRowIds(ivyRows.filter(row => !hiddenSet.has(row.id)).map(row => row.id));
+    setAutoHideEmptyParameters(draftAutoHideEmptyParameters);
     setIsParamMenuOpen(false);
   };
 
@@ -5118,32 +5156,24 @@ export default function ClinicalChartView({
     : "Loading…";
   const patientAge = patientLoaded ? formatPatientAge(patient) : "Loading…";
   const patientSex = patientLoaded ? String(patient?.sex || "Sex not recorded").trim() : "Loading…";
-  const patientWeightKg = (() => {
-    const apiWeight = Number(patient?.weight_kg);
-    if (Number.isFinite(apiWeight) && apiWeight > 0) return apiWeight;
-    if (caseId == null) return null;
-    const savedWeight = Number(readWeightFromSavedForm(caseId));
-    return Number.isFinite(savedWeight) && savedWeight > 0 ? savedWeight : null;
-  })();
   const dischargeDraftTs = toTsFromDateAndTime(dischargeDateDraft, dischargeTimeDraft);
   const activeDripsAtDischarge = ioRuns.filter(run =>
     run.entry_mode === "drip" &&
     run.stopped_at == null &&
     (dischargeDraftTs == null || run.started_at <= dischargeDraftTs),
   );
-  useEffect(() => {
-    if (!quickMedDripOpen || patientWeightKg == null) return;
-    setQuickMedDripWeightKg(current => current.trim() || String(patientWeightKg));
-  }, [patientWeightKg, quickMedDripOpen]);
   const patientAsaLabel = (() => {
     const raw = String(patient?.asa_status || "").trim();
     if (!raw) return "ASA —";
     const label = /^asa\b/i.test(raw) ? raw : `ASA ${raw}`;
     return patient?.asa_emergency && !/\be\b/i.test(label) ? `${label} E` : label;
   })();
+  const nkaConfirmed = allergies.length > 0 && allergies.every(row => isNkaAllergen(row.allergen));
   const allergySummary = !patientLoaded
     ? "Loading…"
-    : allergies.length
+    : nkaConfirmed
+      ? "No Known Allergies"
+      : allergies.length
       ? allergies.map(row => row.allergen).filter(Boolean).join(" · ")
       : "No allergy recorded";
   const diagnosisTooltip = clinicalContext.caseId !== caseId
@@ -5172,6 +5202,8 @@ export default function ClinicalChartView({
         ].join("\n");
   const allergyTooltip = !patientLoaded
     ? "ALLERGY\nLoading…"
+    : nkaConfirmed
+      ? "ALLERGY\nNo Known Allergies (NKA) confirmed\nClick to review or update"
     : allergies.length === 0
       ? "ALLERGY\nNo allergy recorded\nClick to review or add"
       : [
@@ -5273,14 +5305,14 @@ export default function ClinicalChartView({
     allergy: (
       <HeaderCard
         group="Allergy"
-        count={allergies.length || undefined}
+        count={nkaConfirmed ? undefined : allergies.length || undefined}
         icon={allergyCardIcon}
         main={allergySummary}
-        sub1={allergies.length ? allergies.map(row => [row.reaction, row.severity].filter(Boolean).join(" · ")).filter(Boolean).join(" | ") || "Recorded allergy" : "Review patient allergy"}
+        sub1={nkaConfirmed ? "Confirmed NKA" : allergies.length ? allergies.map(row => [row.reaction, row.severity].filter(Boolean).join(" · ")).filter(Boolean).join(" | ") || "Recorded allergy" : "Review patient allergy"}
         tooltip={allergyTooltip}
         onClick={openAllergyModal}
         ariaLabel="Edit allergy information"
-        tone={allergies.length ? "alert" : "default"}
+        tone={nkaConfirmed ? "success" : allergies.length ? "alert" : "default"}
       />
     ),
     diagnosis: (
@@ -5563,6 +5595,11 @@ export default function ClinicalChartView({
                       />
                     </label>
                   </div>
+
+                  <label className="flex items-start gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-control-bg)] px-3 py-3 text-sm">
+                    <input type="checkbox" className="mt-0.5" checked={draftAutoHideEmptyParameters} onChange={event => setDraftAutoHideEmptyParameters(event.target.checked)} />
+                    <span><strong className="block text-[var(--app-text)]">Auto-hide empty and zero parameters</strong><span className="text-xs text-[var(--app-muted)]">Hide rows whose current case contains only 0, null, blank, “-”, or “—”. A row appears automatically when meaningful data arrives.</span></span>
+                  </label>
 
                   <div className="grid max-h-[58vh] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
                     {filteredParameterRows.map(row => {

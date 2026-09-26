@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { CaseStatus } from "../api/caseApi";
 import type { AuthUser } from "../auth/useAuth";
 import { useLanguage } from "../context/LanguageContext";
@@ -27,6 +28,24 @@ type Props = {
 
 type NavIconName = "chart" | "io" | "clinical" | "form" | "staff" | "patient" | "report" | "config" | "archive" | "start" | "fleet";
 type NavItem = { view: AppView; label: string; icon: NavIconName };
+type CanopyCasePanelId = "chart" | "io" | "diagnosis" | "forms" | "staff" | "patient" | "report";
+
+const CANOPY_PANEL_KEY = "flora.canopy.activeCasePanel";
+const canopyClinicalItems: Array<{ panel: CanopyCasePanelId; label: string; icon: NavIconName }> = [
+  { panel: "chart", label: "Chart", icon: "chart" },
+  { panel: "io", label: "I/O", icon: "io" },
+  { panel: "diagnosis", label: "Diag/Ops", icon: "clinical" },
+  { panel: "forms", label: "Forms", icon: "form" },
+  { panel: "staff", label: "Staff", icon: "staff" },
+  { panel: "patient", label: "Patient", icon: "patient" },
+  { panel: "report", label: "Report", icon: "report" },
+];
+
+function storedCanopyPanel(): CanopyCasePanelId {
+  if (typeof window === "undefined") return "chart";
+  const saved = window.localStorage.getItem(CANOPY_PANEL_KEY);
+  return canopyClinicalItems.some(item => item.panel === saved) ? saved as CanopyCasePanelId : "chart";
+}
 
 const menuIcons: Partial<Record<NavIconName, string>> = {
   chart: chartMenuIcon,
@@ -63,6 +82,8 @@ function NavIcon({ name }: { name: NavIconName }) {
 
 function SidebarBody({ activeView, setActiveView, sessionUser, caseStatus, collapsed, onCloseMobile }: Omit<Props, "mobileOpen">) {
   const { t } = useLanguage();
+  const [canopyPanel, setCanopyPanel] = useState<CanopyCasePanelId>(storedCanopyPanel);
+  const [canopyCaseOpen, setCanopyCaseOpen] = useState(false);
   const surface = getSurfaceInfo();
   const permissions = sessionUser?.permissions || [];
   const isIdleLeaf = surface.code === "leaf" && caseStatus.status === "IDLE";
@@ -97,13 +118,42 @@ function SidebarBody({ activeView, setActiveView, sessionUser, caseStatus, colla
     onCloseMobile();
   };
 
+  useEffect(() => {
+    const handlePanelChanged = (event: Event) => {
+      const panel = (event as CustomEvent<{ panel?: CanopyCasePanelId }>).detail?.panel;
+      if (panel && canopyClinicalItems.some(item => item.panel === panel)) setCanopyPanel(panel);
+    };
+    const handleCaseOpenChanged = (event: Event) => {
+      setCanopyCaseOpen((event as CustomEvent<{ open?: boolean }>).detail?.open === true);
+    };
+    window.addEventListener("flora:canopy-panel-changed", handlePanelChanged);
+    window.addEventListener("flora:canopy-case-open-changed", handleCaseOpenChanged);
+    return () => {
+      window.removeEventListener("flora:canopy-panel-changed", handlePanelChanged);
+      window.removeEventListener("flora:canopy-case-open-changed", handleCaseOpenChanged);
+    };
+  }, []);
+
+  const navigateCanopyPanel = (panel: CanopyCasePanelId) => {
+    setCanopyPanel(panel);
+    window.localStorage.setItem(CANOPY_PANEL_KEY, panel);
+    setActiveView("fleet");
+    window.dispatchEvent(new CustomEvent("flora:canopy-panel-select", { detail: { panel } }));
+    onCloseMobile();
+  };
+
   return <div className="flex h-full flex-col bg-[var(--app-panel-bg)] text-[var(--app-text)]">
     <div className="flex h-14 items-center justify-between border-b border-[var(--app-border)] px-3 md:hidden">
       <span className="text-xs font-extrabold uppercase tracking-[0.16em] text-[var(--app-muted)]">Workspace</span>
       <button type="button" onClick={onCloseMobile} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] text-lg" aria-label="Close navigation">×</button>
     </div>
     <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2" aria-label="Workspace navigation">
-      {items.map(item => <ClinicalReferenceTooltip key={item.view} text={item.label} compact disabled={!collapsed} className="w-full"><button type="button" onClick={() => navigate(item.view)} aria-label={item.label} aria-current={activeView === item.view ? "page" : undefined} className={`flora-nav-item flex h-12 w-full items-center rounded-xl border text-sm font-semibold transition ${collapsed ? "justify-center" : "gap-3 px-3"} ${activeView === item.view ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-transparent hover:bg-[var(--app-control-bg)]"}`}><span className="flora-nav-icon inline-flex h-9 w-9 shrink-0 items-center justify-center"><NavIcon name={item.icon} /></span>{!collapsed ? <span className="truncate">{item.label}</span> : null}</button></ClinicalReferenceTooltip>)}
+      {items.map(item => <div key={item.view}>
+        <ClinicalReferenceTooltip text={item.label} compact disabled={!collapsed} className="w-full"><button type="button" onClick={() => navigate(item.view)} aria-label={item.label} aria-current={activeView === item.view ? "page" : undefined} className={`flora-nav-item flex h-12 w-full items-center rounded-xl border text-sm font-semibold transition ${collapsed ? "justify-center" : "gap-3 px-3"} ${activeView === item.view ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-contrast)]" : "border-transparent hover:bg-[var(--app-control-bg)]"}`}><span className="flora-nav-icon inline-flex h-9 w-9 shrink-0 items-center justify-center"><NavIcon name={item.icon} /></span>{!collapsed ? <span className="truncate">{item.label}</span> : null}</button></ClinicalReferenceTooltip>
+        {surface.code === "canopy" && item.view === "fleet" && activeView === "fleet" && canopyCaseOpen ? <div className={`mt-1 space-y-1 ${collapsed ? "border-t border-[var(--app-border)] pt-1" : "ml-5 border-l border-[var(--app-border)] pl-2"}`} aria-label="Clinical chart sections">
+          {canopyClinicalItems.map(child => <ClinicalReferenceTooltip key={child.panel} text={child.label} compact disabled={!collapsed} className="w-full"><button type="button" onClick={() => navigateCanopyPanel(child.panel)} aria-label={child.label} aria-current={canopyPanel === child.panel ? "page" : undefined} className={`flex h-10 w-full items-center rounded-lg border text-xs font-semibold transition ${collapsed ? "justify-center" : "gap-2 px-2"} ${canopyPanel === child.panel ? "border-[var(--app-accent)] bg-[var(--app-control-bg)] text-[var(--app-accent)]" : "border-transparent text-[var(--app-muted)] hover:bg-[var(--app-control-bg)] hover:text-[var(--app-text)]"}`}><span className="inline-flex h-7 w-7 shrink-0 items-center justify-center"><NavIcon name={child.icon} /></span>{!collapsed ? <span className="truncate">{child.label}</span> : null}</button></ClinicalReferenceTooltip>)}
+        </div> : null}
+      </div>)}
     </nav>
   </div>;
 }
