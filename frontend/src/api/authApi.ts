@@ -14,7 +14,11 @@ export type ThemeSchemeOption = {
   code: string;
   displayName: string;
   colors: [string, string, string, string, string, string];
+  scope?: "public" | "personal";
+  syncState?: "local" | "central";
 };
+
+export type PersonalThemeRow = ThemeSchemeOption & { scope: "personal"; syncState: "local" | "central" };
 
 export type LanguageMasterRow = LanguageOption & { isActive: boolean; sortOrder: number };
 export type ThemeMasterRow = ThemeSchemeOption & { isActive: boolean; sortOrder: number };
@@ -240,6 +244,60 @@ function parseThemeMaster(row: Record<string, unknown>): ThemeMasterRow {
     isActive: row.is_active === true || Number(row.is_active ?? row.isActive ?? 0) === 1,
     sortOrder: Number(row.sort_order ?? row.sortOrder ?? 0),
   };
+}
+
+function parsePersonalTheme(row: Record<string, unknown>): PersonalThemeRow {
+  return {
+    code: String(row.code || ""),
+    displayName: String(row.display_name || row.displayName || row.code || ""),
+    colors: [1, 2, 3, 4, 5, 6].map(index => String(row[`color_${index}_${["canvas", "surface", "border", "text", "muted", "accent"][index - 1]}`] || "")) as ThemeSchemeOption["colors"],
+    scope: "personal",
+    syncState: row.sync_state === "central" || row.syncState === "central" ? "central" : "local",
+  };
+}
+
+export async function getPersonalThemes(): Promise<PersonalThemeRow[]> {
+  const response = await fetch(`${BASE}/self/themes`, { headers: buildAuthHeaders() });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || "Unable to load personal themes");
+  return (Array.isArray(data.rows) ? data.rows : []).map((row: Record<string, unknown>) => parsePersonalTheme(row));
+}
+
+export async function createPersonalTheme(row: ThemeSchemeOption): Promise<PersonalThemeRow> {
+  const rawCode = row.code.replace(/^personal:/, "");
+  const response = await fetch(`${BASE}/self/themes`, {
+    method: "POST", headers: buildAuthHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ code: rawCode, display_name: row.displayName, colors: row.colors }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || "Unable to create personal theme");
+  return parsePersonalTheme(data.row || {});
+}
+
+export async function updatePersonalTheme(row: PersonalThemeRow): Promise<PersonalThemeRow> {
+  const rawCode = row.code.replace(/^personal:/, "");
+  const response = await fetch(`${BASE}/self/themes/${encodeURIComponent(rawCode)}`, {
+    method: "PUT", headers: buildAuthHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ display_name: row.displayName, colors: row.colors }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || "Unable to update personal theme");
+  return parsePersonalTheme(data.row || {});
+}
+
+export async function deletePersonalTheme(code: string): Promise<void> {
+  const rawCode = code.replace(/^personal:/, "");
+  const response = await fetch(`${BASE}/self/themes/${encodeURIComponent(rawCode)}`, { method: "DELETE", headers: buildAuthHeaders() });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || "Unable to delete personal theme");
+}
+
+export async function savePersonalThemeToAccount(code: string): Promise<PersonalThemeRow> {
+  const rawCode = code.replace(/^personal:/, "");
+  const response = await fetch(`${BASE}/self/themes/${encodeURIComponent(rawCode)}/save-to-account`, { method: "POST", headers: buildAuthHeaders() });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || "Unable to save personal theme to Canopy");
+  return parsePersonalTheme(data.row || {});
 }
 
 export async function getPreferenceMasters(): Promise<{ languages: LanguageMasterRow[]; themes: ThemeMasterRow[] }> {

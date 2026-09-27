@@ -39,6 +39,16 @@ services:
       - ../infrastructure/postgres/0025-expanded-light-theme-schemes.sql:/docker-entrypoint-initdb.d/0025-expanded-light-theme-schemes.sql:ro
       - ../infrastructure/postgres/0026-rename-cupcake-theme.sql:/docker-entrypoint-initdb.d/0026-rename-cupcake-theme.sql:ro
       - ../infrastructure/postgres/0027-canopy-control-plane.sql:/docker-entrypoint-initdb.d/0027-canopy-control-plane.sql:ro
+      - ../infrastructure/postgres/0028-canopy-report-library.sql:/docker-entrypoint-initdb.d/0028-canopy-report-library.sql:ro
+      - ../infrastructure/postgres/0029-innovian-archive.sql:/docker-entrypoint-initdb.d/0029-innovian-archive.sql:ro
+      - ../infrastructure/postgres/0030-report-field-catalog.sql:/docker-entrypoint-initdb.d/0030-report-field-catalog.sql:ro
+      - ../infrastructure/postgres/0031-canopy-appearance-control.sql:/docker-entrypoint-initdb.d/0031-canopy-appearance-control.sql:ro
+      - ../infrastructure/postgres/0032-account-config-sync.sql:/docker-entrypoint-initdb.d/0032-account-config-sync.sql:ro
+      - ../infrastructure/postgres/0033-personal-theme-hierarchy.sql:/docker-entrypoint-initdb.d/0033-personal-theme-hierarchy.sql:ro
+      - ../infrastructure/postgres/0034-canopy-managed-public-themes.sql:/docker-entrypoint-initdb.d/0034-canopy-managed-public-themes.sql:ro
+      - ../infrastructure/postgres/0035-canopy-leaf-name-override.sql:/docker-entrypoint-initdb.d/0035-canopy-leaf-name-override.sql:ro
+      - ../infrastructure/postgres/0036-complete-innovian-clinical-archive.sql:/docker-entrypoint-initdb.d/0036-complete-innovian-clinical-archive.sql:ro
+      - ../infrastructure/postgres/0037-archive-year-release-gate.sql:/docker-entrypoint-initdb.d/0037-archive-year-release-gate.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

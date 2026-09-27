@@ -1,0 +1,37 @@
+FROM postgres:17.6-alpine
+
+COPY infrastructure/postgres/0000-create-app-role.sql /docker-entrypoint-initdb.d/0000-create-app-role.sql
+COPY docs/database/flora-schema.sql /docker-entrypoint-initdb.d/0001-schema.sql
+COPY infrastructure/postgres/0001-post-import-indexes.sql /docker-entrypoint-initdb.d/0002-post-import-indexes.sql
+COPY infrastructure/postgres/0003-create-view-role.sql /docker-entrypoint-initdb.d/0003-create-view-role.sql
+COPY infrastructure/postgres/0004-leaf-canopy-sync.sql /docker-entrypoint-initdb.d/0004-leaf-canopy-sync.sql
+COPY infrastructure/postgres/0005-leaf-writes.sql /docker-entrypoint-initdb.d/0005-leaf-writes.sql
+COPY infrastructure/postgres/0007-preference-masters.sql /docker-entrypoint-initdb.d/0007-preference-masters.sql
+COPY infrastructure/postgres/0008-case-admission.sql /docker-entrypoint-initdb.d/0008-case-admission.sql
+COPY infrastructure/postgres/0009-workstation-context.sql /docker-entrypoint-initdb.d/0009-workstation-context.sql
+COPY infrastructure/postgres/0010-language-translations.sql /docker-entrypoint-initdb.d/0010-language-translations.sql
+COPY infrastructure/postgres/0011-datetime-preferences.sql /docker-entrypoint-initdb.d/0011-datetime-preferences.sql
+COPY infrastructure/postgres/0012-clinical-terminology.sql /docker-entrypoint-initdb.d/0012-clinical-terminology.sql
+COPY infrastructure/postgres/0013-configurable-staff-profile.sql /docker-entrypoint-initdb.d/0013-configurable-staff-profile.sql
+COPY infrastructure/postgres/0014-clinical-domain-taxonomy.sql /docker-entrypoint-initdb.d/0014-clinical-domain-taxonomy.sql
+COPY infrastructure/postgres/0015-account-settings-staff-link.sql /docker-entrypoint-initdb.d/0015-account-settings-staff-link.sql
+COPY infrastructure/postgres/0016-io-group-master.sql /docker-entrypoint-initdb.d/0016-io-group-master.sql
+COPY infrastructure/postgres/0017-rbac.sql /docker-entrypoint-initdb.d/0017-rbac.sql
+COPY infrastructure/postgres/0018-terminology-releases.sql /docker-entrypoint-initdb.d/0018-terminology-releases.sql
+COPY infrastructure/postgres/0019-clinical-context-time.sql /docker-entrypoint-initdb.d/0019-clinical-context-time.sql
+COPY infrastructure/postgres/0020-light-theme-schemes.sql /docker-entrypoint-initdb.d/0020-light-theme-schemes.sql
+COPY infrastructure/postgres/0021-observation-parameter-layout.sql /docker-entrypoint-initdb.d/0021-observation-parameter-layout.sql
+COPY infrastructure/postgres/0022-timeline-device-provenance.sql /docker-entrypoint-initdb.d/0022-timeline-device-provenance.sql
+COPY infrastructure/postgres/0023-chart-series-appearance.sql /docker-entrypoint-initdb.d/0023-chart-series-appearance.sql
+COPY infrastructure/postgres/0024-curated-theme-schemes.sql /docker-entrypoint-initdb.d/0024-curated-theme-schemes.sql
+COPY infrastructure/postgres/0025-expanded-light-theme-schemes.sql /docker-entrypoint-initdb.d/0025-expanded-light-theme-schemes.sql
+COPY infrastructure/postgres/0026-rename-cupcake-theme.sql /docker-entrypoint-initdb.d/0026-rename-cupcake-theme.sql
+COPY infrastructure/postgres/0027-canopy-control-plane.sql /docker-entrypoint-initdb.d/0027-canopy-control-plane.sql
+COPY infrastructure/postgres/0028-canopy-report-library.sql /docker-entrypoint-initdb.d/0028-canopy-report-library.sql
+COPY infrastructure/postgres/0029-innovian-archive.sql /docker-entrypoint-initdb.d/0029-innovian-archive.sql
+COPY infrastructure/postgres/0030-report-field-catalog.sql /docker-entrypoint-initdb.d/0030-report-field-catalog.sql
+COPY infrastructure/postgres/0031-canopy-appearance-control.sql /docker-entrypoint-initdb.d/0031-canopy-appearance-control.sql
+COPY infrastructure/postgres/0032-account-config-sync.sql /docker-entrypoint-initdb.d/0032-account-config-sync.sql
+COPY infrastructure/postgres/0033-personal-theme-hierarchy.sql /docker-entrypoint-initdb.d/0033-personal-theme-hierarchy.sql
+COPY infrastructure/postgres/0034-canopy-managed-public-themes.sql /docker-entrypoint-initdb.d/0034-canopy-managed-public-themes.sql
+COPY infrastructure/postgres/0035-canopy-leaf-name-override.sql /docker-entrypoint-initdb.d/0035-canopy-leaf-name-override.sql

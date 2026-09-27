@@ -13,8 +13,15 @@ import patientMenuIcon from "../assets/menu-patient.png";
 import reportMenuIcon from "../assets/menu-report.png";
 import configMenuIcon from "../assets/menu-config.png";
 import archiveMenuIcon from "../assets/menu-archive.png";
+import dashboardMenuIcon from "../assets/dashboard.png";
+import canopyDashboardIcon from "../assets/canopy-menu-dashboard.png";
+import canopyClinicalIcon from "../assets/canopy-menu-clinical.png";
+import canopyReportsIcon from "../assets/canopy-menu-reports.png";
+import canopyConfigIcon from "../assets/canopy-menu-config.png";
+import canopyInfrastructureIcon from "../assets/canopy-menu-infrastructure.png";
+import canopyMonitoringIcon from "../assets/canopy-menu-monitoring.png";
 
-export type AppView = "case" | "form" | "diagnosis" | "staff" | "io" | "patient" | "report" | "master" | "account" | "dashboard" | "fleet" | "infrastructure" | "history";
+export type AppView = "case" | "form" | "diagnosis" | "staff" | "io" | "patient" | "report" | "master" | "account" | "dashboard" | "monitoring" | "fleet" | "infrastructure" | "history";
 
 type Props = {
   activeView: AppView;
@@ -26,7 +33,7 @@ type Props = {
   onCloseMobile: () => void;
 };
 
-type NavIconName = "chart" | "io" | "clinical" | "form" | "staff" | "patient" | "report" | "config" | "archive" | "start" | "fleet";
+type NavIconName = "chart" | "io" | "clinical" | "form" | "staff" | "patient" | "report" | "config" | "archive" | "start" | "fleet" | "dashboard" | "canopy-dashboard" | "canopy-monitoring" | "canopy-charts" | "canopy-reports" | "canopy-config" | "canopy-infrastructure";
 type NavItem = { view: AppView; label: string; icon: NavIconName };
 type CanopyCasePanelId = "chart" | "io" | "diagnosis" | "forms" | "staff" | "patient" | "report";
 
@@ -57,6 +64,13 @@ const menuIcons: Partial<Record<NavIconName, string>> = {
   report: reportMenuIcon,
   config: configMenuIcon,
   archive: archiveMenuIcon,
+  dashboard: dashboardMenuIcon,
+  "canopy-dashboard": canopyDashboardIcon,
+  "canopy-monitoring": canopyMonitoringIcon,
+  "canopy-charts": canopyClinicalIcon,
+  "canopy-reports": canopyReportsIcon,
+  "canopy-config": canopyConfigIcon,
+  "canopy-infrastructure": canopyInfrastructureIcon,
 };
 
 function NavIcon({ name }: { name: NavIconName }) {
@@ -88,12 +102,16 @@ function SidebarBody({ activeView, setActiveView, sessionUser, caseStatus, colla
   const permissions = sessionUser?.permissions || [];
   const isIdleLeaf = surface.code === "leaf" && caseStatus.status === "IDLE";
   const canConfigure = permissions.some(permission => ["account.manage", "config.manage", "clinical_master.manage", "staff.manage"].includes(permission));
+  const canConfigureCanopy = permissions.includes("config.manage") || String(sessionUser?.role || "").trim().toLowerCase() === "admin";
   const canReport = permissions.includes("report.generate");
   const items: NavItem[] = surface.code === "canopy"
     ? [
-        { view: "dashboard", label: "Dashboard", icon: "fleet" },
-        { view: "fleet", label: "Clinical charts", icon: "chart" },
-        { view: "infrastructure", label: "Infrastructure", icon: "config" },
+        { view: "dashboard", label: "Dashboard", icon: "canopy-dashboard" },
+        { view: "monitoring", label: "Central Charting", icon: "canopy-monitoring" },
+        { view: "fleet", label: "Case List", icon: "canopy-charts" },
+        { view: "report", label: "Reports", icon: "canopy-reports" },
+        ...(canConfigureCanopy ? [{ view: "master" as AppView, label: "Configuration", icon: "canopy-config" as NavIconName }] : []),
+        { view: "infrastructure", label: "Infrastructure", icon: "canopy-infrastructure" },
       ]
     : isIdleLeaf
       ? [

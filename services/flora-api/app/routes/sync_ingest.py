@@ -36,6 +36,11 @@ class SyncBatch(BaseModel):
     messages: list[SyncMessage] = Field(default_factory=list, max_length=500)
 
 
+class PersonalThemeSync(BaseModel):
+    display_name: str
+    colors: list[str]
+
+
 def require_sync_secret(authorization: str | None = Header(default=None)) -> None:
     expected = os.getenv("FLORA_SYNC_SHARED_SECRET", "").strip()
     supplied = ""
@@ -162,3 +167,108 @@ def ingest_batch(batch: SyncBatch, database: Connection = Depends(connection)) -
 def fingerprint() -> dict[str, str]:
     secret = os.getenv("FLORA_SYNC_SHARED_SECRET", "").encode("utf-8")
     return {"protocol": "flora-sync-v1", "key_fingerprint": hashlib.sha256(secret).hexdigest()[:12]}
+
+
+@router.get("/account-config/{username}", dependencies=[Depends(require_sync_secret)])
+def account_config(username: str, database: Connection = Depends(connection)) -> dict[str, Any]:
+    user = database.execute(
+        """SELECT id,username,theme_mode,theme_color,language_code,
+                  parameter_preferences,report_preferences,updated_at
+           FROM auth_user
+           WHERE lower(username)=lower(%s) AND is_active=1
+           LIMIT 1""",
+        (username.strip(),),
+    ).fetchone()
+    if user is None:
+        raise HTTPException(status_code=404, detail="account configuration not found")
+    personal_themes = database.execute(
+        """SELECT code,display_name,color_1_canvas,color_2_surface,color_3_border,
+                  color_4_text,color_5_muted,color_6_accent,is_active,created_at,updated_at
+           FROM user_theme_scheme WHERE owner_user_id=%s AND is_active=1
+           ORDER BY updated_at DESC,code""",
+        (user["id"],),
+    ).fetchall()
+    public_themes = database.execute(
+        """SELECT code,display_name,color_1_canvas,color_2_surface,color_3_border,
+                  color_4_text,color_5_muted,color_6_accent,is_active,sort_order,created_at,updated_at
+           FROM theme_scheme_master ORDER BY sort_order,code"""
+    ).fetchall()
+    theme = None
+    theme_color = str(user.get("theme_color") or "")
+    if theme_color.startswith("personal:"):
+        personal_code = theme_color.removeprefix("personal:")
+        theme = next((dict(row) for row in personal_themes if row["code"] == personal_code), None)
+        if theme:
+            theme["scope"] = "personal"
+    elif theme_color:
+        theme = database.execute(
+            """SELECT code,display_name,color_1_canvas,color_2_surface,color_3_border,
+                      color_4_text,color_5_muted,color_6_accent,is_active,sort_order,created_at,updated_at
+               FROM theme_scheme_master WHERE code=%s""",
+            (user["theme_color"],),
+        ).fetchone()
+        if theme:
+            theme = {**dict(theme), "scope": "public"}
+    language = database.execute(
+        """SELECT code,name_en,name_native,is_active,sort_order,created_at,updated_at
+           FROM language_master WHERE code=%s""",
+        (user["language_code"],),
+    ).fetchone()
+    translations = database.execute(
+        """SELECT translation_key,translation_value FROM language_translation
+           WHERE language_code=%s ORDER BY translation_key""",
+        (user["language_code"],),
+    ).fetchall()
+    return {
+        "username": user["username"],
+        "updated_at": user.get("updated_at") or 0,
+        "preferences": {
+            "theme_mode": user.get("theme_mode"),
+            "theme_color": user.get("theme_color"),
+            "language_code": user.get("language_code"),
+            "parameter_preferences": user.get("parameter_preferences") or {},
+            "report_preferences": user.get("report_preferences") or {},
+        },
+        "theme": dict(theme) if theme else None,
+        "public_themes": [{**dict(row), "scope": "public"} for row in public_themes],
+        "personal_themes": [{**dict(row), "scope": "personal"} for row in personal_themes],
+        "language": dict(language) if language else None,
+        "translations": {row["translation_key"]: row["translation_value"] for row in translations},
+    }
+
+
+@router.put("/account-config/{username}/themes/{code}", dependencies=[Depends(require_sync_secret)])
+def save_personal_theme(
+    username: str,
+    code: str,
+    payload: PersonalThemeSync,
+    database: Connection = Depends(connection),
+) -> dict[str, Any]:
+    import re
+
+    normalized = code.strip().lower().removeprefix("personal:")
+    colors = [color.strip().lower() for color in payload.colors]
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{1,47}", normalized) is None:
+        raise HTTPException(status_code=400, detail="invalid personal theme code")
+    if not payload.display_name.strip() or len(colors) != 6 or any(re.fullmatch(r"#[0-9a-f]{6}", color) is None for color in colors):
+        raise HTTPException(status_code=400, detail="theme name and six hex colors are required")
+    user = database.execute(
+        "SELECT id FROM auth_user WHERE lower(username)=lower(%s) AND is_active=1 LIMIT 1",
+        (username.strip(),),
+    ).fetchone()
+    if user is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    current = int(datetime.now(timezone.utc).timestamp() * 1000)
+    row = database.execute(
+        """INSERT INTO user_theme_scheme(owner_user_id,code,display_name,color_1_canvas,color_2_surface,
+                 color_3_border,color_4_text,color_5_muted,color_6_accent,is_active,sync_state,created_at,updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'central',%s,%s)
+           ON CONFLICT(owner_user_id,code) DO UPDATE SET display_name=excluded.display_name,
+             color_1_canvas=excluded.color_1_canvas,color_2_surface=excluded.color_2_surface,
+             color_3_border=excluded.color_3_border,color_4_text=excluded.color_4_text,
+             color_5_muted=excluded.color_5_muted,color_6_accent=excluded.color_6_accent,
+             is_active=1,sync_state='central',updated_at=excluded.updated_at
+           RETURNING code,display_name,updated_at""",
+        (user["id"], normalized, payload.display_name.strip(), *colors, current, current),
+    ).fetchone()
+    return {"ok": True, "row": dict(row)}

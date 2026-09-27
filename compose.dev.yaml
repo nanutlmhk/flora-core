@@ -7,3 +7,4 @@ include:
   - path: ./compose/flora-leaf.yaml
   - path: ./compose/flora-canopy.yaml
   - path: ./compose/flora-sync.yaml
+  - path: ./compose/flora-multi-leaf.yaml

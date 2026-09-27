@@ -1,0 +1,200 @@
+x-leaf-db: &leaf-db
+  build:
+    context: ..
+    dockerfile: Dockerfile.postgres.dev
+  profiles: ["multi-leaf"]
+  environment:
+    POSTGRES_DB: flora
+    POSTGRES_USER: flora_admin
+    POSTGRES_PASSWORD: flora-admin-local-only
+    FLORA_DB_APP_PASSWORD: flora-app-local-only
+    FLORA_DB_VIEW_PASSWORD: flora-view-local-only
+    FLORA_DB_SYNC_PASSWORD: flora-sync-local-only
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U flora_admin -d flora"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+  restart: unless-stopped
+
+x-leaf-api: &leaf-api
+  build:
+    context: ../services/flora-api
+  profiles: ["multi-leaf"]
+  environment: &leaf-api-environment
+    FLORA_API_ENV: development
+    FLORA_API_MODE: leaf
+    FLORA_LEAF_WRITE_API: "true"
+    FLORA_BOOTSTRAP_ADMIN_ENABLED: "true"
+    FLORA_BOOTSTRAP_ADMIN_USERNAME: admin
+    FLORA_BOOTSTRAP_ADMIN_PASSWORD: admin
+    FLORA_BOOTSTRAP_ADMIN_NAME: Administrator
+    FLORA_DEVICE_INGEST_ENABLED: "true"
+    FLORA_LEAF_SERVICE_SECRET: flora-leaf-service-dev-secret-change-me
+    FLORA_CANOPY_SYNC_URL: http://flora-sync-api:8000
+    FLORA_SYNC_SHARED_SECRET: flora-sync-dev-secret-change-me
+    FLORA_ACCOUNT_CONFIG_SYNC_TIMEOUT_SECONDS: "1.5"
+    VECTOR_READ_URL: http://flora-liveagent:8000/api/observations
+    HIS_GATEWAY_BASE_URL: http://10.35.202.6:8590
+    FLORA_HIS_DEMO_MODE: "false"
+  volumes:
+    - ../services/flora-api/app:/app/app
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+    interval: 10s
+    timeout: 3s
+    retries: 20
+  restart: unless-stopped
+
+x-leaf-web: &leaf-web
+  build:
+    context: ..
+    dockerfile: Dockerfile.frontend.dev
+  profiles: ["multi-leaf"]
+  environment: &leaf-web-environment
+    CHOKIDAR_USEPOLLING: "true"
+    VITE_FLORA_SURFACE: leaf
+  volumes:
+    - ../frontend:/app/frontend
+  command: ["sh", "-c", "npm ci --ignore-scripts --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
+  restart: unless-stopped
+
+x-leaf-sync: &leaf-sync
+  build:
+    context: ../services/flora-sync-worker
+  profiles: ["multi-leaf"]
+  environment: &leaf-sync-environment
+    FLORA_CANOPY_SYNC_URL: http://flora-sync-api:8000
+    FLORA_SYNC_SHARED_SECRET: flora-sync-dev-secret-change-me
+    FLORA_LEAF_SERVICE_SECRET: flora-leaf-service-dev-secret-change-me
+    FLORA_HOSPITAL_ID: hospital-dev
+    FLORA_SYNC_INTERVAL_SECONDS: "10"
+  restart: unless-stopped
+
+services:
+  flora-leaf-2-db:
+    <<: *leaf-db
+    ports: ["127.0.0.1:6902:5432"]
+    volumes: ["flora_leaf_2_data:/var/lib/postgresql/data"]
+
+  flora-leaf-2-api:
+    <<: *leaf-api
+    environment:
+      <<: *leaf-api-environment
+      FLORA_DATABASE_URL: postgresql://flora_app:flora-app-local-only@flora-leaf-2-db:5432/flora
+    ports: ["127.0.0.1:6901:8000"]
+    depends_on:
+      flora-leaf-2-db: {condition: service_healthy}
+      flora-liveagent: {condition: service_healthy}
+      flora-sync-api: {condition: service_healthy}
+
+  flora-leaf-2:
+    <<: *leaf-web
+    environment:
+      <<: *leaf-web-environment
+      VITE_API_PROXY_TARGET: http://flora-leaf-2-api:8000
+    ports: ["6900:5173"]
+    volumes:
+      - ../frontend:/app/frontend
+      - flora_leaf_2_modules:/app/frontend/node_modules
+    depends_on:
+      flora-leaf-2-api: {condition: service_healthy}
+
+  flora-leaf-2-sync:
+    <<: *leaf-sync
+    environment:
+      <<: *leaf-sync-environment
+      FLORA_LEAF_API_URL: http://flora-leaf-2-api:8000
+      FLORA_LEAF_ID: leaf-dev-02
+      FLORA_LEAF_NAME: Development Leaf 2
+    depends_on:
+      flora-leaf-2-api: {condition: service_healthy}
+      flora-sync-api: {condition: service_healthy}
+
+  flora-leaf-3-db:
+    <<: *leaf-db
+    ports: ["127.0.0.1:6912:5432"]
+    volumes: ["flora_leaf_3_data:/var/lib/postgresql/data"]
+
+  flora-leaf-3-api:
+    <<: *leaf-api
+    environment:
+      <<: *leaf-api-environment
+      FLORA_DATABASE_URL: postgresql://flora_app:flora-app-local-only@flora-leaf-3-db:5432/flora
+    ports: ["127.0.0.1:6911:8000"]
+    depends_on:
+      flora-leaf-3-db: {condition: service_healthy}
+      flora-liveagent: {condition: service_healthy}
+      flora-sync-api: {condition: service_healthy}
+
+  flora-leaf-3:
+    <<: *leaf-web
+    environment:
+      <<: *leaf-web-environment
+      VITE_API_PROXY_TARGET: http://flora-leaf-3-api:8000
+    ports: ["6910:5173"]
+    volumes:
+      - ../frontend:/app/frontend
+      - flora_leaf_3_modules:/app/frontend/node_modules
+    depends_on:
+      flora-leaf-3-api: {condition: service_healthy}
+
+  flora-leaf-3-sync:
+    <<: *leaf-sync
+    environment:
+      <<: *leaf-sync-environment
+      FLORA_LEAF_API_URL: http://flora-leaf-3-api:8000
+      FLORA_LEAF_ID: leaf-dev-03
+      FLORA_LEAF_NAME: Development Leaf 3
+    depends_on:
+      flora-leaf-3-api: {condition: service_healthy}
+      flora-sync-api: {condition: service_healthy}
+
+  flora-leaf-4-db:
+    <<: *leaf-db
+    ports: ["127.0.0.1:6922:5432"]
+    volumes: ["flora_leaf_4_data:/var/lib/postgresql/data"]
+
+  flora-leaf-4-api:
+    <<: *leaf-api
+    environment:
+      <<: *leaf-api-environment
+      FLORA_DATABASE_URL: postgresql://flora_app:flora-app-local-only@flora-leaf-4-db:5432/flora
+    ports: ["127.0.0.1:6921:8000"]
+    depends_on:
+      flora-leaf-4-db: {condition: service_healthy}
+      flora-liveagent: {condition: service_healthy}
+      flora-sync-api: {condition: service_healthy}
+
+  flora-leaf-4:
+    <<: *leaf-web
+    environment:
+      <<: *leaf-web-environment
+      VITE_API_PROXY_TARGET: http://flora-leaf-4-api:8000
+    ports: ["6920:5173"]
+    volumes:
+      - ../frontend:/app/frontend
+      - flora_leaf_4_modules:/app/frontend/node_modules
+    depends_on:
+      flora-leaf-4-api: {condition: service_healthy}
+
+  flora-leaf-4-sync:
+    <<: *leaf-sync
+    environment:
+      <<: *leaf-sync-environment
+      FLORA_LEAF_API_URL: http://flora-leaf-4-api:8000
+      FLORA_LEAF_ID: leaf-dev-04
+      FLORA_LEAF_NAME: Development Leaf 4
+    depends_on:
+      flora-leaf-4-api: {condition: service_healthy}
+      flora-sync-api: {condition: service_healthy}
+
+volumes:
+  flora_leaf_2_data:
+  flora_leaf_3_data:
+  flora_leaf_4_data:
+  flora_leaf_2_modules:
+  flora_leaf_3_modules:
+  flora_leaf_4_modules:

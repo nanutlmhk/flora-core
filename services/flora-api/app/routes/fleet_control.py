@@ -58,6 +58,10 @@ class AssignmentInput(BaseModel):
     time_format: Literal["24h", "12h"] = "24h"
 
 
+class LeafIdentityInput(BaseModel):
+    display_name: str | None = Field(default=None, max_length=160)
+
+
 class GroupSettingsInput(BaseModel):
     timezone: str = Field(default="Asia/Bangkok", min_length=1, max_length=80)
     date_format: Literal["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"] = "DD/MM/YYYY"
@@ -170,7 +174,10 @@ def control_plane(database: Connection = Depends(connection)) -> dict[str, Any]:
     ).fetchall()
     leaves = database.execute(
         """
-        SELECT leaf.leaf_id, leaf.hospital_id, leaf.display_name, leaf.software_version,
+        SELECT leaf.leaf_id, leaf.hospital_id,
+               coalesce(nullif(leaf.canopy_display_name,''),leaf.display_name) AS display_name,
+               leaf.display_name AS reported_display_name, leaf.canopy_display_name,
+               leaf.software_version,
                leaf.last_seen_at, assignment.bed_location_id, assignment.desired_config,
                assignment.desired_version, assignment.applied_version,
                CASE WHEN assignment.leaf_id IS NULL THEN 'unassigned'
@@ -179,10 +186,31 @@ def control_plane(database: Connection = Depends(connection)) -> dict[str, Any]:
                     ELSE 'outdated' END AS config_status
         FROM sync_leaf_node leaf
         LEFT JOIN canopy_leaf_assignment assignment ON assignment.leaf_id=leaf.leaf_id
-        ORDER BY leaf.display_name, leaf.leaf_id
+        ORDER BY coalesce(nullif(leaf.canopy_display_name,''),leaf.display_name), leaf.leaf_id
         """
     ).fetchall()
     return {"locations": locations, "groups": groups, "leaves": leaves}
+
+
+@router.put("/leaves/{leaf_id}/identity", dependencies=[Depends(require_admin)])
+def update_leaf_identity(
+    leaf_id: str,
+    payload: LeafIdentityInput,
+    database: Connection = Depends(connection),
+) -> dict[str, Any]:
+    canopy_name = (payload.display_name or "").strip() or None
+    with database.transaction():
+        row = database.execute(
+            """UPDATE sync_leaf_node SET canopy_display_name=%s
+               WHERE leaf_id=%s
+               RETURNING leaf_id,hospital_id,
+                 coalesce(nullif(canopy_display_name,''),display_name) AS display_name,
+                 display_name AS reported_display_name,canopy_display_name""",
+            (canopy_name, leaf_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Leaf not found")
+    return row
 
 
 @router.post("/locations", dependencies=[Depends(require_admin)])

@@ -5,6 +5,8 @@ export type LeafNode = {
   leaf_id: string;
   hospital_id: string;
   display_name: string;
+  reported_display_name?: string | null;
+  canopy_display_name?: string | null;
   software_version?: string | null;
   last_seen_at: string;
   connection_status: "online" | "delayed" | "offline";
@@ -129,6 +131,28 @@ export type FleetSnapshot = {
   last_synced_at: string;
 };
 
+export type IcuChartSummary = {
+  patient: { age?: string | null; weight_kg?: number | null; height_cm?: number | null; blood_group?: string | null; asa_status?: string | null };
+  diagnoses: string[];
+  allergies: Array<{ allergen: string; reaction?: string | null; severity?: string | null }>;
+  staff: Array<{ name: string; role?: string | null }>;
+  recent_events: Array<{ time?: number | string | null; title: string; kind?: string | null }>;
+  recent_medications: Array<{ time?: number | string | null; name: string; dose?: number | null; unit?: string | null; route?: string | null }>;
+  active_infusions: Array<{ name: string; rate?: number | null; unit?: string | null }>;
+  labs: Array<{ name: string; value?: string | null; unit?: string | null; flag?: string | null }>;
+  io: { intake_ml?: number | null; output_ml?: number | null; net_ml?: number | null; urine_output_ml?: number | null; blood_loss_ml?: number | null };
+  documentation: { events: number; medications: number; forms: number; staff: number };
+};
+export type IcuOverviewCase = FleetCase & {
+  patient_name: string;
+  gender?: string | null;
+  procedure?: string | null;
+  latest: { hr?: number | null; spo2?: number | null; rr?: number | null; sbp?: number | null; dbp?: number | null; map?: number | null; temperature?: number | null; etco2?: number | null };
+  chart: IcuChartSummary;
+};
+export type IcuOverviewBed = Pick<LeafNode, "leaf_id" | "hospital_id" | "display_name" | "last_seen_at" | "connection_status" | "hospital_name" | "building_name" | "care_unit_name" | "room_name" | "bed_name"> & { case?: IcuOverviewCase | null };
+export type IcuOverview = { server_time: string; rows: IcuOverviewBed[] };
+
 async function rows<T>(path: string): Promise<T[]> {
   const token = readStoredAuthToken();
   const response = await fetch(`${BACKEND_BASE}${path}`, {
@@ -167,6 +191,7 @@ async function sendJson<T>(path: string, method: "POST" | "PUT", body: unknown):
 
 export const getLeaves = () => rows<LeafNode>("/api/fleet/leaves");
 export const getActiveFleetCases = () => rows<FleetCase>("/api/fleet/active-cases");
+export const getIcuOverview = (limitPoints = 30) => getJson<IcuOverview>(`/api/fleet/icu-overview?limit_points=${limitPoints}`);
 export const getFleetCases = (limit = 50, status?: "ACTIVE" | "DISCHARGED" | "ARCHIVED") => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (status) params.set("status", status);
@@ -194,24 +219,21 @@ export const getLegacyArchiveSnapshot = (archiveCaseId: string) =>
   getJson<FleetSnapshot>(`/api/fleet/legacy/cases/${encodeURIComponent(archiveCaseId)}/snapshot`);
 export const getLegacyArchiveReportOptions = (archiveCaseId: string) =>
   getJson<LegacyReportCatalog>(`/api/fleet/legacy/cases/${encodeURIComponent(archiveCaseId)}/report-options`);
-export async function generateLegacyArchiveReport(archiveCaseId: string, sections: string[]): Promise<{ bytes: Uint8Array; fileName: string; destinationPath: string }> {
+export async function generateLegacyArchiveReport(archiveCaseId: string, sections: string[]) {
   const token = readStoredAuthToken();
   const response = await fetch(`${BACKEND_BASE}/api/fleet/legacy/cases/${encodeURIComponent(archiveCaseId)}/report.pdf`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(token ? { "X-FLORA-Session": token } : {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "X-FLORA-Session": token } : {}),
+    },
     body: JSON.stringify({ sections }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({})) as { detail?: string; error?: string };
-    throw new Error(data.detail || data.error || `Innovian report request failed (${response.status})`);
+    throw new Error(data.detail || data.error || `Could not generate Innovian report (${response.status})`);
   }
-  if (!response.headers.get("content-type")?.includes("application/pdf")) {
-    throw new Error("The archive service returned an invalid report response.");
-  }
-  const disposition = response.headers.get("content-disposition") || "";
-  const fileName = disposition.match(/filename="?([^";]+)/i)?.[1]?.trim() || `flora-legacy-${archiveCaseId}.pdf`;
-  const destinationPath = (response.headers.get("x-flora-ephis-relative-path") || "").replaceAll("/", "\\");
-  return { bytes: new Uint8Array(await response.arrayBuffer()), fileName, destinationPath };
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export const getControlPlane = () => getJson<ControlPlane>("/api/fleet/control");
@@ -227,6 +249,8 @@ export const updateLeafGroupMembers = (id: number, leafIds: string[]) =>
   sendJson<{ ok: boolean }>(`/api/fleet/control/groups/${id}/members`, "PUT", { leaf_ids: leafIds });
 export const assignLeafLocation = (leafId: string, input: { bed_location_id: number; timezone: string; date_format: string; time_format: string }) =>
   sendJson<Record<string, unknown>>(`/api/fleet/control/leaves/${encodeURIComponent(leafId)}/assignment`, "PUT", input);
+export const updateLeafIdentity = (leafId: string, displayName: string | null) =>
+  sendJson<ControlPlaneLeaf>(`/api/fleet/control/leaves/${encodeURIComponent(leafId)}/identity`, "PUT", { display_name: displayName });
 export const adoptObservedLeafLocation = (leafId: string) =>
   sendJson<Record<string, unknown>>(`/api/fleet/control/leaves/${encodeURIComponent(leafId)}/adopt-observed`, "POST", {});
 export const applyLeafGroupSettings = (id: number, input: { timezone: string; date_format: string; time_format: string }) =>

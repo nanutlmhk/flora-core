@@ -12,6 +12,7 @@ services:
     volumes:
       - ../frontend:/app/frontend
       - flora_frontend_modules:/app/frontend/node_modules
+    command: ["sh", "-c", "npm ci --ignore-scripts --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
     depends_on:
       flora-leaf-api:
         condition: service_healthy

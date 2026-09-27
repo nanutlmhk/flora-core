@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CaseStatus } from "../api/caseApi";
 import type { AuthUser } from "../auth/useAuth";
-import { getEditionInfo } from "../edition/config";
+import { getEditionInfo, getSurfaceInfo } from "../edition/config";
 import UsersView from "./UsersView";
 import StaffView from "./StaffView";
 import {
@@ -785,6 +785,7 @@ function LicenseTab() {
 
 export default function ManageView({ caseStatus, sessionUser }: Props) {
   const edition = getEditionInfo();
+  const surface = getSurfaceInfo();
   const permissions = sessionUser?.permissions || [];
   const isAdmin = permissions.includes("account.manage") || String(sessionUser?.role || "").trim().toLowerCase() === "admin";
   const canConfigure = permissions.includes("config.manage") || isAdmin;
@@ -793,14 +794,17 @@ export default function ManageView({ caseStatus, sessionUser }: Props) {
   const isEforl = edition.code === "eforl";
   const availableTabs = useMemo<ManageTab[]>(
     () => {
-      const tabs: ManageTab[] = ["user"];
-      if (canConfigure) tabs.push("location", "datetime", "language", "scheme");
-      if (canManageClinical) tabs.push("chart", "terminology");
-      if (canManageStaff) tabs.push("staff");
+      const tabs: ManageTab[] = surface.code === "leaf" ? ["user"] : [];
+      if (canConfigure) {
+        if (surface.code === "leaf") tabs.push("location", "datetime");
+        else tabs.push("language", "scheme");
+      }
+      if (surface.code === "leaf" && canManageClinical) tabs.push("chart", "terminology");
+      if (surface.code === "leaf" && canManageStaff) tabs.push("staff");
       if (isAdmin && isEforl) tabs.push("database", "license");
       return tabs;
     },
-    [canConfigure, canManageClinical, canManageStaff, isAdmin, isEforl],
+    [canConfigure, canManageClinical, canManageStaff, isAdmin, isEforl, surface.code],
   );
   const [tab, setTab] = useState<ManageTab>("user");
   const activeTab = availableTabs.includes(tab) ? tab : availableTabs[0];

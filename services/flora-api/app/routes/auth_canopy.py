@@ -11,6 +11,7 @@ from psycopg import Connection
 from pydantic import BaseModel
 
 from ..database import connection
+from .auth_leaf import attach_entitlements, public_user as shared_public_user
 
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -32,14 +33,7 @@ def decode_part(value: str) -> bytes:
 
 
 def public_user(row: dict[str, Any]) -> dict[str, Any]:
-    output = {"username": row["username"], "name": row["name"]}
-    if row.get("role"):
-        output["role"] = row["role"]
-    if row.get("theme_mode"):
-        output["themeMode"] = row["theme_mode"]
-    if row.get("theme_color"):
-        output["themeColor"] = row["theme_color"]
-    return output
+    return shared_public_user(row)
 
 
 def verify_password(password: str, salt_hex: str, expected_hex: str) -> bool:
@@ -68,6 +62,7 @@ def create_token(user: dict[str, Any]) -> tuple[str, int]:
         "role": user.get("role"),
         "theme_mode": user.get("theme_mode"),
         "theme_color": user.get("theme_color"),
+        "language_code": user.get("language_code"),
         "exp": expires_at,
     }
     encoded = encode_part(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -112,7 +107,9 @@ def login(payload: LoginRequest, database: Connection = Depends(connection)) -> 
     user = database.execute(
         """
         SELECT id, username, password_salt, password_hash, name, role,
-               theme_mode, theme_color, is_active
+               theme_mode, theme_color, language_code, staff_directory_id,
+               parameter_preferences, report_preferences, must_change_password,
+               is_active
         FROM auth_user
         WHERE lower(username) = lower(%s)
         LIMIT 1
@@ -125,6 +122,7 @@ def login(payload: LoginRequest, database: Connection = Depends(connection)) -> 
         or not verify_password(payload.password, user["password_salt"], user["password_hash"])
     ):
         raise HTTPException(status_code=401, detail="invalid username or password")
+    user = attach_entitlements(database, user)
     token, expires_at = create_token(user)
     return {
         "user": public_user(user),
@@ -134,9 +132,18 @@ def login(payload: LoginRequest, database: Connection = Depends(connection)) -> 
 
 
 @router.get("/whoami")
-def whoami(request: Request) -> dict:
+def whoami(request: Request, database: Connection = Depends(connection)) -> dict:
     payload = read_token(request)
-    return {"user": public_user(payload)}
+    user = database.execute(
+        """SELECT id,username,name,role,theme_mode,theme_color,language_code,
+                  staff_directory_id,parameter_preferences,report_preferences,
+                  must_change_password,is_active
+           FROM auth_user WHERE id=%s LIMIT 1""",
+        (payload["sub"],),
+    ).fetchone()
+    if user is None or not user["is_active"]:
+        raise HTTPException(status_code=401, detail="sign in required")
+    return {"user": public_user(attach_entitlements(database, user))}
 
 
 @router.post("/logout")

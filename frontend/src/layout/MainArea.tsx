@@ -7,9 +7,12 @@ import HistoryView from "../views/HistoryView";
 import InputOutputBalanceView from "../views/InputOutputBalanceView";
 import CanopyFleetView from "../views/CanopyFleetView";
 import CanopyDashboardView from "../views/CanopyDashboardView";
+import CanopyHomeView from "../views/CanopyHomeView";
 import CanopyInfrastructureView from "../views/CanopyInfrastructureView";
 import IdleCaseLanding from "../views/IdleCaseLanding";
 import AccountView from "../views/AccountView";
+import CanopyReportsView from "../views/CanopyReportsView";
+import { getSurfaceInfo } from "../edition/config";
 
 const ClinicalChartView = lazy(() => import("../views/ClinicalChartView"));
 const FormView = lazy(() => import("../views/FormView"));
@@ -30,6 +33,7 @@ interface Props {
     | "master"
     | "account"
     | "dashboard"
+    | "monitoring"
     | "fleet"
     | "infrastructure"
     | "history";
@@ -92,6 +96,7 @@ export default function MainArea({
   onCaseStarted,
   onNavigate,
 }: Props) {
+  const surface = getSurfaceInfo();
   const resetKey =
     caseStatus.status === "IDLE"
       ? `${activeView}:IDLE`
@@ -125,12 +130,15 @@ export default function MainArea({
       ) : activeView === "patient" ? (
         <PatientView key={caseScopedKey} caseStatus={caseStatus} />
       ) : activeView === "report" ? (
-        <ReportView
-          key={caseScopedKey}
-          caseStatus={caseStatus}
-          onCaseDischargeTimeUpdated={onCaseDischargeTimeUpdated}
-        />
+        surface.code === "canopy" ? <CanopyReportsView /> :
+          <ReportView
+            key={caseScopedKey}
+            caseStatus={caseStatus}
+            onCaseDischargeTimeUpdated={onCaseDischargeTimeUpdated}
+          />
       ) : activeView === "dashboard" ? (
+        <CanopyHomeView />
+      ) : activeView === "monitoring" ? (
         <CanopyDashboardView />
       ) : activeView === "fleet" ? (
         <CanopyFleetView />

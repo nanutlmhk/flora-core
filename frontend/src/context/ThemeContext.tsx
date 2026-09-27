@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   getPreferenceOptions,
+  getPersonalThemes,
   mergeStoredAuthUser,
   updateOwnPreferences,
   type AuthThemeColor,
   type AuthThemeMode,
   type ThemeSchemeOption,
 } from "../api/authApi";
-import { getSurfaceInfo } from "../edition/config";
 
 export type ThemeMode = AuthThemeMode;
 export type ThemeColor = AuthThemeColor;
@@ -44,7 +44,7 @@ function isLightCanvas(color: string) {
 }
 
 function isThemeColor(value: unknown): value is ThemeColor {
-  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,47}$/.test(value);
+  return typeof value === "string" && /^(?:personal:)?[a-z0-9][a-z0-9-]{0,47}$/.test(value);
 }
 
 function readThemeUsername() {
@@ -101,7 +101,6 @@ function readStoredColor(username: string): ThemeColor {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const surface = getSurfaceInfo();
   const [themeUsername, setThemeUsername] = useState(() => readThemeUsername());
   const mode: ThemeMode = "dark";
   const [color, setColorState] = useState<ThemeColor>(() => readStoredColor(readThemeUsername()));
@@ -134,13 +133,30 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     void getPreferenceOptions().then(options => {
       if (cancelled || !options.themes.length) return;
-      setSchemes(options.themes);
-      setColorState(current => options.themes.some(theme => theme.code === current) ? current : options.defaultTheme);
+      setSchemes(current => [...options.themes, ...current.filter(theme => theme.scope === "personal")]);
+      setColorState(current => current.startsWith("personal:") || options.themes.some(theme => theme.code === current) ? current : options.defaultTheme);
     }).catch(() => {
       // Built-in schemes keep the login usable while the API is unavailable.
     });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!themeUsername) {
+      const timer = window.setTimeout(() => {
+        setSchemes(current => current.filter(theme => theme.scope !== "personal"));
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+    let cancelled = false;
+    void getPersonalThemes().then(personal => {
+      if (cancelled) return;
+      setSchemes(current => [...current.filter(theme => theme.scope !== "personal"), ...personal]);
+    }).catch(() => {
+      // Leaf may be offline; already-loaded public and locally cached schemes remain usable.
+    });
+    return () => { cancelled = true; };
+  }, [themeUsername]);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -175,7 +191,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!themeUsername.trim()) return;
-    if (!surface.clinicalWriteEnabled) return;
     const syncKey = `${themeUsername}|${mode}|${color}`;
     if (lastSyncedPrefRef.current === syncKey) return;
     lastSyncedPrefRef.current = syncKey;
@@ -187,7 +202,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         // keep local preference even if backend persistence is unavailable for the moment
       });
-  }, [mode, color, surface.clinicalWriteEnabled, themeUsername]);
+  }, [mode, color, themeUsername]);
 
   const setColor = (c: ThemeColor) => {
     setColorState(isThemeColor(c) && schemes.some(theme => theme.code === c) ? c : DEFAULT_THEME);

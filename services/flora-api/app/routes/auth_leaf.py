@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from ..database import connection
+from ..account_config_sync import apply_account_config, pull_account_config, push_personal_theme
 
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -72,6 +73,15 @@ class ThemeCreateRequest(ThemeMasterRequest):
     code: str
 
 
+class PersonalThemeRequest(BaseModel):
+    display_name: str
+    colors: list[str]
+
+
+class PersonalThemeCreateRequest(PersonalThemeRequest):
+    code: str
+
+
 class TranslationMasterRequest(BaseModel):
     values: dict[str, str]
 
@@ -111,6 +121,39 @@ class UserAccessRequest(BaseModel):
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def personal_theme_values(code: str, display_name: str, colors: list[str]) -> tuple[str, str, list[str]]:
+    normalized = code.strip().lower()
+    clean_name = display_name.strip()
+    clean_colors = [color.strip().lower() for color in colors]
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{1,47}", normalized) is None:
+        raise HTTPException(status_code=400, detail="invalid personal theme code")
+    if not clean_name or len(clean_colors) != 6 or any(re.fullmatch(r"#[0-9a-f]{6}", color) is None for color in clean_colors):
+        raise HTTPException(status_code=400, detail="theme name and six hex colors are required")
+    return normalized, clean_name, clean_colors
+
+
+def personal_theme_public(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **dict(row),
+        "code": f"personal:{row['code']}",
+        "scope": "personal",
+        "sync_state": row.get("sync_state") or "local",
+    }
+
+
+def valid_theme_selection(database: Connection, user_id: int, value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized.startswith("personal:"):
+        code = normalized.removeprefix("personal:")
+        return database.execute(
+            "SELECT 1 FROM user_theme_scheme WHERE owner_user_id=%s AND code=%s AND is_active=1",
+            (user_id, code),
+        ).fetchone() is not None
+    return database.execute(
+        "SELECT 1 FROM theme_scheme_master WHERE code=%s AND is_active=1", (normalized,)
+    ).fetchone() is not None
 
 
 def token_from(request: Request) -> str:
@@ -339,6 +382,17 @@ def login(payload: LoginRequest, request: Request, database: Connection = Depend
     ):
         audit(database, "auth.login", None, target={"username": username}, status="denied", detail={"reason": "invalid_credentials"})
         raise HTTPException(status_code=401, detail="invalid username or password")
+    central_config = pull_account_config(user["username"])
+    preference_source = "local"
+    if central_config is not None:
+        try:
+            with database.transaction():
+                if apply_account_config(database, user["id"], central_config):
+                    preference_source = "canopy"
+                    user = database.execute("SELECT * FROM auth_user WHERE id=%s", (user["id"],)).fetchone()
+        except Exception:
+            # Authentication and offline fallback must remain available if central configuration is invalid.
+            preference_source = "local"
     token = secrets.token_urlsafe(32)
     current = now_ms()
     expires = current + SESSION_TTL_MS
@@ -351,7 +405,8 @@ def login(payload: LoginRequest, request: Request, database: Connection = Depend
     )
     database.execute("UPDATE auth_user SET last_login_at=%s, updated_at=%s WHERE id=%s", (current, current, user["id"]))
     audit(database, "auth.login", user, target=user)
-    return {"user": public_user(attach_entitlements(database, user)), "session_token": token, "expires_at": expires}
+    return {"user": public_user(attach_entitlements(database, user)), "session_token": token, "expires_at": expires,
+            "preference_source": preference_source}
 
 
 @router.post("/logout")
@@ -583,6 +638,109 @@ def delete_theme_master(code: str, actor: dict = Depends(require_permission("con
     return {"ok": True, "code": normalized}
 
 
+@router.get("/self/themes")
+def personal_themes(user: dict = Depends(current_user), database: Connection = Depends(connection)) -> dict:
+    rows = database.execute(
+        """SELECT code,display_name,color_1_canvas,color_2_surface,color_3_border,
+                  color_4_text,color_5_muted,color_6_accent,is_active,sync_state,created_at,updated_at
+           FROM user_theme_scheme WHERE owner_user_id=%s AND is_active=1
+           ORDER BY updated_at DESC,code""",
+        (user["id"],),
+    ).fetchall()
+    return {"rows": [personal_theme_public(row) for row in rows]}
+
+
+@router.post("/self/themes")
+@atomic
+def create_personal_theme(
+    payload: PersonalThemeCreateRequest,
+    user: dict = Depends(current_user),
+    database: Connection = Depends(connection),
+) -> dict:
+    code, display_name, colors = personal_theme_values(payload.code, payload.display_name, payload.colors)
+    current = now_ms()
+    try:
+        row = database.execute(
+            """INSERT INTO user_theme_scheme(owner_user_id,code,display_name,color_1_canvas,color_2_surface,
+                     color_3_border,color_4_text,color_5_muted,color_6_accent,is_active,sync_state,created_at,updated_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'local',%s,%s) RETURNING *""",
+            (user["id"], code, display_name, *colors, current, current),
+        ).fetchone()
+    except Exception as error:
+        raise HTTPException(status_code=409, detail="personal theme code already exists") from error
+    audit(database, "auth.personal-theme.create", user, detail={"code": code})
+    return {"row": personal_theme_public(row)}
+
+
+@router.put("/self/themes/{code}")
+@atomic
+def update_personal_theme(
+    code: str,
+    payload: PersonalThemeRequest,
+    user: dict = Depends(current_user),
+    database: Connection = Depends(connection),
+) -> dict:
+    normalized, display_name, colors = personal_theme_values(code, payload.display_name, payload.colors)
+    row = database.execute(
+        """UPDATE user_theme_scheme SET display_name=%s,color_1_canvas=%s,color_2_surface=%s,
+                  color_3_border=%s,color_4_text=%s,color_5_muted=%s,color_6_accent=%s,
+                  sync_state='local',updated_at=%s
+           WHERE owner_user_id=%s AND code=%s RETURNING *""",
+        (display_name, *colors, now_ms(), user["id"], normalized),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="personal theme not found")
+    audit(database, "auth.personal-theme.update", user, detail={"code": normalized})
+    return {"row": personal_theme_public(row)}
+
+
+@router.delete("/self/themes/{code}")
+@atomic
+def delete_personal_theme(
+    code: str,
+    user: dict = Depends(current_user),
+    database: Connection = Depends(connection),
+) -> dict:
+    normalized = code.strip().lower().removeprefix("personal:")
+    deleted = database.execute(
+        "DELETE FROM user_theme_scheme WHERE owner_user_id=%s AND code=%s RETURNING code",
+        (user["id"], normalized),
+    ).fetchone()
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="personal theme not found")
+    database.execute(
+        "UPDATE auth_user SET theme_color='monochromatic',updated_at=%s WHERE id=%s AND theme_color=%s",
+        (now_ms(), user["id"], f"personal:{normalized}"),
+    )
+    audit(database, "auth.personal-theme.delete", user, detail={"code": normalized})
+    return {"ok": True, "code": f"personal:{normalized}"}
+
+
+@router.post("/self/themes/{code}/save-to-account")
+@atomic
+def save_personal_theme_to_account(
+    code: str,
+    user: dict = Depends(current_user),
+    database: Connection = Depends(connection),
+) -> dict:
+    normalized = code.strip().lower().removeprefix("personal:")
+    row = database.execute(
+        "SELECT * FROM user_theme_scheme WHERE owner_user_id=%s AND code=%s AND is_active=1",
+        (user["id"], normalized),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="personal theme not found")
+    if not push_personal_theme(user["username"], row):
+        raise HTTPException(status_code=503, detail="Canopy is unavailable; theme remains local")
+    row = database.execute(
+        """UPDATE user_theme_scheme SET sync_state='central',updated_at=%s
+           WHERE owner_user_id=%s AND code=%s RETURNING *""",
+        (now_ms(), user["id"], normalized),
+    ).fetchone()
+    audit(database, "auth.personal-theme.publish", user, detail={"code": normalized})
+    return {"row": personal_theme_public(row)}
+
+
 @router.get("/self")
 def self_account(user: dict = Depends(current_user)) -> dict:
     return {"row": managed_user(user)}
@@ -711,11 +869,7 @@ def preferences(
     if payload.theme_mode is not None and payload.theme_mode != "dark":
         raise HTTPException(status_code=400, detail="invalid theme mode")
     if payload.theme_color is not None:
-        valid_theme = database.execute(
-            "SELECT 1 FROM theme_scheme_master WHERE code=%s AND is_active=1",
-            (payload.theme_color,),
-        ).fetchone()
-        if valid_theme is None:
+        if not valid_theme_selection(database, user["id"], payload.theme_color):
             raise HTTPException(status_code=400, detail="invalid theme scheme")
     if payload.language_code is not None:
         valid_language = database.execute(

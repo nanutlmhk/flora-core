@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   changeOwnPassword,
+  createPersonalTheme,
+  deletePersonalTheme,
+  getPersonalThemes,
   getPreferenceOptions,
   getSelfManagedUser,
   mergeStoredAuthUser,
+  savePersonalThemeToAccount,
   updateOwnPreferences,
   type ManagedAuthUser,
+  type PersonalThemeRow,
   type PreferenceOptions,
 } from "../api/authApi";
 import { getStaffDirectory, type StaffLibraryItem } from "../api/staffApi";
@@ -43,6 +48,11 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
   const [account, setAccount] = useState<ManagedAuthUser | null>(null);
   const [options, setOptions] = useState<PreferenceOptions | null>(null);
   const [staff, setStaff] = useState<StaffLibraryItem[]>([]);
+  const [personalThemes, setPersonalThemes] = useState<PersonalThemeRow[]>([]);
+  const [addingPersonalTheme, setAddingPersonalTheme] = useState(false);
+  const [personalDraft, setPersonalDraft] = useState({
+    code: "", displayName: "", colors: ["#121212", "#1c1c1c", "#444444", "#e0e0e0", "#b0b0b0", "#4f8ee8"] as [string, string, string, string, string, string],
+  });
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en");
   const [patientNameLanguage, setPatientNameLanguage] = useState<PatientNameLanguage>("auto");
@@ -64,9 +74,10 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
     Promise.all([
       getSelfManagedUser(sessionUser?.username || ""),
       getPreferenceOptions(),
+      getPersonalThemes().catch(() => []),
       getStaffDirectory({ include_inactive: true, limit: 500 }).catch(() => []),
-    ]).then(([user, preferenceOptions, directory]) => {
-      setAccount(user); setOptions(preferenceOptions); setStaff(directory);
+    ]).then(([user, preferenceOptions, privateThemes, directory]) => {
+      setAccount(user); setOptions(preferenceOptions); setPersonalThemes(privateThemes); setStaff(directory);
       setName(user.name); setLanguage(String(user.languageCode || preferenceOptions.defaultLanguage));
       setPatientNameLanguage(normalizePatientNameLanguage(user.parameterPreferences?.patientNameLanguage));
       setScheme(String(user.themeColor || preferenceOptions.defaultTheme));
@@ -91,6 +102,7 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
   }, [sessionUser?.username]);
 
   const linkedStaff = useMemo(() => staff.find(row => row.id === account?.staffDirectoryId), [account?.staffDirectoryId, staff]);
+  const selectableThemes = useMemo(() => [...(options?.themes || []), ...personalThemes], [options?.themes, personalThemes]);
   const toggleParameter = (key: string) => setParameters(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
 
   const save = async () => {
@@ -157,10 +169,19 @@ export default function AccountView({ sessionUser }: { sessionUser: AuthUser | n
         <h2 className="font-semibold">Appearance</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">Interface language<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={language} onChange={e => setLanguage(e.target.value)}>{options?.languages.map(row => <option key={row.code} value={row.code}>{row.nameNative}</option>)}</select></label>
-          <label className="text-sm">Preferred scheme<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={scheme} onChange={e => setScheme(e.target.value)}>{options?.themes.map(row => <option key={row.code} value={row.code}>{row.displayName}</option>)}</select></label>
+          <label className="text-sm">Preferred scheme<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={scheme} onChange={e => setScheme(e.target.value)}>{selectableThemes.map(row => <option key={row.code} value={row.code}>{row.scope === "personal" ? `My theme · ${row.displayName}` : row.displayName}</option>)}</select></label>
           <label className="text-sm sm:col-span-2">Patient name language<select className="mt-1 w-full rounded-lg border border-[var(--app-border)] px-3 py-2" value={patientNameLanguage} onChange={e => setPatientNameLanguage(normalizePatientNameLanguage(e.target.value))}><option value="auto">Automatic — use the hospital display name</option><option value="thai">Thai name</option><option value="english">English name</option></select><span className="mt-1 block text-xs text-[var(--app-muted)]">Independent from the interface language. Falls back safely when the selected name is unavailable.</span></label>
         </div>
-        <div className="flex flex-wrap gap-2">{options?.themes.find(row => row.code === scheme)?.colors.map((color, index) => <span key={index} className="h-10 w-10 rounded-lg border border-white/15" style={{ backgroundColor: color }} title={color} />)}</div>
+        <div className="flex flex-wrap gap-2">{selectableThemes.find(row => row.code === scheme)?.colors.map((color, index) => <span key={index} className="h-10 w-10 rounded-lg border border-white/15" style={{ backgroundColor: color }} title={color} />)}</div>
+        <div className="border-t border-[var(--app-border)] pt-4">
+          <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">My themes</h3><p className="text-xs text-[var(--app-muted)]">Private to your account. Local Leaf themes are uploaded only when you choose Save to account.</p></div><button type="button" className="rounded-lg border border-[var(--app-border)] px-3 py-2 text-xs font-semibold" onClick={() => setAddingPersonalTheme(value => !value)}>+ Personal theme</button></div>
+          {addingPersonalTheme ? <div className="mt-3 space-y-3 rounded-lg border border-[var(--app-border)] p-3">
+            <div className="grid gap-2 sm:grid-cols-2"><input className="rounded-lg border border-[var(--app-border)] px-3 py-2 text-sm" placeholder="Theme code" value={personalDraft.code} onChange={event => setPersonalDraft(current => ({ ...current, code: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") }))} /><input className="rounded-lg border border-[var(--app-border)] px-3 py-2 text-sm" placeholder="Theme name" value={personalDraft.displayName} onChange={event => setPersonalDraft(current => ({ ...current, displayName: event.target.value }))} /></div>
+            <div className="flex flex-wrap gap-2">{personalDraft.colors.map((color, index) => <input key={index} aria-label={`Personal theme color ${index + 1}`} type="color" value={color} onChange={event => setPersonalDraft(current => ({ ...current, colors: current.colors.map((entry, colorIndex) => colorIndex === index ? event.target.value : entry) as typeof current.colors }))} className="h-10 w-12 rounded border border-[var(--app-border)] bg-transparent p-1" />)}</div>
+            <button type="button" disabled={saving || personalDraft.code.length < 2 || !personalDraft.displayName.trim()} className="rounded-lg bg-[var(--app-accent)] px-3 py-2 text-xs font-bold text-[var(--app-accent-contrast)] disabled:opacity-50" onClick={() => { setSaving(true); setError(""); void createPersonalTheme({ code: `personal:${personalDraft.code}`, displayName: personalDraft.displayName, colors: personalDraft.colors, scope: "personal" }).then(created => { setPersonalThemes(current => [...current, created]); setScheme(created.code); setAddingPersonalTheme(false); setPersonalDraft({ code: "", displayName: "", colors: ["#121212", "#1c1c1c", "#444444", "#e0e0e0", "#b0b0b0", "#4f8ee8"] }); setMessage(created.syncState === "central" ? "Personal theme saved to your account." : "Personal theme saved locally on this Leaf."); }).catch(err => setError(err instanceof Error ? err.message : "Unable to create personal theme")).finally(() => setSaving(false)); }}>Create</button>
+          </div> : null}
+          <div className="mt-3 space-y-2">{personalThemes.map(theme => <div key={theme.code} className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--app-border)] p-3"><div className="min-w-32 flex-1"><div className="text-sm font-semibold">{theme.displayName}</div><div className="text-xs text-[var(--app-muted)]">{theme.syncState === "central" ? "Saved to my account" : "Local to this Leaf"}</div></div><div className="flex gap-1">{theme.colors.map((color, index) => <span key={index} className="h-7 w-5 first:rounded-l last:rounded-r" style={{ backgroundColor: color }} />)}</div>{theme.syncState === "local" ? <button type="button" className="rounded border border-[var(--app-border)] px-3 py-2 text-xs font-semibold" onClick={() => { setSaving(true); void savePersonalThemeToAccount(theme.code).then(saved => { setPersonalThemes(current => current.map(row => row.code === saved.code ? saved : row)); setMessage("Personal theme saved to your Canopy account."); }).catch(err => setError(err instanceof Error ? err.message : "Unable to save theme to account")).finally(() => setSaving(false)); }}>Save to account</button> : null}<button type="button" className="rounded border border-rose-400/40 px-3 py-2 text-xs text-rose-300" onClick={() => { setSaving(true); void deletePersonalTheme(theme.code).then(() => { setPersonalThemes(current => current.filter(row => row.code !== theme.code)); if (scheme === theme.code) setScheme(options?.defaultTheme || "monochromatic"); }).catch(err => setError(err instanceof Error ? err.message : "Unable to delete personal theme")).finally(() => setSaving(false)); }}>Delete</button></div>)}</div>
+        </div>
       </section>
       <section className="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-5">
         <h2 className="font-semibold">Chart preferences</h2>
