@@ -1,0 +1,25 @@
+{
+  "images": [
+    {"image": "flora-gateway-parser:dev", "version": "0.1.0", "registry": "local",
+     "parsers": ["hl7v2", "json_fields", "ascii_kv"]}
+  ],
+  "device_types": [
+    {"code": "hl7-patient-monitor", "label": "Patient monitor (HL7 v2 / IHE PCD-01)", "category": "patient_monitor",
+     "protocol": "hl7v2", "controller": "socket", "parser": "hl7v2", "image": "flora-gateway-parser:dev",
+     "default_options": {"timezone": "Asia/Bangkok"}, "version": "1"},
+    {"code": "json-anesthesia-machine", "label": "Anesthesia machine (JSON push)", "category": "anesthesia_machine",
+     "protocol": "json", "controller": "webhook", "parser": "json_fields", "image": "flora-gateway-parser:dev",
+     "default_options": {"units": {"et_agent": "%", "fi_agent": "%", "fio2": "%", "airway_pressure_peak": "cmH2O"}},
+     "version": "1"},
+    {"code": "http-ventilator", "label": "ICU ventilator (HTTP poll)", "category": "ventilator",
+     "protocol": "json", "controller": "feeder", "parser": "json_fields", "image": "flora-gateway-parser:dev",
+     "default_options": {"codes": {"MODE": "set_vent_mode", "PEEP": "set_peep", "FIO2_SET": "set_fio2",
+                                   "RR_SET": "set_rr", "VT_SET": "set_tidal_volume"}},
+     "version": "1"},
+    {"code": "serial-temp-module", "label": "Temperature / CVP module (RS-232, polled)", "category": "temperature_module",
+     "protocol": "ascii", "controller": "serial", "parser": "ascii_kv", "image": "flora-gateway-parser:dev",
+     "default_options": {"codes": {"TEMP": "temperature", "CVP": "cvp"}, "units": {"temperature": "Cel", "cvp": "mmHg"},
+                         "poll_command": "?\\r\\n", "poll_interval_sec": 5},
+     "version": "1"}
+  ]
+}

@@ -1,0 +1,12 @@
+[
+  {"device_id": "or-monitor-01", "label": "OR-1 patient monitor", "device_type": "hl7-patient-monitor",
+   "pod": "socket.or-monitor", "leaf_id": "leaf-or-01"},
+  {"device_id": "or-anesthesia-01", "label": "OR-1 anesthesia machine", "device_type": "json-anesthesia-machine",
+   "pod": "webhook.or-anesthesia", "leaf_id": "leaf-or-01"},
+  {"device_id": "or-temp-module-01", "label": "OR-1 RS-232 temperature/CVP module", "device_type": "serial-temp-module",
+   "pod": "serial.COM1", "leaf_id": "leaf-or-01"},
+  {"device_id": "icu-monitor-01", "label": "ICU bed 1 patient monitor", "device_type": "hl7-patient-monitor",
+   "pod": "socket.icu-monitor", "leaf_id": "leaf-icu-01"},
+  {"device_id": "icu-ventilator-01", "label": "ICU bed 1 ventilator", "device_type": "http-ventilator",
+   "pod": "feeder.icu-ventilator", "leaf_id": "leaf-icu-01"}
+]

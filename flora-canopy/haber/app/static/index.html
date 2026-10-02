@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canopy Haber</title>
+<style>
+  :root { --bg:#f6f7f4; --panel:#ffffff; --ink:#1d2621; --muted:#65706a; --line:#e2e6e1; --accent:#2f6f4f;
+          --ok:#2f7d4f; --warn:#a46a12; --bad:#b23b3b; --chip:#eef2ee; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121614; --panel:#1a201d; --ink:#e4ebe6; --muted:#9aa59f;
+          --line:#2a332e; --accent:#6dbb8f; --ok:#6dbb8f; --warn:#e0a84a; --bad:#e07a7a; --chip:#232b27; } }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:baseline; flex-wrap:wrap }
+  header h1 { font-size:18px; margin:0 } header span { color:var(--muted) }
+  main { padding:20px 24px; display:grid; gap:18px; max-width:1200px; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)) }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto }
+  section.wide { grid-column:1/-1 }
+  h2 { font-size:14px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted) }
+  table { width:100%; border-collapse:collapse } th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top }
+  th { font-weight:600; color:var(--muted); font-size:12px }
+  .chip { display:inline-block; padding:1px 8px; border-radius:999px; background:var(--chip); font-size:12px; margin:1px 2px 1px 0 }
+  .ok { color:var(--ok) } .warn { color:var(--warn) } .bad { color:var(--bad) } .muted { color:var(--muted) }
+  .big { font-size:22px; font-weight:600 } dl { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 } dt { color:var(--muted) }
+  button { font:inherit; padding:5px 10px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer }
+  code { font:12px ui-monospace,Menlo,monospace }
+</style>
+</head>
+<body>
+<header><h1>Canopy · Haber</h1><span>Device registry · Image, Device Type, Device License</span><span id="ts" class="muted"></span></header>
+<main>
+  <section><h2>Flora Root link</h2><div id="root">Loading…</div></section>
+  <section><h2>Hospital license</h2><div id="license"></div></section>
+  <section class="wide"><h2>Gateways</h2><div id="gateways"></div></section>
+  <section><h2>Leaves synced to Canopy</h2><div id="leaves"></div></section>
+  <section><h2>Device catalog</h2><div id="catalog"></div></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const ago = (ms) => { if (!ms) return "never"; const s = Math.round((Date.now() - ms) / 1000); return s < 90 ? `${s}s ago` : `${Math.round(s / 60)} min ago`; };
+
+async function load() {
+  const d = await (await fetch("api/haber/v1/overview")).json();
+  $("ts").textContent = `${d.tenant_id} · updated ${new Date(d.server_ts).toLocaleTimeString()}`;
+  const r = d.root;
+  $("root").innerHTML = `<dl><dt>Status</dt><dd class="${r.status === "ok" ? "ok" : "warn"}">${esc(r.status)}${r.error ? ` — ${esc(r.error)}` : ""}</dd>
+    <dt>Root</dt><dd><code>${esc(r.url)}</code></dd><dt>Last sync</dt><dd>${ago(r.last_sync)}</dd>
+    <dt>Bundle</dt><dd>${d.bundle ? `<code>${esc(d.bundle.bundle_id)}</code> <span class="ok">signature verified</span>` : `<span class="bad">none</span>`}</dd></dl>
+    <p><button onclick="sync()">Sync from Root now</button></p>
+    <p class="muted">Haber keeps the last verified bundle, so the hospital keeps working while Root is unreachable.</p>`;
+  const b = d.bundle, u = d.usage;
+  if (b) {
+    const e = b.entitlements;
+    const row = (label, used, max) => `<tr><td>${label}</td><td class="${used > max ? "bad" : ""}"><span class="big">${used}</span> / ${max}</td></tr>`;
+    $("license").innerHTML = `<p class="${d.license_valid ? "ok" : "bad"}">${d.license_valid ? "Valid until " + new Date(b.expires_at).toLocaleDateString() : b.revoked ? "Revoked by Flora Root" : "Expired"}</p>
+      <table>${row("Leaves", u.leaves, e.max_leaves)}${row("Gateways", u.gateways, e.max_gateways)}${row("Gateway devices", u.gateway_devices, e.max_gateway_devices)}</table>
+      <p>${e.modules.map((m) => `<span class="chip">${esc(m)}</span>`).join("")}</p>
+      <p class="muted">Global config: terminology ${esc(b.global_config?.terminology_release)}</p>`;
+  } else $("license").innerHTML = `<p class="bad">Waiting for a verified bundle from Flora Root.</p>`;
+  $("gateways").innerHTML = d.gateways.length ? `<table><tr><th>Gateway</th><th>Last check-in</th><th>Devices</th></tr>${d.gateways.map((g) =>
+    `<tr><td><b>${esc(g.gateway_id)}</b><div class="muted">v${esc(g.version)}</div></td><td class="${Date.now() - g.last_seen < 90000 ? "ok" : "warn"}">${ago(g.last_seen)}</td>
+     <td>${g.devices.map((x) => `<span class="chip">${esc(x.device_id)} · ${esc(x.device_type)} → ${esc(x.leaf_id || "unassigned")}${x.enabled ? "" : " (off)"}</span>`).join(" ")}</td></tr>`).join("")}</table>`
+    : `<p class="muted">No gateway has checked in yet.</p>`;
+  $("leaves").innerHTML = d.leaves.length ? `<table><tr><th>Leaf</th><th>Name</th><th>Last sync</th></tr>${d.leaves.map((l) =>
+    `<tr><td><code>${esc(l.leaf_id)}</code></td><td>${esc(l.name)}</td><td>${ago(l.last_seen)}</td></tr>`).join("")}</table>` : `<p class="muted">No Leaf has synced yet.</p>`;
+  $("catalog").innerHTML = `<table><tr><th>Device type</th><th>Path</th></tr>${d.catalog.device_types.map((t) =>
+    `<tr><td><b>${esc(t.label)}</b><div class="muted"><code>${esc(t.code)}</code></div></td><td>${esc(t.controller)} → ${esc(t.parser)}<div class="muted">${esc(t.image)}</div></td></tr>`).join("")}</table>`;
+}
+async function sync() { const r = await fetch("api/haber/v1/root/sync", { method: "POST" }); if (!r.ok) alert(await r.text()); load(); }
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>

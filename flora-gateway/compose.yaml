@@ -1,0 +1,214 @@
+# Flora Gateway — low-level device integration, one per bedside/OR network.
+# Ports: 74xx (see ../demo/PORTS.md). Run: docker compose up -d --build
+name: flora-gateway
+
+x-rust: &rust
+  build:
+    context: ./rust
+  image: flora-gateway-rust:dev
+  environment: &rust-env
+    FLORA_GATEWAY_CONFIG: /config/gateway.toml
+    FLORA_GATEWAY_ID: ${FLORA_GATEWAY_ID:-gateway-hospital-01-a}
+    FLORA_KAFKA_BROKERS: kafka:9092
+    FLORA_GATEWAY_DATABASE_URL: postgresql://flora_gateway:${FLORA_GATEWAY_DB_PASSWORD:-flora-gateway-local-only}@gateway-db:5432/flora_gateway
+    RUST_LOG: ${RUST_LOG:-info}
+  volumes:
+    - ./config:/config:ro
+  depends_on:
+    kafka: {condition: service_healthy}
+  restart: unless-stopped
+
+services:
+  # ---------------------------------------------------------------- broker + store
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${FLORA_GATEWAY_KAFKA_PORT:-7414}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_LOG_RETENTION_HOURS: 72
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
+    ports:
+      - "127.0.0.1:${FLORA_GATEWAY_KAFKA_PORT:-7414}:9094"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  gateway-db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: flora_gateway
+      POSTGRES_USER: flora_gateway
+      POSTGRES_PASSWORD: ${FLORA_GATEWAY_DB_PASSWORD:-flora-gateway-local-only}
+    ports:
+      - "127.0.0.1:${FLORA_GATEWAY_DB_PORT:-7412}:5432"
+    volumes:
+      - gateway_db_data:/var/lib/postgresql/data
+      - ./db/0001-gateway.sql:/docker-entrypoint-initdb.d/0001-gateway.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flora_gateway -d flora_gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- ingress layer (Rust)
+  serial-controller:
+    <<: *rust
+    command: ["serial-controller"]
+    environment:
+      <<: *rust-env
+      # Demo only: virtual RS-232 port /dev/ttyV0 bridged to TCP 7430.
+      FLORA_SERIAL_BRIDGES: ${FLORA_SERIAL_BRIDGES:-ttyV0:7430}
+    ports:
+      - "127.0.0.1:7401:5001"
+      - "127.0.0.1:7430:7430"
+    # Real hardware on Linux: map the device, e.g.  devices: ["/dev/ttyUSB0:/dev/ttyUSB0"]
+
+  feeder-controller:
+    <<: *rust
+    command: ["feeder-controller"]
+    ports:
+      - "127.0.0.1:7402:5002"
+
+  webhook-controller:
+    <<: *rust
+    command: ["webhook-controller"]
+    ports:
+      - "127.0.0.1:7403:5003"
+      - "${FLORA_GATEWAY_WEBHOOK_PORT:-7423}:9003"
+
+  socket-controller:
+    <<: *rust
+    command: ["socket-controller"]
+    ports:
+      - "127.0.0.1:7404:5004"
+      - "${FLORA_GATEWAY_HL7_OR_PORT:-7421}:9001"
+      - "${FLORA_GATEWAY_HL7_ICU_PORT:-7422}:9002"
+
+  # ---------------------------------------------------------------- process layer (Python)
+  # Built here, started per device instance by gateway-service.
+  parser-image:
+    build:
+      context: ./python/device-medical-service
+    image: flora-gateway-parser:dev
+    command: ["true"]
+    restart: "no"
+
+  # ---------------------------------------------------------------- egress layer (Rust)
+  collector:
+    <<: *rust
+    command: ["collector"]
+    ports:
+      - "127.0.0.1:7405:5005"
+    depends_on:
+      kafka: {condition: service_healthy}
+      gateway-db: {condition: service_healthy}
+
+  server:
+    <<: *rust
+    command: ["server"]
+    depends_on:
+      gateway-db: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  publisher:
+    <<: *rust
+    command: ["publisher"]
+    ports:
+      - "127.0.0.1:7406:5006"
+
+  kong:
+    image: kong:3.9
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yaml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 127.0.0.1:8001
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./kong:/kong:ro
+    ports:
+      - "${FLORA_GATEWAY_DATA_API_PORT:-7410}:8000"
+    depends_on:
+      server: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- control plane
+  gateway-service:
+    build:
+      context: ./python/gateway-service
+    image: flora-gateway-service:dev
+    environment:
+      FLORA_GATEWAY_ID: ${FLORA_GATEWAY_ID:-gateway-hospital-01-a}
+      FLORA_GATEWAY_DATABASE_URL: postgresql://flora_gateway:${FLORA_GATEWAY_DB_PASSWORD:-flora-gateway-local-only}@gateway-db:5432/flora_gateway
+      FLORA_KAFKA_BROKERS: kafka:9092
+      FLORA_GATEWAY_CONFIG: /config/gateway.toml
+      FLORA_GATEWAY_SEED: /config/instances.json
+      HABER_URL: ${HABER_URL:-http://host.docker.internal:7204}
+      HABER_GATEWAY_TOKEN: ${HABER_GATEWAY_TOKEN:-haber-gateway-demo-token}
+      GATEWAY_LICENSE_REQUIRED: ${GATEWAY_LICENSE_REQUIRED:-true}
+      GATEWAY_SYNC_INTERVAL_SEC: ${GATEWAY_SYNC_INTERVAL_SEC:-20}
+      GATEWAY_ADMIN_KEY: ${GATEWAY_ADMIN_KEY:-}
+      GATEWAY_DOCKER_NETWORK: flora-gateway_default
+      GATEWAY_COMPOSE_PROJECT: flora-gateway
+      GATEWAY_PARSER_IMAGE: flora-gateway-parser:dev
+    volumes:
+      - ./config:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:${FLORA_GATEWAY_ADMIN_PORT:-7400}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      gateway-db: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      parser-image: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- demo devices
+  simulator:
+    build:
+      context: ./python/device-simulator
+    image: flora-gateway-simulator:dev
+    profiles: ["demo"]
+    environment:
+      SIM_INTERVAL_SEC: ${SIM_INTERVAL_SEC:-5}
+    ports:
+      - "127.0.0.1:${FLORA_GATEWAY_SIMULATOR_PORT:-7420}:8000"
+    depends_on:
+      - socket-controller
+      - webhook-controller
+      - serial-controller
+    restart: unless-stopped
+
+volumes:
+  kafka_data:
+  gateway_db_data:

@@ -35,3 +35,5 @@ COPY infrastructure/postgres/0032-account-config-sync.sql /docker-entrypoint-ini
 COPY infrastructure/postgres/0033-personal-theme-hierarchy.sql /docker-entrypoint-initdb.d/0033-personal-theme-hierarchy.sql
 COPY infrastructure/postgres/0034-canopy-managed-public-themes.sql /docker-entrypoint-initdb.d/0034-canopy-managed-public-themes.sql
 COPY infrastructure/postgres/0035-canopy-leaf-name-override.sql /docker-entrypoint-initdb.d/0035-canopy-leaf-name-override.sql
+COPY infrastructure/postgres/0036-complete-innovian-clinical-archive.sql /docker-entrypoint-initdb.d/0036-complete-innovian-clinical-archive.sql
+COPY infrastructure/postgres/0037-archive-year-release-gate.sql /docker-entrypoint-initdb.d/0037-archive-year-release-gate.sql

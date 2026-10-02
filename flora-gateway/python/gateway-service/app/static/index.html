@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flora Gateway</title>
+<style>
+  :root { --bg:#f6f7f4; --panel:#ffffff; --ink:#1d2621; --muted:#65706a; --line:#e2e6e1; --accent:#2f6f4f;
+          --ok:#2f7d4f; --warn:#a46a12; --bad:#b23b3b; --chip:#eef2ee; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121614; --panel:#1a201d; --ink:#e4ebe6; --muted:#9aa59f;
+          --line:#2a332e; --accent:#6dbb8f; --ok:#6dbb8f; --warn:#e0a84a; --bad:#e07a7a; --chip:#232b27; } }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:baseline; flex-wrap:wrap }
+  header h1 { font-size:18px; margin:0 } header span { color:var(--muted) }
+  main { padding:20px 24px; display:grid; gap:18px; max-width:1300px }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto }
+  h2 { font-size:14px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted) }
+  .layers { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px }
+  .layer { border:1px solid var(--line); border-radius:8px; padding:10px 12px } .layer h3 { margin:0 0 6px; font-size:13px }
+  table { width:100%; border-collapse:collapse } th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top }
+  th { font-weight:600; color:var(--muted); font-size:12px }
+  .chip { display:inline-block; padding:1px 8px; border-radius:999px; background:var(--chip); font-size:12px; margin:1px 3px 1px 0; font-variant-numeric:tabular-nums }
+  .ok { color:var(--ok) } .warn { color:var(--warn) } .bad { color:var(--bad) } .muted { color:var(--muted) }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--bad) } .dot.on { background:var(--ok) }
+  button { font:inherit; font-size:12px; padding:3px 9px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer }
+  code, pre { font:12px ui-monospace,Menlo,monospace } pre { margin:0; white-space:pre-wrap }
+  .log td { padding:4px 10px; font-size:12px }
+</style>
+</head>
+<body>
+<header><h1>Flora Gateway</h1><span id="gw">Device integration</span><span id="ts" class="muted"></span></header>
+<main>
+  <section><h2>License (from Haber at Canopy)</h2><div id="license">Loading…</div></section>
+  <section><h2>Layers</h2><div id="layers" class="layers"></div></section>
+  <section><h2>Device instances</h2><div id="instances"></div></section>
+  <section><h2>Logs</h2><div id="logs"></div></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const ago = (ms) => { if (!ms) return "—"; const s = Math.round((Date.now() - ms) / 1000); return s < 90 ? `${s}s ago` : `${Math.round(s / 60)} min ago`; };
+const get = async (path) => (await fetch(path)).json();
+const post = async (path) => { const r = await fetch(path, { method: "POST" }); if (!r.ok) alert(await r.text()); refresh(); };
+
+async function refresh() {
+  const [lic, controllers, instances, status, logs] = await Promise.all([
+    get("api/license"), get("api/controllers"), get("api/instances"), get("api/devices/status").catch(() => ({ devices: [] })), get("api/logs?limit=40")]);
+  $("ts").textContent = "updated " + new Date().toLocaleTimeString();
+  $("gw").textContent = lic.gateway_id ? `${lic.gateway_id} · tenant ${lic.tenant_id || "—"}` : "Device integration";
+  $("license").innerHTML = `<span class="${lic.valid ? "ok" : "bad"}"><b>${lic.valid ? "Valid" : "Not valid"}</b></span>
+    ${lic.reason ? ` — ${esc(lic.reason)}` : ""} · devices <b>${lic.used}</b> / ${lic.max_devices ?? "—"}
+    ${lic.expires_at ? ` · expires ${new Date(lic.expires_at).toLocaleDateString()}` : ""} · bundle <code>${esc(lic.bundle_id || "—")}</code>
+    <div class="muted">Haber: ${esc(lic.haber?.status)} ${lic.haber?.error ? "— " + esc(lic.haber.error) : ""} · last sync ${ago(lic.haber?.last_sync)}
+    <button onclick="post('api/haber/sync')">Sync now</button></div>`;
+  $("layers").innerHTML = Object.entries(controllers).map(([name, c]) => `<div class="layer"><h3><span class="dot ${c.reachable ? "on" : ""}"></span>${esc(name)}
+      <button style="float:right" onclick="post('api/controllers/${name}/restart')">Restart</button></h3>
+      ${(c.pods || []).map((p) => `<div><span class="dot ${p.connected ? "on" : ""}"></span><code>${esc(p.pod)}</code>
+        <span class="muted">${p.frames} frames · ${ago(p.last_frame_ts)}</span>${p.last_error ? `<div class="bad">${esc(p.last_error)}</div>` : ""}</div>`).join("") || `<span class="muted">${c.reachable ? "no pods" : esc(c.error)}</span>`}</div>`).join("");
+  const byDevice = Object.fromEntries((status.devices || []).map((d) => [d.device_id, d]));
+  const latest = Object.fromEntries(await Promise.all(instances.rows.map(async (i) => [i.device_id, await get(`api/devices/${i.device_id}/latest?seconds=30`).catch(() => [])])));
+  $("instances").innerHTML = `<table><tr><th>Device</th><th>Pod → Leaf</th><th>Parser container</th><th>Data</th><th>Latest values</th><th></th></tr>${instances.rows.map((i) => {
+    const d = byDevice[i.device_id] || {};
+    const values = {};
+    for (const row of latest[i.device_id] || []) values[row.ivy_param] = row;
+    return `<tr><td><b>${esc(i.label || i.device_id)}</b><div class="muted"><code>${esc(i.device_id)}</code> · ${esc(i.device_type)}</div></td>
+      <td><code>${esc(i.pod)}</code><div>→ ${esc(i.leaf_id || "unassigned")}</div></td>
+      <td>${i.enabled ? "" : `<span class="warn">disabled</span> `}${i.container ? `<span class="${i.container.status === "running" ? "ok" : "warn"}">${esc(i.container.status)}</span>` : `<span class="muted">not started</span>`}</td>
+      <td><span class="dot ${d.is_online ? "on" : ""}"></span>${esc(d.status || "waiting")}<div class="muted">${d.total_samples ?? 0} samples · ${ago(d.last_seen_ts)}</div></td>
+      <td>${Object.values(values).map((v) => `<span class="chip">${esc(v.ivy_param)} ${esc(v.value)}${v.unit ? " " + esc(v.unit) : ""}</span>`).join("") || `<span class="muted">—</span>`}</td>
+      <td><button onclick="post('api/instances/${i.device_id}/restart')">Restart</button>
+          <button onclick="post('api/instances/${i.device_id}/enabled/${!i.enabled}')">${i.enabled ? "Disable" : "Enable"}</button></td></tr>`;
+  }).join("")}</table>`;
+  $("logs").innerHTML = `<table class="log">${logs.rows.map((l) => `<tr><td class="muted">${new Date(l.ts).toLocaleTimeString()}</td><td class="${l.level === "info" ? "" : "warn"}">${esc(l.level)}</td>
+    <td>${esc(l.component)}</td><td><code>${esc(l.pod || "")}</code></td><td>${esc(l.message)}</td></tr>`).join("")}</table>`;
+}
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

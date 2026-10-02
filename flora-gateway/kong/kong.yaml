@@ -1,0 +1,34 @@
+# Kong (DB-less). `data-api` is the only thing a Leaf talks to.
+#   /data-api/...              every device on this gateway
+#   /data-api/<leaf-id>/...    only devices assigned to that Leaf (leaf_id added here)
+_format_version: "3.0"
+
+services:
+  - name: data-api
+    url: http://server:8080
+    routes:
+      - name: data-api-all
+        paths: ["/data-api"]
+        strip_path: true
+  - name: data-api-leaf-or-01
+    url: http://server:8080
+    routes:
+      - name: data-api-leaf-or-01
+        paths: ["/data-api/leaf-or-01"]
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          add:
+            querystring: ["leaf_id:leaf-or-01"]
+  - name: data-api-leaf-icu-01
+    url: http://server:8080
+    routes:
+      - name: data-api-leaf-icu-01
+        paths: ["/data-api/leaf-icu-01"]
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          add:
+            querystring: ["leaf_id:leaf-icu-01"]

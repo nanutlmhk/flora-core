@@ -1,0 +1,118 @@
+# Flora Canopy — one per hospital: central database for every Leaf (Ward, ICU,
+# ER, OR), the sync API Leaves push to, and Haber (device registry for gateways).
+# Ports: 72xx (see ../demo/PORTS.md). Run: docker compose up -d --build
+#
+# Builds from the shared source in ../services and ../frontend.
+name: flora-canopy
+
+services:
+  canopy-db:
+    build:
+      context: ..
+      dockerfile: Dockerfile.postgres.dev
+    environment:
+      POSTGRES_DB: flora
+      POSTGRES_USER: flora_admin
+      POSTGRES_PASSWORD: ${CANOPY_DB_ADMIN_PASSWORD:-flora-canopy-admin-local-only}
+      FLORA_DB_APP_PASSWORD: ${CANOPY_DB_APP_PASSWORD:-flora-canopy-app-local-only}
+      FLORA_DB_VIEW_PASSWORD: ${CANOPY_DB_VIEW_PASSWORD:-flora-canopy-view-local-only}
+      FLORA_DB_SYNC_PASSWORD: ${CANOPY_DB_SYNC_PASSWORD:-flora-canopy-sync-local-only}
+    ports:
+      - "127.0.0.1:${CANOPY_DB_PORT:-7202}:5432"
+    volumes:
+      - canopy_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flora_admin -d flora"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  canopy-api:
+    build:
+      context: ../services/flora-api
+    environment:
+      FLORA_DATABASE_URL: postgresql://flora_view:${CANOPY_DB_VIEW_PASSWORD:-flora-canopy-view-local-only}@canopy-db:5432/flora
+      FLORA_API_ENV: development
+      FLORA_API_MODE: canopy
+      FLORA_CANOPY_SESSION_SECRET: ${CANOPY_SESSION_SECRET:-flora-canopy-demo-session-secret-change-me}
+      FLORA_BOOTSTRAP_ADMIN_ENABLED: "true"
+      FLORA_BOOTSTRAP_ADMIN_USERNAME: ${CANOPY_ADMIN_USERNAME:-admin}
+      FLORA_BOOTSTRAP_ADMIN_PASSWORD: ${CANOPY_ADMIN_PASSWORD:-admin}
+      FLORA_BOOTSTRAP_ADMIN_NAME: Canopy Administrator
+    ports:
+      - "127.0.0.1:${CANOPY_API_PORT:-7201}:8000"
+    volumes:
+      - ../services/flora-api/app:/app/app:ro
+    depends_on:
+      canopy-db: {condition: service_healthy}
+    healthcheck: &api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  # Every Leaf in the hospital pushes case snapshots here.
+  sync-api:
+    build:
+      context: ../services/flora-api
+    environment:
+      FLORA_DATABASE_URL: postgresql://flora_sync:${CANOPY_DB_SYNC_PASSWORD:-flora-canopy-sync-local-only}@canopy-db:5432/flora
+      FLORA_API_ENV: development
+      FLORA_API_MODE: sync
+      FLORA_SYNC_SHARED_SECRET: ${FLORA_SYNC_SHARED_SECRET:-flora-sync-demo-secret-change-me}
+    ports:
+      - "${CANOPY_SYNC_PORT:-7203}:8000"
+    volumes:
+      - ../services/flora-api/app:/app/app:ro
+    depends_on:
+      canopy-db: {condition: service_healthy}
+    healthcheck: *api-health
+    restart: unless-stopped
+
+  canopy-web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.frontend.dev
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_FLORA_SURFACE: canopy
+      VITE_API_PROXY_TARGET: http://canopy-api:8000
+    ports:
+      - "${CANOPY_WEB_PORT:-7200}:5173"
+    volumes:
+      - ../frontend:/app/frontend:ro
+      - canopy_frontend_modules:/app/frontend/node_modules
+    command: ["sh", "-c", "npm ci --ignore-scripts --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
+    depends_on:
+      canopy-api: {condition: service_healthy}
+    restart: unless-stopped
+
+  # Device registry: Image, Device Type, Device License. Gateways check in here.
+  haber:
+    build:
+      context: ./haber
+    image: flora-canopy-haber:dev
+    environment:
+      FLORA_ROOT_URL: ${FLORA_ROOT_URL:-http://host.docker.internal:7100}
+      FLORA_TENANT_ID: ${FLORA_TENANT_ID:-hospital-01}
+      FLORA_ROOT_TENANT_KEY: ${FLORA_ROOT_TENANT_KEY:-root-tenant-demo-key}
+      FLORA_ROOT_PUBLIC_KEY: ${FLORA_ROOT_PUBLIC_KEY:-}
+      HABER_GATEWAY_TOKEN: ${HABER_GATEWAY_TOKEN:-haber-gateway-demo-token}
+      CANOPY_DATABASE_URL: postgresql://flora_view:${CANOPY_DB_VIEW_PASSWORD:-flora-canopy-view-local-only}@canopy-db:5432/flora
+      HABER_ROOT_SYNC_SEC: ${HABER_ROOT_SYNC_SEC:-15}
+    ports:
+      - "${HABER_PORT:-7204}:8000"
+    volumes:
+      - haber_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      canopy-db: {condition: service_healthy}
+    restart: unless-stopped
+
+volumes:
+  canopy_db_data:
+  canopy_frontend_modules:
+  haber_data:

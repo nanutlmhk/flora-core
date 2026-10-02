@@ -101,6 +101,20 @@ Invoke-RestMethod http://localhost:6893/health
 Destructive write tests are isolated to a dedicated database whose name ends in
 `_test`; they never run against the Leaf clinical database.
 
+## Platform packages
+
+Four deployable apps, each its own Docker Compose project. `./demo/up.sh` runs all
+of them together on one machine; see [demo/README.md](demo/README.md) for the
+walkthrough and port map.
+
+- `flora-root/` — cloud: tenants, Ed25519-signed license bundles, global configuration
+- `flora-canopy/` — hospital: central DB, sync API, viewer, Haber device registry
+- `flora-leaf/` — workstation: local DB, Leaf API/UI, sync worker (one env file per Leaf)
+- `flora-gateway/` — devices: Rust ingress/egress, Kafka, Python parsers, Kong `data-api`
+
+`flora-canopy` and `flora-leaf` build from the shared `services/` and `frontend/`
+source below.
+
 ## Repository layout
 
 - `frontend/` — shared Leaf and Canopy React/Vite UI
