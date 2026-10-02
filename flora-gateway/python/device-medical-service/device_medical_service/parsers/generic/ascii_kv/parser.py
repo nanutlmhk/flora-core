@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..envelope import RawFrame, command
-from .base import Parser, number
+from device_medical_service.envelope import RawFrame, command
+from device_medical_service.parsers.shared.base import Parser, number
 
 
 class AsciiKvParser(Parser):

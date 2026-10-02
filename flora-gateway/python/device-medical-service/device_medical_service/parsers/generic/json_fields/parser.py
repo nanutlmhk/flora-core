@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..envelope import RawFrame
-from .base import Parser, number
+from device_medical_service.envelope import RawFrame
+from device_medical_service.parsers.shared.base import Parser, number
 
 
 class JsonFieldsParser(Parser):

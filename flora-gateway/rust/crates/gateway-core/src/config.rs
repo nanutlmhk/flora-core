@@ -59,7 +59,32 @@ impl GatewayConfig {
             config.collector.database_url = value.clone();
             config.server.database_url = value;
         }
+        config.validate()?;
         Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        let mut ports = std::collections::HashSet::new();
+        let mut ids = std::collections::HashSet::new();
+        for pod in self.serial.pods.iter().filter(|pod| pod.enabled) {
+            anyhow::ensure!(ids.insert(&pod.id), "duplicate serial pod id: {}", pod.id);
+            let port = if pod.path.to_ascii_uppercase().starts_with("COM") { pod.path.to_ascii_uppercase() } else { pod.path.clone() };
+            anyhow::ensure!(!port.is_empty() && ports.insert(port), "serial path is empty or used by multiple pods: {}", pod.path);
+            anyhow::ensure!(pod.baud > 0 && matches!(pod.data_bits, 7 | 8) && matches!(pod.stop_bits, 1 | 2), "invalid serial settings for {}", pod.id);
+            anyhow::ensure!(["none", "even", "odd"].contains(&pod.parity.to_ascii_lowercase().as_str()), "invalid serial parity for {}", pod.id);
+            anyhow::ensure!(pod.idle_ms > 0 && pod.max_frame_bytes > 0, "invalid serial frame settings for {}", pod.id);
+        }
+        ids.clear();
+        for pod in self.socket.pods.iter().filter(|pod| pod.enabled) {
+            anyhow::ensure!(ids.insert(&pod.id), "duplicate socket pod id: {}", pod.id);
+            anyhow::ensure!(pod.port > 0 && pod.max_frame_bytes > 0, "socket port and max_frame_bytes must be positive for {}", pod.id);
+            anyhow::ensure!(pod.remote_host.is_none() || pod.transport == SocketTransport::Tcp, "remote_host only applies to TCP");
+            if let Some(host) = &pod.remote_host {
+                anyhow::ensure!(!host.trim().is_empty() && pod.connect_timeout_ms > 0 && pod.reconnect_ms > 0, "invalid TCP client settings for {}", pod.id);
+            }
+            anyhow::ensure!(pod.multicast_groups.iter().all(|group| group.is_multicast()), "invalid multicast group for {}", pod.id);
+        }
+        Ok(())
     }
 }
 
@@ -94,6 +119,8 @@ impl Default for SerialConfig {
 pub struct SerialPod {
     /// Pod label, e.g. `COM1`. The Kafka pod key becomes `serial.COM1`.
     pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// OS device path: `COM1` on Windows, `/dev/ttyUSB0` on Linux.
     pub path: String,
     #[serde(default = "default_baud")]
@@ -104,11 +131,27 @@ pub struct SerialPod {
     pub parity: String,
     #[serde(default = "default_stop_bits")]
     pub stop_bits: u8,
+    /// Optional modem control lines; MEDIBUS adapters may require both asserted.
+    #[serde(default)]
+    pub rts: Option<bool>,
+    #[serde(default)]
+    pub dtr: Option<bool>,
+    #[serde(default)]
+    pub flow_control: FlowControlMode,
     /// A frame is emitted after this much silence on the line.
     #[serde(default = "default_idle_ms")]
     pub idle_ms: u64,
     #[serde(default = "default_max_frame")]
     pub max_frame_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FlowControlMode {
+    #[default]
+    None,
+    Hardware,
+    Software,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -181,12 +224,46 @@ pub enum Framing {
     Line,
     /// Emit whatever arrived after `idle_ms` of silence.
     Idle,
+    /// Emit each received chunk unchanged; the device parser owns framing.
+    Raw,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SocketTransport {
+    #[default]
+    Tcp,
+    Udp,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SocketPod {
     pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub port: u16,
+    /// TCP client when set (e.g. BCC); otherwise this pod listens for devices.
+    #[serde(default)]
+    pub remote_host: Option<String>,
+    #[serde(default = "default_timeout_ms")]
+    pub connect_timeout_ms: u64,
+    #[serde(default = "default_reconnect_ms")]
+    pub reconnect_ms: u64,
+    /// TCP read timeout; zero disables it for passive push devices.
+    #[serde(default)]
+    pub read_timeout_ms: u64,
+    #[serde(default)]
+    pub transport: SocketTransport,
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    /// IPv4 multicast groups joined by a UDP pod on multicast_interface.
+    #[serde(default)]
+    pub multicast_groups: Vec<std::net::Ipv4Addr>,
+    #[serde(default = "default_interface")]
+    pub multicast_interface: std::net::Ipv4Addr,
+    /// Only accept UDP datagrams from these device IPs. Empty accepts any peer.
+    #[serde(default)]
+    pub source_ips: Vec<std::net::IpAddr>,
     #[serde(default = "default_framing")]
     pub framing: Framing,
     /// Answer every MLLP message with an HL7 `AA` acknowledgement.
@@ -271,6 +348,9 @@ pub struct PublishTarget {
 }
 
 fn default_baud() -> u32 { 9600 }
+fn default_reconnect_ms() -> u64 { 3000 }
+fn default_bind_address() -> String { "0.0.0.0".into() }
+fn default_interface() -> std::net::Ipv4Addr { std::net::Ipv4Addr::UNSPECIFIED }
 fn default_data_bits() -> u8 { 8 }
 fn default_parity() -> String { "none".into() }
 fn default_stop_bits() -> u8 { 1 }
@@ -283,3 +363,38 @@ fn default_framing() -> Framing { Framing::Mllp }
 fn default_true() -> bool { true }
 fn default_batch() -> usize { 200 }
 fn default_publish_flush() -> u64 { 1000 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_enabled_serial_ports_are_rejected() {
+        let config: GatewayConfig = toml::from_str(r#"
+            [[serial.pods]]
+            id = "aisys"
+            path = "COM8"
+            [[serial.pods]]
+            id = "legacy-aisys"
+            path = "com8"
+        "#).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn disabled_placeholders_and_flow_control_deserialize() {
+        let config: GatewayConfig = toml::from_str(r#"
+            [[serial.pods]]
+            id = "bx50"
+            path = "COM7"
+            flow_control = "hardware"
+            [[socket.pods]]
+            id = "m540"
+            enabled = false
+            port = 0
+            transport = "udp"
+        "#).unwrap();
+        assert!(config.validate().is_ok());
+        assert!(matches!(config.serial.pods[0].flow_control, FlowControlMode::Hardware));
+    }
+}

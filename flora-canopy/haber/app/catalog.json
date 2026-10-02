@@ -1,7 +1,7 @@
 {
   "images": [
     {"image": "flora-gateway-parser:dev", "version": "0.1.0", "registry": "local",
-     "parsers": ["hl7v2", "json_fields", "ascii_kv"]}
+     "parsers": ["hl7v2", "json_fields", "ascii_kv", "iacs_m540", "medibus", "ge_carestation", "ge_dri", "bbraun_bcc", "hidro_hl7"]}
   ],
   "device_types": [
     {"code": "hl7-patient-monitor", "label": "Patient monitor (HL7 v2 / IHE PCD-01)", "category": "patient_monitor",
@@ -20,6 +20,19 @@
      "protocol": "ascii", "controller": "serial", "parser": "ascii_kv", "image": "flora-gateway-parser:dev",
      "default_options": {"codes": {"TEMP": "temperature", "CVP": "cvp"}, "units": {"temperature": "Cel", "cvp": "mmHg"},
                          "poll_command": "?\\r\\n", "poll_interval_sec": 5},
-     "version": "1"}
+     "version": "1"},
+    {"code": "draeger-iacs-m540", "label": "Dräger M540 (IACS UDP, research mapping)", "category": "patient_monitor",
+     "protocol": "draeger-iacs", "controller": "socket", "parser": "iacs_m540", "image": "flora-gateway-parser:dev",
+     "default_options": {}, "version": "1"},
+    {"code": "draeger-medibus", "label": "Dräger MEDIBUS.X (RS-232 numeric data)", "category": "ventilator",
+     "protocol": "draeger-medibus", "controller": "serial", "parser": "medibus", "image": "flora-gateway-parser:dev",
+     "default_options": {"poll_interval_sec": 1, "response_timeout_sec": 3, "session_timeout_sec": 10}, "version": "1"},
+    {"code": "ge-carestation-750", "label": "GE Carestation 750 (COM 1.2)", "category": "anesthesia_machine", "protocol": "ge-datex-com12", "controller": "serial", "parser": "ge_carestation", "image": "flora-gateway-parser:dev", "default_options": {}, "version": "1"},
+    {"code": "ge-aisys-cs2", "label": "GE Aisys CS2 (Hidro COM 1.2 profile)", "category": "anesthesia_machine", "protocol": "ge-datex-com12", "controller": "serial", "parser": "ge_carestation", "image": "flora-gateway-parser:dev", "default_options": {}, "version": "1"},
+    {"code": "ge-bx50-dri", "label": "GE Bx50 / B650 (Hidro DRI profile)", "category": "patient_monitor", "protocol": "ge-s5-dri", "controller": "serial", "parser": "ge_dri", "image": "flora-gateway-parser:dev", "default_options": {"checksum_mode": "escaped", "dri_levels": [12, 11, 10, 9, 8, 6]}, "version": "1"},
+    {"code": "ge-s5-dri", "label": "GE S/5 (DRI)", "category": "patient_monitor", "protocol": "ge-s5-dri", "controller": "serial", "parser": "ge_dri", "image": "flora-gateway-parser:dev", "default_options": {"checksum_mode": "payload", "dri_levels": [9, 8, 7]}, "version": "1"},
+    {"code": "ge-aisys-dri", "label": "GE Aisys (legacy DRI alternative)", "category": "anesthesia_machine", "protocol": "ge-s5-dri", "controller": "serial", "parser": "ge_dri", "image": "flora-gateway-parser:dev", "default_options": {"checksum_mode": "payload", "dri_levels": [12, 11, 10, 9, 8, 6]}, "version": "1"},
+    {"code": "bbraun-space-bcc", "label": "B. Braun SpaceCom (BCC TCP)", "category": "infusion_pump", "protocol": "bbraun-bcc", "controller": "socket", "parser": "bbraun_bcc", "image": "flora-gateway-parser:dev", "default_options": {"bed_id": "1/1/1", "poll_interval_sec": 5}, "version": "1"},
+    {"code": "hidro-hl7-monitor", "label": "Hidro shared HL7 monitor (GE / configured vendor aliases)", "category": "patient_monitor", "protocol": "hl7v2", "controller": "socket", "parser": "hidro_hl7", "image": "flora-gateway-parser:dev", "default_options": {"timezone": "Asia/Bangkok", "repair_segments": false}, "version": "1"}
   ]
 }

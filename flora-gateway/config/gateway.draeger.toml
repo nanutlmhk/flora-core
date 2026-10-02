@@ -1,0 +1,40 @@
+# Dräger connection settings for native Windows controllers. Edit before running.
+# Uses the gateway config schema so the app can manage these fields later.
+# Per-device source IP and Leaf assignment: instances.draeger.json.
+# port = 0 deliberately prevents the M540 listener from starting until configured.
+gateway_id = "gateway-hospital-01-a"
+
+[kafka]
+brokers = "127.0.0.1:7414"
+
+[serial]
+admin_port = 7501
+
+[[serial.pods]]
+id = "medibus"
+enabled = false # Enable after setting the serial connection values.
+path = "COM3" # Replace with the adapter port.
+baud = 19200
+data_bits = 8
+parity = "even"
+stop_bits = 1
+flow_control = "none"
+rts = true
+dtr = true
+idle_ms = 20
+max_frame_bytes = 16384
+
+[socket]
+admin_port = 7504
+
+[[socket.pods]]
+id = "m540"
+enabled = false # Enable after replacing the network placeholders.
+transport = "udp"
+bind_address = "0.0.0.0"
+port = 0 # REQUIRED: actual M540 data port; missing from Vector's m540_cfg.
+multicast_interface = "192.0.2.5" # REQUIRED: this workstation's device-network IPv4.
+multicast_groups = ["224.0.1.10"] # Legacy rule for monitor IP ending in .10; verify on site.
+source_ips = ["192.0.2.10"] # REQUIRED: actual monitor IPv4 addresses.
+max_frame_bytes = 6096
+auto_ack = false

@@ -1,0 +1,238 @@
+{
+  "provenance": "Synthetic inputs evaluated by Hidro protocol modules; no patient captures",
+  "ge": [
+    {
+      "wire": "3a56546430343530303635303031343034303032313031373031303030333031323030303430323033383132302d2d3033303030343830303637302d2d2d2d2d2d2d2d2d3035303037302d2d2d2d2d2d2d2d2d3033393033352d2d2d2d303031303532303134303230303135363030313030313130303530303430392d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d3430303335303339302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d3031303030303030303135302d2d2d3031323033302d2d2d2d2d2d2d2d2d090d",
+      "tag": "VTD",
+      "data": "30343530303635303031343034303032313031373031303030333031323030303430323033383132302d2d3033303030343830303637302d2d2d2d2d2d2d2d2d3035303037302d2d2d2d2d2d2d2d2d3033393033352d2d2d2d303031303532303134303230303135363030313030313130303530303430392d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d3430303335303339302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d3031303030303030303135302d2d2d3031323033302d2d2d2d2d2d2d2d2d",
+      "expected": {
+        "tidal_volume_exp": 450,
+        "minute_volume": 6.5,
+        "resp_rate": 14,
+        "fio2": 40,
+        "airway_pressure_peak": 21,
+        "airway_pressure_plat": 17,
+        "airway_pressure_mean": 10,
+        "airway_pressure_min": 3,
+        "mv_spont": 1.2,
+        "rr_spont": 4,
+        "peep_intrinsic": 2,
+        "compliance": 38,
+        "airway_resistance": 12,
+        "tidal_volume_exp_spont": 300,
+        "tidal_volume_insp": 480,
+        "minute_volume_insp": 6.7,
+        "peep_extrinsic": 5,
+        "peep_total": 7,
+        "fio2_meas": 39,
+        "et_o2": 35,
+        "fi_co2": 0.1,
+        "et_co2": 5.2,
+        "rr_co2": 14,
+        "fi_agent": 2,
+        "et_agent": 1.5,
+        "agent_id": "SEVO",
+        "fi_agent_2nd": 0.1,
+        "et_agent_2nd": 0.1,
+        "agent_id_2nd": "ISO",
+        "fi_n2o": 0.5,
+        "et_n2o": 0.4,
+        "mac": 0.9,
+        "pressure_o2_supply": 400,
+        "pressure_n2o_supply": 350,
+        "pressure_air_supply": 390,
+        "flow_o2": 1,
+        "flow_n2o": 0,
+        "flow_air": 1.5,
+        "t_insp_meas": 1.2,
+        "t_exp_meas": 3
+      }
+    },
+    {
+      "wire": "3a56544430343530303635303031343034303032313031373031303030334c0d",
+      "tag": "VTD",
+      "data": "3034353030363530303134303430303231303137303130303033",
+      "expected": {
+        "tidal_volume_exp": 450,
+        "minute_volume": 6.5,
+        "resp_rate": 14,
+        "fio2": 40,
+        "airway_pressure_peak": 21,
+        "airway_pressure_plat": 17,
+        "airway_pressure_mean": 10,
+        "airway_pressure_min": 3
+      }
+    },
+    {
+      "wire": "3a56547130353030303132303031393130303530343031382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d672d2d2d3034302d2d30382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d31352d2d2d2d3235303031322d2d2d2d2d31302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d303235302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d490d",
+      "tag": "VTQ",
+      "data": "30353030303132303031393130303530343031382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d672d2d2d3034302d2d30382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d31352d2d2d2d3235303031322d2d2d2d2d31302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d303235302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d",
+      "expected": {
+        "vent_mode": "PCV-VG",
+        "tv_set": 500,
+        "rr_set": 12,
+        "mech_rr_set": 10,
+        "ie_ratio": "1:2",
+        "tpause_set": 10,
+        "peep_set": 5,
+        "peak_limit": 40,
+        "insp_pres_set": 18,
+        "fio2_set": 40,
+        "fgf_total": 2.5,
+        "psupp": 8,
+        "flow_trigger": 1.5,
+        "end_flow": 25,
+        "t_insp_set": 1.2
+      }
+    },
+    {
+      "wire": "3a56547130353030303132303031393130303530343031382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d762d672d2d2d3034302d2d30382d2e0d",
+      "tag": "VTQ",
+      "data": "30353030303132303031393130303530343031382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d762d672d2d2d3034302d2d30382d",
+      "expected": {
+        "vent_mode": "VCV",
+        "tv_set": 500,
+        "rr_set": 12,
+        "mech_rr_set": null,
+        "ie_ratio": "1:2",
+        "tpause_set": 10,
+        "peep_set": 5,
+        "peak_limit": 40,
+        "insp_pres_set": 18,
+        "fio2_set": 40,
+        "fgf_total": null,
+        "psupp": 8,
+        "flow_trigger": null,
+        "end_flow": null,
+        "t_insp_set": null
+      }
+    },
+    {
+      "wire": "3a565471303530302d2d2d2d2d2d2d3130303530343031382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d672d2d2d3034302d2d30382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d31352d2d2d2d3235303031322d2d2d2d2d31302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d303235302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d6b0d",
+      "tag": "VTQ",
+      "data": "303530302d2d2d2d2d2d2d3130303530343031382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d672d2d2d3034302d2d30382d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d31352d2d2d2d3235303031322d2d2d2d2d31302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d303235302d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d",
+      "expected": {
+        "vent_mode": "PCV-VG",
+        "tv_set": 500,
+        "rr_set": 10,
+        "mech_rr_set": 10,
+        "ie_ratio": "1:4",
+        "tpause_set": 10,
+        "peep_set": 5,
+        "peak_limit": 40,
+        "insp_pres_set": 18,
+        "fio2_set": 40,
+        "fgf_total": 2.5,
+        "psupp": 8,
+        "flow_trigger": 1.5,
+        "end_flow": 25,
+        "t_insp_set": 1.2
+      }
+    }
+  ],
+  "dri": {
+    "record": "3a010009000000b95569000000000000000001ff00000000000000000000000000000000000000000000000001800180018048000180018001800e00018001800180442fb01d8c234900018001800180200390015802480001800180018001800180018001800180018001800180018001800180000000000100442fb01d8c230180018001800180420e0180018001807e0e0180018001800180018001800180018001800180018048264a0001800180018001800180080200000e00f503018001800180ac0da00f0180018001806400c8000180018006009600c8005a000180018001800e003408f401a406c0129411d80e8a0201800180018001800180018001800180018001800180018001800180018001800180018001800180018001800180018001800180018001800180018001800180018001800180",
+    "expected": {
+      "rNbr": 0,
+      "rLen": 314,
+      "rTime": 1767225600,
+      "rMaintype": 0,
+      "results": [
+        {
+          "kind": "DISPL",
+          "sr_offset": 0,
+          "vals": {
+            "HR": 72,
+            "RR_IMP": 14,
+            "P1_SYS": 121,
+            "P1_DIA": 76,
+            "P1_MEAN": 91,
+            "P1_HR": 73,
+            "P2_SYS": 8,
+            "P2_DIA": 4,
+            "P2_MEAN": 6,
+            "P2_HR": 72,
+            "NIBP_STATUS_BITS": 0,
+            "NIBP_LABEL_INFO": 1,
+            "NIBP_SYS": 121,
+            "NIBP_DIA": 76,
+            "NIBP_MEAN": 91,
+            "T1": "36.50",
+            "T2": "37.10",
+            "SpO2": 98,
+            "SpO2_PR": 74,
+            "CO2_ET": 5.27,
+            "CO2_FI": 0,
+            "CO2_RR": 14,
+            "O2_ET": 35,
+            "O2_FI": 40,
+            "N2O_ET": 1,
+            "N2O_FI": 2,
+            "AA_ET": 1.5,
+            "AA_FI": 2,
+            "AA_MAC": 0.9,
+            "AA_AGENT": "SEV",
+            "FV_RR": 14,
+            "FV_PPEAK": 21,
+            "FV_PEEP": 5,
+            "FV_PPLAT": 17,
+            "FV_TV_INSP": 480,
+            "FV_TV_EXP": 450,
+            "FV_COMPLIANCE": 38,
+            "FV_MV_EXP": 6.5
+          }
+        }
+      ]
+    }
+  },
+  "bcc": {
+    "wire": "01303030393502312f312f313e302c312c494e52542c31322e351e302c322c494e52542c39391e302c312c494e534f4c2c455865657874726f7365651e302c312c494e4558434f4e2c351e302c312c494e4558434f4e552c6d672f6d4c03303031303204",
+    "expected": {
+      "bedId": "1/1/1",
+      "records": [
+        {
+          "relativeTime": "0",
+          "address": "1",
+          "rawCode": "INRT",
+          "value": "12.5"
+        },
+        {
+          "relativeTime": "0",
+          "address": "2",
+          "rawCode": "INRT",
+          "value": "99"
+        },
+        {
+          "relativeTime": "0",
+          "address": "1",
+          "rawCode": "INSOL",
+          "value": "Dextrose"
+        },
+        {
+          "relativeTime": "0",
+          "address": "1",
+          "rawCode": "INDCON",
+          "value": "5"
+        },
+        {
+          "relativeTime": "0",
+          "address": "1",
+          "rawCode": "INDCONU",
+          "value": "mg/mL"
+        }
+      ]
+    },
+    "alive": "01303030333102312f312f313e4145584d494e3a414c4956454503303030363104",
+    "poll": "01303030323702312f312f313e4d45454d3a4745455403303030333904"
+  },
+  "ge_commands": {
+    "VTE": "1b565445760d",
+    "VTO12": "1b56544f3132090d",
+    "VTX": "1b565458630d"
+  },
+  "dri_requests": {
+    "gebx50": "7e3100000c000000000000000000000000000000ff00000000000000000000000000000000000000000105000e0000000000507e7e3100000b000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004f7e7e3100000a000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004e7e7e31000009000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004d7e7e31000008000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004c7e7e31000006000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004a7e",
+    "geaisyscs2": "7e3100000c000000000000000000000000000000ff00000000000000000000000000000000000000000105000e0000000000507e7e3100000b000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004f7e7e3100000a000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004e7e7e31000009000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004d7e7e31000008000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004c7e7e31000006000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004a7e",
+    "ges5": "7e31000009000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004d7e7e31000008000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004c7e7e31000007000000000000000000000000000000ff00000000000000000000000000000000000000000105000e00000000004b7e"
+  }
+}

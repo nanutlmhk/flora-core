@@ -4,6 +4,16 @@ Low-level hardware integration for one bedside/OR network. Devices speak their
 own protocols to the gateway; Leaf pulls clean, normalized observations from the
 gateway's `data-api`.
 
+Start with [CONFIGURATION.md](CONFIGURATION.md) for IP addresses, UDP/TCP ports,
+serial settings, device registration, config selection, and restart instructions.
+Developers: read [DEVELOPMENT.md](DEVELOPMENT.md) for the protocol folder map,
+matching tests, and the steps for adding a driver.
+The [Hidro migration guide](HIDRO.md) covers GE Carestation/Aisys, Bx50/S/5,
+B. Braun BCC, and the shared HL7 profile.
+
+Dräger M540 (IACS UDP) and MEDIBUS.X (RS-232) integrations are described in
+[DRAEGER.md](DRAEGER.md), including hardware configuration examples and port scope.
+
 ```
                  INGRESS (Rust)                PROCESS (Python)                EGRESS (Rust)
 RS-232 COMx ─▶ serial-controller  ─┐                                    ┌─▶ collector ─▶ Postgres ─▶ server ─▶ Kong data-api ─▶ Leaf (pull)
@@ -23,11 +33,11 @@ HL7/TCP     ─▶ socket-controller  ─┘   ◀── gw.cmd.<pod> container 
 | `rust/crates/serial-controller` | RS-232 ports; reads frames on line silence, writes commands back |
 | `rust/crates/feeder-controller` | Polls device/vendor HTTP endpoints |
 | `rust/crates/webhook-controller` | One listening port per pod for device/vendor pushes |
-| `rust/crates/socket-controller` | TCP listeners; MLLP / line / idle framing; automatic HL7 ACK |
+| `rust/crates/socket-controller` | TCP listeners/clients with MLLP / line / idle / raw framing; HL7 ACK; passive UDP multicast pods |
 | `rust/crates/collector` | `gw.obs` + `gw.logs` → Postgres in batches (commit after store) |
 | `rust/crates/server` | Vector-compatible read API (`/api/observations`, `/api/devices/status`) |
 | `rust/crates/publisher` | Pushes observations to HTTP receivers |
-| `python/device-medical-service` | Parser runtime + parsers (`hl7v2`, `json_fields`, `ascii_kv`) |
+| `python/device-medical-service` | Parser runtime; generic HL7/JSON/ASCII, M540, MEDIBUS, GE COM 1.2/DRI, BCC and Hidro HL7 profiles |
 | `python/gateway-service` | Control plane web app (port 7400) |
 | `python/device-simulator` | Synthetic devices for the demo |
 | `config/gateway.toml` | Every pod of every controller |
@@ -71,8 +81,10 @@ Add a Kong route for a new Leaf in `kong/kong.yaml`.
 
 ## Add a parser
 
-Subclass `Parser` in `python/device-medical-service/device_medical_service/parsers/`,
-register it in `parsers/__init__.py`, add a test, and reference it from a device type.
+Create a protocol package under `python/device-medical-service/device_medical_service/parsers/`.
+Subclass `Parser` from `parsers.shared.base`, register it in `parsers/__init__.py`,
+add matching protocol tests, and reference it from a device type. Follow the
+[developer guide](DEVELOPMENT.md) for the folder conventions and checklist.
 
 ```bash
 cd python/device-medical-service && python -m pytest

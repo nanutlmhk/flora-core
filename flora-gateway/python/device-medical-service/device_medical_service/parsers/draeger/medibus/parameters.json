@@ -1,0 +1,146 @@
+{
+  "mapping_version": "draeger-medibus-x@0.1.0-research",
+  "evidence_status": "VSCaptureDrgVent Class2.cs MEDIBUS.X code pages; verify with the target device",
+  "parameters": {
+    "24:73": {
+      "ivy_param": "airway_pressure_mean",
+      "unit": "cmH2O",
+      "scale": 1.0197162129779282,
+      "source_unit": "mbar",
+      "precision": 3
+    },
+    "24:74": {
+      "ivy_param": "airway_pressure_plateau",
+      "unit": "cmH2O",
+      "scale": 1.0197162129779282,
+      "source_unit": "mbar",
+      "precision": 3
+    },
+    "24:78": {
+      "ivy_param": "peep_total",
+      "unit": "cmH2O",
+      "scale": 1.0197162129779282,
+      "source_unit": "mbar",
+      "precision": 3
+    },
+    "24:7D": {
+      "ivy_param": "airway_pressure_peak",
+      "unit": "cmH2O",
+      "scale": 1.0197162129779282,
+      "source_unit": "mbar",
+      "precision": 3
+    },
+    "24:03": {
+      "ivy_param": "minute_volume_exp",
+      "unit": "L/min",
+      "scale": 1
+    },
+    "24:D6": {
+      "ivy_param": "rr",
+      "unit": "/min",
+      "scale": 1
+    },
+    "24:DC": {
+      "ivy_param": "hr",
+      "unit": "/min",
+      "scale": 1
+    },
+    "24:E1": {
+      "ivy_param": "pr",
+      "unit": "/min",
+      "scale": 1
+    },
+    "24:EB": {
+      "ivy_param": "spo2",
+      "unit": "%",
+      "scale": 1
+    },
+    "24:F0": {
+      "ivy_param": "fio2",
+      "unit": "%",
+      "scale": 1
+    },
+    "24:EF": {
+      "ivy_param": "et_o2",
+      "unit": "%",
+      "scale": 1
+    },
+    "24:E9": {
+      "ivy_param": "fi_agent",
+      "unit": "%",
+      "scale": 1
+    },
+    "24:EA": {
+      "ivy_param": "et_agent",
+      "unit": "%",
+      "scale": 1
+    },
+    "24:E6": {
+      "ivy_param": "et_co2",
+      "unit": "mmHg",
+      "scale": 1
+    },
+    "24:E5": {
+      "ivy_param": "fi_co2",
+      "unit": "mmHg",
+      "scale": 1
+    },
+    "24:07": {
+      "ivy_param": "compliance",
+      "unit": "mL/cmH2O",
+      "scale": 0.980665,
+      "source_unit": "L/bar",
+      "precision": 3
+    },
+    "24:DD": {
+      "ivy_param": "flow_n2o",
+      "unit": "L/min",
+      "scale": 0.001,
+      "source_unit": "mL/min",
+      "precision": 3
+    },
+    "24:DE": {
+      "ivy_param": "flow_air",
+      "unit": "L/min",
+      "scale": 0.001,
+      "source_unit": "mL/min",
+      "precision": 3
+    },
+    "24:E2": {
+      "ivy_param": "flow_o2",
+      "unit": "L/min",
+      "scale": 0.001,
+      "source_unit": "mL/min",
+      "precision": 3
+    },
+    "2B:21": {
+      "ivy_param": "tidal_volume_exp",
+      "unit": "mL",
+      "scale": 1
+    },
+    "29:01": {
+      "ivy_param": "set_fio2",
+      "unit": "%",
+      "scale": 1
+    },
+    "29:04": {
+      "ivy_param": "set_tidal_volume",
+      "unit": "mL",
+      "scale": 1000,
+      "source_unit": "L",
+      "precision": 3
+    },
+    "29:09": {
+      "ivy_param": "set_rr",
+      "unit": "/min",
+      "scale": 1
+    },
+    "29:0B": {
+      "ivy_param": "set_peep",
+      "unit": "cmH2O",
+      "scale": 1.0197162129779282,
+      "source_unit": "mbar",
+      "precision": 3
+    }
+  }
+}

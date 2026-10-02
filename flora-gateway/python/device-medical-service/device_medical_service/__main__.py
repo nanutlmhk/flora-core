@@ -88,6 +88,8 @@ async def run() -> None:
                 log.exception("parse failed")
                 await emit_log("warn", "parse failed", error=str(error), seq=message.value.get("seq"))
                 continue
+            for item in parser.drain_commands():
+                await producer.send_and_wait(commands, key=pod, value=item)
             for row in rows:
                 await producer.send(OBS_TOPIC, key=device_id, value=row)
 

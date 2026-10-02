@@ -1,0 +1,67 @@
+[
+  {
+    "device_id": "or-carestation-01",
+    "device_type": "ge-carestation-750",
+    "pod": "serial.carestation",
+    "leaf_id": "leaf-or-01",
+    "options": {},
+    "enabled": false
+  },
+  {
+    "device_id": "or-aisys-01",
+    "device_type": "ge-aisys-cs2",
+    "pod": "serial.aisys",
+    "leaf_id": "leaf-or-01",
+    "options": {},
+    "enabled": false
+  },
+  {
+    "device_id": "or-bx50-01",
+    "device_type": "ge-bx50-dri",
+    "pod": "serial.bx50",
+    "leaf_id": "leaf-or-01",
+    "options": {
+      "pressure_roles": {},
+      "temperature_channel": "T1",
+      "respiration_channel": "CO2_RR"
+    },
+    "enabled": false
+  },
+  {
+    "device_id": "or-s5-01",
+    "device_type": "ge-s5-dri",
+    "pod": "serial.s5",
+    "leaf_id": "leaf-or-01",
+    "options": {},
+    "enabled": false
+  },
+  {
+    "device_id": "or-aisys-dri-01",
+    "device_type": "ge-aisys-dri",
+    "pod": "serial.aisys-dri",
+    "leaf_id": "leaf-or-01",
+    "options": {},
+    "enabled": false
+  },
+  {
+    "device_id": "or-pump-01",
+    "device_type": "bbraun-space-bcc",
+    "pod": "socket.bcc",
+    "leaf_id": "leaf-or-01",
+    "options": {
+      "bed_id": "1/1/1",
+      "address": "REPLACE_WITH_PUMP_ADDRESS"
+    },
+    "enabled": false
+  },
+  {
+    "device_id": "or-hl7-01",
+    "device_type": "hidro-hl7-monitor",
+    "pod": "socket.hidro-hl7",
+    "leaf_id": "leaf-or-01",
+    "options": {
+      "source_ip": "192.0.2.30"
+    },
+    "enabled": false
+  }
+]

@@ -1,0 +1,100 @@
+# Editable Hidro device profiles. Enable only the pods connected at this site.
+# Native controllers: FLORA_GATEWAY_CONFIG=<absolute path to this file>.
+# Device IDs, Leaf assignment, and parser options: instances.hidro.json.
+gateway_id = "gateway-hospital-01-a"
+
+[kafka]
+brokers = "127.0.0.1:7414"
+
+[serial]
+admin_port = 7501
+
+[[serial.pods]]
+id = "carestation"
+enabled = false
+path = "COM6"
+baud = 19200
+data_bits = 7
+parity = "odd"
+stop_bits = 1
+flow_control = "none"
+rts = true
+dtr = true
+idle_ms = 20
+
+# Active Hidro Aisys backend uses the same COM 1.2 protocol as Carestation.
+[[serial.pods]]
+id = "aisys"
+enabled = false
+path = "COM8"
+baud = 19200
+data_bits = 7
+parity = "odd"
+stop_bits = 1
+flow_control = "none"
+rts = true
+dtr = true
+idle_ms = 20
+
+[[serial.pods]]
+id = "bx50"
+enabled = false
+path = "COM7"
+baud = 19200
+data_bits = 8
+parity = "even"
+stop_bits = 1
+flow_control = "hardware"
+dtr = true
+idle_ms = 20
+
+[[serial.pods]]
+id = "s5"
+enabled = false
+path = "COM9"
+baud = 19200
+data_bits = 8
+parity = "even"
+stop_bits = 1
+flow_control = "hardware"
+dtr = true
+idle_ms = 20
+
+# Alternative legacy Aisys DRI; choose this OR the COM 1.2 pod for a given port.
+[[serial.pods]]
+id = "aisys-dri"
+enabled = false
+path = "COM8"
+baud = 115200
+data_bits = 8
+parity = "even"
+stop_bits = 1
+flow_control = "none"
+rts = true
+dtr = true
+idle_ms = 20
+
+[socket]
+admin_port = 7504
+
+[[socket.pods]]
+id = "bcc"
+enabled = false
+transport = "tcp"
+remote_host = "192.0.2.20" # Replace with SpaceCom/BCC server IP.
+port = 4001
+framing = "raw"
+auto_ack = false
+connect_timeout_ms = 3000
+read_timeout_ms = 15000
+reconnect_ms = 3000
+
+[[socket.pods]]
+id = "hidro-hl7"
+enabled = false
+transport = "tcp"
+bind_address = "0.0.0.0"
+port = 6000
+framing = "mllp"
+auto_ack = true
+source_ips = ["192.0.2.30"] # Replace with monitor IP; match instance source_ip.

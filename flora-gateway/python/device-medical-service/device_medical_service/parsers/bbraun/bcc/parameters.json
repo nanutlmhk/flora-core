@@ -1,0 +1,160 @@
+{
+  "parameters": {
+    "GNNEW": {
+      "ivy_param": "pump_name",
+      "raw_code": "BCC_GNNEW",
+      "unit": "",
+      "numeric": false
+    },
+    "GNMODEL": {
+      "ivy_param": "pump_model",
+      "raw_code": "BCC_GNMODEL",
+      "unit": "",
+      "numeric": false
+    },
+    "INRT": {
+      "ivy_param": "infusion_rate",
+      "raw_code": "BCC_INRT",
+      "unit": "mL/h",
+      "numeric": true
+    },
+    "INVTB": {
+      "ivy_param": "vtbi",
+      "raw_code": "BCC_INVTB",
+      "unit": "mL",
+      "numeric": true
+    },
+    "INVI": {
+      "ivy_param": "infused_volume",
+      "raw_code": "BCC_INVI",
+      "unit": "mL",
+      "numeric": true
+    },
+    "INVOLAC": {
+      "ivy_param": "syringe_volume_actual",
+      "raw_code": "BCC_INVOLAC",
+      "unit": "mL",
+      "numeric": true
+    },
+    "INRMT": {
+      "ivy_param": "remaining_time",
+      "raw_code": "BCC_INRMT",
+      "unit": "",
+      "numeric": false
+    },
+    "INSOL": {
+      "ivy_param": "drug_name",
+      "raw_code": "BCC_INSOL",
+      "unit": "",
+      "numeric": false
+    },
+    "INSOLSN": {
+      "ivy_param": "drug_name_short",
+      "raw_code": "BCC_INSOLSN",
+      "unit": "",
+      "numeric": false
+    },
+    "INSOLID": {
+      "ivy_param": "drug_id",
+      "raw_code": "BCC_INSOLID",
+      "unit": "",
+      "numeric": false
+    },
+    "INDCON": {
+      "ivy_param": "drug_concentration",
+      "raw_code": "BCC_INDCON",
+      "unit": "",
+      "numeric": true
+    },
+    "INDCONU": {
+      "ivy_param": "drug_concentration_unit",
+      "raw_code": "BCC_INDCONU",
+      "unit": "",
+      "numeric": false
+    },
+    "INDORT": {
+      "ivy_param": "dose_rate",
+      "raw_code": "BCC_INDORT",
+      "unit": "",
+      "numeric": true
+    },
+    "INDORTU": {
+      "ivy_param": "dose_rate_unit",
+      "raw_code": "BCC_INDORTU",
+      "unit": "",
+      "numeric": false
+    },
+    "INBORT": {
+      "ivy_param": "bolus_rate",
+      "raw_code": "BCC_INBORT",
+      "unit": "",
+      "numeric": true
+    },
+    "INBOVAL": {
+      "ivy_param": "bolus_volume_delivered",
+      "raw_code": "BCC_INBOVAL",
+      "unit": "mL",
+      "numeric": true
+    },
+    "INM1": {
+      "ivy_param": "ready_for_infusion",
+      "raw_code": "BCC_INM1",
+      "unit": "",
+      "numeric": true
+    },
+    "INM2": {
+      "ivy_param": "bolus_active",
+      "raw_code": "BCC_INM2",
+      "unit": "",
+      "numeric": true
+    },
+    "INM3": {
+      "ivy_param": "active_pumping",
+      "raw_code": "BCC_INM3",
+      "unit": "",
+      "numeric": true
+    },
+    "INA7": {
+      "ivy_param": "end_of_volume_alarm",
+      "raw_code": "BCC_INA7",
+      "unit": "",
+      "numeric": true
+    },
+    "DSSTATUS": {
+      "ivy_param": "device_status",
+      "raw_code": "BCC_DSSTATUS",
+      "unit": "",
+      "numeric": false
+    },
+    "RUNSTATE": {
+      "ivy_param": "run_state",
+      "raw_code": "BCC_RUNSTATE",
+      "unit": "",
+      "numeric": false
+    },
+    "LASTDA": {
+      "ivy_param": "last_device_alarm",
+      "raw_code": "BCC_LASTDA",
+      "unit": "",
+      "numeric": false
+    },
+    "PATID": {
+      "ivy_param": "patient_id",
+      "raw_code": "BCC_PATID",
+      "unit": "",
+      "numeric": false
+    },
+    "PATW": {
+      "ivy_param": "patient_weight",
+      "raw_code": "BCC_PATW",
+      "unit": "kg",
+      "numeric": true
+    },
+    "PATH": {
+      "ivy_param": "patient_height",
+      "raw_code": "BCC_PATH",
+      "unit": "cm",
+      "numeric": true
+    }
+  }
+}

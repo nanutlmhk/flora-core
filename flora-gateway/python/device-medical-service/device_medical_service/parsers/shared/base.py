@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from ..envelope import RawFrame, now_ms
+from device_medical_service.envelope import RawFrame, now_ms
 
 # Flora parameter keys (`ivy_param`) understood by the Leaf device writer.
 FLORA_PARAMS = {
@@ -43,6 +43,10 @@ class Parser:
         return float(value) if value else None
 
     def poll(self) -> list[dict[str, Any]]:
+        return []
+
+    def drain_commands(self) -> list[dict[str, Any]]:
+        """Protocol replies produced by feed(), sent through the pod controller."""
         return []
 
     def feed(self, frame: RawFrame) -> list[dict[str, Any]]:

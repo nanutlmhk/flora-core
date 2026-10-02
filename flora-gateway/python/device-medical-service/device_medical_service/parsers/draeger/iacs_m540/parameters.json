@@ -1,0 +1,112 @@
+{
+  "mapping_version": "draeger-iacs-m540@0.1.0-research",
+  "evidence_status": "Legacy gateway mapping; requires validation against authorized device captures",
+  "parameters": [
+    {
+      "unit": "/min",
+      "source_keys": [
+        "1-1-0-1-26",
+        "1-1-0-0-26"
+      ],
+      "ivy_param": "hr"
+    },
+    {
+      "unit": "/min",
+      "source_keys": [
+        "25-5-0-1-26",
+        "25-5-0-0-26"
+      ],
+      "ivy_param": "pr"
+    },
+    {
+      "unit": "%",
+      "source_keys": [
+        "25-14-0-0-28",
+        "25-14-0-1-28"
+      ],
+      "ivy_param": "spo2"
+    },
+    {
+      "unit": "mmHg",
+      "source_keys": [
+        "31-15-0-0-9",
+        "31-15-0-1-9"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "etco2"
+    },
+    {
+      "unit": "/min",
+      "source_keys": [
+        "2-6-0-1-27",
+        "94-120-0-0-66"
+      ],
+      "ivy_param": "rr"
+    },
+    {
+      "unit": "mmHg",
+      "source_keys": [
+        "30-8-0-1-9",
+        "30-8-0-0-9"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "nibp_sys"
+    },
+    {
+      "unit": "mmHg",
+      "source_keys": [
+        "30-7-0-1-9",
+        "30-7-0-0-9"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "nibp_dia"
+    },
+    {
+      "unit": "mmHg",
+      "source_keys": [
+        "30-9-0-1-9",
+        "30-9-0-0-9"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "nibp_map"
+    },
+    {
+      "unit": "Cel",
+      "source_keys": [
+        "26-11-0-1-17"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "temperature"
+    },
+    {
+      "unit": "cmH2O",
+      "source_keys": [
+        "94-113-0-0-66"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "airway_pressure_mean"
+    },
+    {
+      "unit": "cmH2O",
+      "source_keys": [
+        "94-123-0-0-27"
+      ],
+      "scale": 0.1,
+      "precision": 1,
+      "ivy_param": "airway_pressure_peak"
+    },
+    {
+      "unit": "mL",
+      "source_keys": [
+        "94-125-0-0-66"
+      ],
+      "ivy_param": "tidal_volume_exp"
+    }
+  ]
+}

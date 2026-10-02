@@ -8,14 +8,14 @@ use std::time::Duration;
 
 use anyhow::{bail, Result};
 use gateway_core::admin::{self, StatusMap};
-use gateway_core::config::{GatewayConfig, SerialPod};
+use gateway_core::config::{FlowControlMode, GatewayConfig, SerialPod};
 use gateway_core::envelope::{pod_key, raw_topic, Command, RawFrame};
 use gateway_core::{commands, kafka, telemetry};
 use rdkafka::producer::FutureProducer;
 use serde_json::{json, Map};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
-use tokio_serial::{DataBits, Parity, SerialPortBuilderExt, SerialStream, StopBits};
+use tokio_serial::{DataBits, FlowControl, Parity, SerialPort, SerialPortBuilderExt, SerialStream, StopBits};
 
 const COMPONENT: &str = "serial-controller";
 
@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
     let status = admin::status_map();
     let mut senders = HashMap::new();
     for pod in config.serial.pods.clone() {
+        if !pod.enabled { continue; }
         let key = pod_key("serial", &pod.id);
         admin::register(&status, &key, json!({ "path": pod.path, "baud": pod.baud }));
         let (sender, receiver) = mpsc::channel::<Command>(64);
@@ -46,6 +47,12 @@ async fn run_pod(pod: SerialPod, key: String, gateway_id: String, producer: Futu
                 tracing::info!(pod = key, path = pod.path, "serial port open");
                 admin::set_connected(&status, &key, true, None);
                 telemetry::emit(&producer, COMPONENT, "info", Some(&key), "serial port open", json!({ "path": pod.path }));
+                let event = RawFrame::from_bytes(&key, "serial", &gateway_id, seq, &[],
+                    serde_json::from_value(json!({"event": "connected"})).unwrap());
+                if let Err(error) = kafka::enqueue_json(&producer, &raw_topic(&key), &key, &event) {
+                    tracing::warn!(%error, "serial connection event could not be queued");
+                }
+                seq += 1;
                 let error = session(&pod, &key, &gateway_id, &producer, &status, stream, &mut commands, &mut seq).await;
                 if let Err(error) = error {
                     tracing::warn!(pod = key, %error, "serial session ended");
@@ -66,15 +73,26 @@ fn open(pod: &SerialPod) -> Result<SerialStream> {
     let parity = match pod.parity.to_ascii_lowercase().as_str() {
         "even" => Parity::Even,
         "odd" => Parity::Odd,
-        _ => Parity::None,
+        "none" => Parity::None,
+        _ => bail!("parity must be none, even, or odd"),
     };
-    let data_bits = if pod.data_bits == 7 { DataBits::Seven } else { DataBits::Eight };
-    let stop_bits = if pod.stop_bits == 2 { StopBits::Two } else { StopBits::One };
-    Ok(tokio_serial::new(&pod.path, pod.baud)
+    let data_bits = match pod.data_bits { 7 => DataBits::Seven, 8 => DataBits::Eight, _ => bail!("data_bits must be 7 or 8") };
+    let stop_bits = match pod.stop_bits { 1 => StopBits::One, 2 => StopBits::Two, _ => bail!("stop_bits must be 1 or 2") };
+    anyhow::ensure!(pod.baud > 0 && pod.idle_ms > 0 && pod.max_frame_bytes > 0, "serial baud, idle_ms and max_frame_bytes must be positive");
+    let flow_control = match pod.flow_control {
+        FlowControlMode::None => FlowControl::None,
+        FlowControlMode::Hardware => FlowControl::Hardware,
+        FlowControlMode::Software => FlowControl::Software,
+    };
+    let mut stream = tokio_serial::new(&pod.path, pod.baud)
         .parity(parity)
         .data_bits(data_bits)
         .stop_bits(stop_bits)
-        .open_native_async()?)
+        .flow_control(flow_control)
+        .open_native_async()?;
+    if let Some(value) = pod.rts { stream.write_request_to_send(value)?; }
+    if let Some(value) = pod.dtr { stream.write_data_terminal_ready(value)?; }
+    Ok(stream)
 }
 
 #[allow(clippy::too_many_arguments)]

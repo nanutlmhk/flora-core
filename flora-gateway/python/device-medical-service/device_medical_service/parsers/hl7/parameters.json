@@ -1,0 +1,184 @@
+{
+  "parameters": {
+    "149514": {
+      "ivy_param": "hr",
+      "unit": "bpm"
+    },
+    "MDC_ECG_HEART_RATE": {
+      "ivy_param": "hr",
+      "unit": "bpm"
+    },
+    "150456": {
+      "ivy_param": "spo2",
+      "unit": "%"
+    },
+    "MDC_PULS_OXIM_SAT_O2": {
+      "ivy_param": "spo2",
+      "unit": "%"
+    },
+    "149530": {
+      "ivy_param": "pr",
+      "unit": "bpm"
+    },
+    "MDC_PULS_OXIM_PULS_RATE": {
+      "ivy_param": "pr",
+      "unit": "bpm"
+    },
+    "151578": {
+      "ivy_param": "rr",
+      "unit": "rpm"
+    },
+    "MDC_RESP_RATE": {
+      "ivy_param": "rr",
+      "unit": "rpm"
+    },
+    "151872": {
+      "ivy_param": "et_co2",
+      "unit": "mmHg"
+    },
+    "MDC_AWAY_CO2_EXP": {
+      "ivy_param": "et_co2",
+      "unit": "mmHg"
+    },
+    "151876": {
+      "ivy_param": "fi_co2",
+      "unit": "mmHg"
+    },
+    "MDC_AWAY_CO2_INSP": {
+      "ivy_param": "fi_co2",
+      "unit": "mmHg"
+    },
+    "150344": {
+      "ivy_param": "temperature",
+      "unit": "C"
+    },
+    "MDC_TEMP": {
+      "ivy_param": "temperature",
+      "unit": "C"
+    },
+    "MDC_TEMP_BODY": {
+      "ivy_param": "temperature",
+      "unit": "C"
+    },
+    "150033": {
+      "ivy_param": "art_sys",
+      "unit": "mmHg"
+    },
+    "150034": {
+      "ivy_param": "art_dia",
+      "unit": "mmHg"
+    },
+    "150035": {
+      "ivy_param": "art_map",
+      "unit": "mmHg"
+    },
+    "149522": {
+      "ivy_param": "art_pr",
+      "unit": "bpm"
+    },
+    "MDC_PRESS_BLD_ART_SYS": {
+      "ivy_param": "art_sys",
+      "unit": "mmHg"
+    },
+    "MDC_PRESS_BLD_ART_DIA": {
+      "ivy_param": "art_dia",
+      "unit": "mmHg"
+    },
+    "MDC_PRESS_BLD_ART_MEAN": {
+      "ivy_param": "art_map",
+      "unit": "mmHg"
+    },
+    "MDC_BLD_PULS_RATE_INV": {
+      "ivy_param": "art_pr",
+      "unit": "bpm"
+    },
+    "150087": {
+      "ivy_param": "cvp",
+      "unit": "mmHg"
+    },
+    "MDC_PRESS_BLD_VEN_CENT_MEAN": {
+      "ivy_param": "cvp",
+      "unit": "mmHg"
+    },
+    "150021": {
+      "ivy_param": "nibp_sys",
+      "unit": "mmHg"
+    },
+    "150022": {
+      "ivy_param": "nibp_dia",
+      "unit": "mmHg"
+    },
+    "150023": {
+      "ivy_param": "nibp_map",
+      "unit": "mmHg"
+    },
+    "MDC_PRESS_BLD_NONINV_SYS": {
+      "ivy_param": "nibp_sys",
+      "unit": "mmHg"
+    },
+    "MDC_PRESS_BLD_NONINV_DIA": {
+      "ivy_param": "nibp_dia",
+      "unit": "mmHg"
+    },
+    "MDC_PRESS_BLD_NONINV_MEAN": {
+      "ivy_param": "nibp_map",
+      "unit": "mmHg"
+    },
+    "131841": {
+      "ivy_param": "st_i",
+      "unit": "uV"
+    },
+    "131842": {
+      "ivy_param": "st_ii",
+      "unit": "uV"
+    },
+    "131901": {
+      "ivy_param": "st_iii",
+      "unit": "uV"
+    },
+    "131843": {
+      "ivy_param": "st_v1",
+      "unit": "uV"
+    },
+    "131902": {
+      "ivy_param": "st_avr",
+      "unit": "uV"
+    },
+    "131903": {
+      "ivy_param": "st_avl",
+      "unit": "uV"
+    },
+    "131904": {
+      "ivy_param": "st_avf",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_I": {
+      "ivy_param": "st_i",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_II": {
+      "ivy_param": "st_ii",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_III": {
+      "ivy_param": "st_iii",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_V1": {
+      "ivy_param": "st_v1",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_AVR": {
+      "ivy_param": "st_avr",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_AVL": {
+      "ivy_param": "st_avl",
+      "unit": "uV"
+    },
+    "MDC_ECG_AMPL_ST_AVF": {
+      "ivy_param": "st_avf",
+      "unit": "uV"
+    }
+  }
+}

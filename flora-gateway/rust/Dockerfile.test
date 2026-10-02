@@ -1,0 +1,10 @@
+FROM rust:1-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake pkg-config zlib1g-dev libudev-dev libcurl4-openssl-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo test --workspace --locked

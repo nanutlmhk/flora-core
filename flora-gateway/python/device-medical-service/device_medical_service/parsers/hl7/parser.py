@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..envelope import RawFrame
-from .base import Parser, number
+from device_medical_service.envelope import RawFrame
+from device_medical_service.parsers.shared.base import Parser, number
 
 # ISO/IEEE 11073 MDC codes commonly sent in OBX-3. Verify against each device's
 # HL7 conformance statement and extend through the device type's `codes` option.

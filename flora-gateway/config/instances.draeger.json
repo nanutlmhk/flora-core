@@ -1,0 +1,20 @@
+[
+  {
+    "device_id": "or-m540-01",
+    "label": "OR-1 Dräger M540",
+    "device_type": "draeger-iacs-m540",
+    "pod": "socket.m540",
+    "leaf_id": "leaf-or-01",
+    "options": {"source_ip": "192.0.2.10"},
+    "enabled": false
+  },
+  {
+    "device_id": "or-medibus-01",
+    "label": "OR-1 Dräger MEDIBUS",
+    "device_type": "draeger-medibus",
+    "pod": "serial.medibus",
+    "leaf_id": "leaf-or-01",
+    "options": {"poll_interval_sec": 1},
+    "enabled": false
+  }
+]

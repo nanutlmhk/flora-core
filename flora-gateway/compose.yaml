@@ -7,7 +7,7 @@ x-rust: &rust
     context: ./rust
   image: flora-gateway-rust:dev
   environment: &rust-env
-    FLORA_GATEWAY_CONFIG: /config/gateway.toml
+    FLORA_GATEWAY_CONFIG: /config/${FLORA_GATEWAY_CONFIG_FILE:-gateway.toml}
     FLORA_GATEWAY_ID: ${FLORA_GATEWAY_ID:-gateway-hospital-01-a}
     FLORA_KAFKA_BROKERS: kafka:9092
     FLORA_GATEWAY_DATABASE_URL: postgresql://flora_gateway:${FLORA_GATEWAY_DB_PASSWORD:-flora-gateway-local-only}@gateway-db:5432/flora_gateway
@@ -170,8 +170,10 @@ services:
       FLORA_GATEWAY_ID: ${FLORA_GATEWAY_ID:-gateway-hospital-01-a}
       FLORA_GATEWAY_DATABASE_URL: postgresql://flora_gateway:${FLORA_GATEWAY_DB_PASSWORD:-flora-gateway-local-only}@gateway-db:5432/flora_gateway
       FLORA_KAFKA_BROKERS: kafka:9092
-      FLORA_GATEWAY_CONFIG: /config/gateway.toml
-      FLORA_GATEWAY_SEED: /config/instances.json
+      FLORA_GATEWAY_CONFIG: /config/${FLORA_GATEWAY_CONFIG_FILE:-gateway.toml}
+      FLORA_GATEWAY_SEED: /config/${FLORA_GATEWAY_SEED_FILE:-instances.json}
+      SERIAL_ADMIN_URL: ${SERIAL_ADMIN_URL:-http://serial-controller:5001}
+      SOCKET_ADMIN_URL: ${SOCKET_ADMIN_URL:-http://socket-controller:5004}
       HABER_URL: ${HABER_URL:-http://host.docker.internal:7204}
       HABER_GATEWAY_TOKEN: ${HABER_GATEWAY_TOKEN:-haber-gateway-demo-token}
       GATEWAY_LICENSE_REQUIRED: ${GATEWAY_LICENSE_REQUIRED:-true}
