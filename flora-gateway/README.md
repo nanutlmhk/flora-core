@@ -13,6 +13,8 @@ B. Braun BCC, and the shared HL7 profile.
 
 Dräger M540 (IACS UDP) and MEDIBUS.X (RS-232) integrations are described in
 [DRAEGER.md](DRAEGER.md), including hardware configuration examples and port scope.
+See [Dräger parameter storage](DRAEGER-PARAMETERS.md) for original device fields,
+their separate Flora mappings, and the migration required on existing databases.
 
 ```
                  INGRESS (Rust)                PROCESS (Python)                EGRESS (Rust)
@@ -52,6 +54,7 @@ HL7/TCP     ─▶ socket-controller  ─┘   ◀── gw.cmd.<pod> container 
 | `gw.raw.<pod>` | controller → parser | `RawFrame`: pod, seq, ts, `utf8`/`base64` payload, meta |
 | `gw.cmd.<pod>` | parser or gateway-service → controller | `Command`: bytes to write to the device |
 | `gw.obs` | parser → collector, publisher | `Observation` (Vector row shape; `ivy_param` = Flora parameter key) |
+| `gw.measurements` | Dräger parser → collector | Original decoded fields and source evidence, independent of Flora mapping |
 | `gw.logs` | any component → collector | `LogEvent` |
 
 A pod is `<controller>.<id>`, for example `serial.COM1`, `socket.or-monitor`.

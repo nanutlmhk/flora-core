@@ -62,6 +62,7 @@ services:
     volumes:
       - gateway_db_data:/var/lib/postgresql/data
       - ./db/0001-gateway.sql:/docker-entrypoint-initdb.d/0001-gateway.sql:ro
+      - ./db/0002-device-measurements.sql:/docker-entrypoint-initdb.d/0002-device-measurements.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flora_gateway -d flora_gateway"]
       interval: 5s
