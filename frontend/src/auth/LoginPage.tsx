@@ -7,6 +7,10 @@ import LanguagePicker from "../components/LanguagePicker";
 import { useLanguage } from "../context/LanguageContext";
 import { getSurfaceInfo } from "../edition/config";
 import { getLdapStatus } from "../api/authApi";
+import CanopyLoginPage from "./CanopyLoginPage";
+import BranchNetwork from "./BranchNetwork";
+import "./canopyLogin.css";
+import { ReadinessRow, type Readiness } from "./ReadinessRow";
 
 type Props = {
   onLogin: (username: string, password: string) => Promise<boolean> | boolean;
@@ -14,32 +18,12 @@ type Props = {
   bootstrapStatus?: BootstrapStatus;
 };
 
-type Readiness = "ready" | "checking" | "unavailable" | "not-connected";
-
-function ReadinessRow({ label, state }: { label: string; state: Readiness }) {
-  const { t } = useLanguage();
-  const tone = state === "ready"
-    ? "bg-emerald-500"
-    : state === "unavailable"
-      ? "bg-rose-500"
-      : "bg-amber-400";
-  const value = state === "ready"
-    ? t("status.ready")
-    : state === "checking"
-      ? t("status.checking")
-      : state === "not-connected"
-        ? t("status.notConnected")
-        : t("status.unavailable");
-  return (
-    <div className="flex min-h-[42px] items-center gap-[10px] rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)] px-[12px] py-[8px]">
-      <span aria-hidden="true" className={`h-[8px] w-[8px] shrink-0 rounded-full ${tone}`} />
-      <span className="min-w-0 flex-1 text-[13px] font-medium text-[var(--app-text)]">{label}</span>
-      <span className="text-right text-[11px] font-semibold text-[var(--app-muted)]">{value}</span>
-    </div>
-  );
+// Canopy has its own, grander sign-in (growing tree); Leaf keeps the compact workstation page.
+export default function LoginPage(props: Props) {
+  return getSurfaceInfo().code === "canopy" ? <CanopyLoginPage {...props} /> : <WorkstationLoginPage {...props} />;
 }
 
-export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatus }: Props) {
+function WorkstationLoginPage({ onLogin, loginEnabled = true, bootstrapStatus }: Props) {
   const { t } = useLanguage();
   const surface = getSurfaceInfo();
   const appIcon = surface.code === "canopy" ? canopyAppIcon : floraAppIcon;
@@ -85,7 +69,8 @@ export default function LoginPage({ onLogin, loginEnabled = true, bootstrapStatu
   };
 
   return (
-    <div className="app-main app-theme-scope flex min-h-[100dvh] items-center justify-center px-[16px] py-[16px] sm:px-[24px]">
+    <div className="canopy-login app-main app-theme-scope flex min-h-[100dvh] items-center justify-center px-[16px] py-[16px] sm:px-[24px]">
+      <BranchNetwork shape="flower" />
       <main className="w-full max-w-[900px]">
         <div className="overflow-hidden rounded-[20px] border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-2xl">
           <header className="flex items-center justify-between border-b border-[var(--app-border)] px-[22px] py-[14px] sm:px-[26px]">
