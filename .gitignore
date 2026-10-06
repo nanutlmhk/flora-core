@@ -38,3 +38,7 @@ SnomedCT_*RF2*.zip
 
 # Release env written by flora-updater
 .release/
+
+# Local settings and OS files
+.env
+.DS_Store
