@@ -35,3 +35,6 @@ backend/floradb.db
 *.raw
 terminology-packages/
 SnomedCT_*RF2*.zip
+
+# Release env written by flora-updater
+.release/
