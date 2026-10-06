@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { BootstrapStatus } from "../bootstrap/floraDesktop";
 import floraAppIcon from "../assets/floraicon.png";
 import canopyAppIcon from "../assets/canopyicon.png";
@@ -35,6 +35,7 @@ function WorkstationLoginPage({ onLogin, loginEnabled = true, bootstrapStatus }:
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [ldapEnabled, setLdapEnabled] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!loginEnabled) return;
@@ -70,9 +71,9 @@ function WorkstationLoginPage({ onLogin, loginEnabled = true, bootstrapStatus }:
 
   return (
     <div className="canopy-login app-main app-theme-scope flex min-h-[100dvh] items-center justify-center px-[16px] py-[16px] sm:px-[24px]">
-      <BranchNetwork shape="flower" />
+      <BranchNetwork shape="flower" fitTo={cardRef} />
       <main className="w-full max-w-[900px]">
-        <div className="overflow-hidden rounded-[20px] border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-2xl">
+        <div ref={cardRef} className="overflow-hidden rounded-[20px] border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-2xl">
           <header className="flex items-center justify-between border-b border-[var(--app-border)] px-[22px] py-[14px] sm:px-[26px]">
             <div className="flex items-center gap-[10px]">
                 <span className="inline-flex h-[40px] w-[40px] items-center justify-center rounded-lg border border-[var(--app-border)] bg-[var(--app-control-bg)]">
